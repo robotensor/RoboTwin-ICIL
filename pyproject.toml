@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotwin-icil"
+version = "0.1.0.dev0"
+description = "One-demonstration in-context imitation learning benchmark on RoboTwin 2.0."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24,<2",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "ruff>=0.6"]
+
+[project.scripts]
+robotwin-icil = "robotwin_icil.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/robotwin_icil"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = ["vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "sim: needs the RoboTwin simulator (SAPIEN, assets, GPU)",
+  "slow: takes minutes",
+]
