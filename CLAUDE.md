@@ -30,6 +30,8 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - `scripts/eval_policy_xpolicylab.py:run_one_batch_episode` already does expert-check -> same-seed
   re-`setup_demo` -> policy rollout. It throws the expert trajectory away; this benchmark is that
   loop with the trajectory kept and given to the policy. Read it before writing a new loop.
+- `setup_demo(is_test=True)` mirrors upstream's evaluator, but no task in the pinned checkout reads
+  `is_test` (15 accept it in their signature and ignore it). It is not a held-out object split.
 - Physics steps every `scene.get_timestep()` (1/250 s) and a frame is recorded every `save_freq`
   of those steps, so a demonstration runs at 250/`save_freq` fps. `Demonstration.frequency` is that
   rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
