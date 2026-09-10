@@ -183,6 +183,12 @@ def close(env, clear_cache: bool = False) -> None:
         pass
 
 
+def episode_over(env) -> bool:
+    """Upstream's own end condition: success latched by `take_action`, or the task's step limit."""
+    step_lim = getattr(env, "step_lim", None)
+    return bool(env.eval_success) or (step_lim is not None and env.take_action_cnt >= step_lim)
+
+
 def observation(env) -> dict[str, Any]:
     """One observation of the live scene, in the shape a `Frame` carries."""
     raw = env.get_obs()
