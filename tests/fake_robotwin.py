@@ -123,7 +123,7 @@ class FakeTaskEnv:
 
     def get_obs(self):
         return {
-            "observation": {"head_camera": {"rgb": np.zeros((4, 4, 3), dtype=np.uint8)}},
+            "observation": {"head_camera": {"rgb": np.zeros((16, 16, 3), dtype=np.uint8)}},
             "joint_action": {"vector": self.qpos.copy()},
             "endpose": {},
         }

@@ -26,6 +26,7 @@ from .records import (
     git_commit,
 )
 from .tasks import Task
+from .video import EpisodeVideo
 
 DEFAULT_MAX_EXPERT_ATTEMPTS = 20
 
@@ -50,6 +51,8 @@ class RunSpec:
     global_seed: int
     max_expert_attempts: int = DEFAULT_MAX_EXPERT_ATTEMPTS
     clear_cache_every: int = 5
+    # Clips per episode; off by default. Not part of the run's identity: it changes no result.
+    video: bool = False
 
 
 def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
@@ -118,6 +121,7 @@ def run(
             policy,
             config,
             task_env=task_env,
+            video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
         )
         run_dir.append(record)
         log(_line(record, len(plan)))
