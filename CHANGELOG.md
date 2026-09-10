@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- (feat): every episode's initial scene is fingerprinted before anyone acts — actor and
+  articulation poses, joints, camera extrinsics, robot qpos, texture and light draws — and
+  compared against the demonstration's; a sim test rebuilds three seeds per V1 category and
+  requires identical fingerprints, and different seeds to differ (#5).
+- (fix): a RoboTwin task whose imports fail is reported as a broken install, not as an unknown
+  task (#20).
 - (feat): report the Same Scene 1-Demo Success Rate overall, by skill category and by task, with
   expert rejections, simulation failures and rollout lengths kept apart as benchmark
   diagnostics; fractions throughout, percent only in the rendered text (#9).
