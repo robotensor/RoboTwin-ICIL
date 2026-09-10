@@ -98,12 +98,14 @@ src/robotwin_icil/
   demo.py                   model-independent demonstration container
   scene.py                  initial-state fingerprint and Same Scene verification
   policy.py                 the policy interface, dummy and replay policies
+  generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
+  video.py                  demonstration and evaluation clips per episode
   robotwin.py               the only module that imports RoboTwin
   cli.py
-docs/                       protocol, installation, policy adapters
+docs/                       installation, policy adapters
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
 
@@ -125,8 +127,8 @@ See [`docs/policies.md`](docs/policies.md).
 
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
 git commits, both configs, and per episode: the task, skill category, scene seed, number of expert
-generation attempts, rollout length and outcome. Demonstration and evaluation videos can be saved
-side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
+generation attempts, rollout length and outcome. With `--video`, demonstration and evaluation clips
+are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 
 ## Acknowledgements
