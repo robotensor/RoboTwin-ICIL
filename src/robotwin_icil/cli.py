@@ -33,6 +33,7 @@ def _eval(args: argparse.Namespace) -> int:
         episodes=args.episodes,
         global_seed=args.seed,
         max_expert_attempts=args.max_expert_attempts,
+        video=args.video,
     )
     config = SceneConfig(task_config=args.task_config, save_freq=args.save_freq)
     try:
@@ -91,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--save-freq", type=int, default=15, help="control steps per demonstration frame"
+    )
+    run.add_argument(
+        "--video",
+        action="store_true",
+        help="write demonstration.mp4 and evaluation_same_scene.mp4 per episode",
     )
     run.set_defaults(handler=_eval)
 
