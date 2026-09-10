@@ -103,8 +103,12 @@ class SceneConfig:
     head_camera: str | None = None
     overrides: dict[str, Any] | None = None
 
-    def resolve(self) -> dict[str, Any]:
-        """Build the `args` dict `setup_demo` takes, from RoboTwin's own config files."""
+    def resolve(self, task_name: str | None = None) -> dict[str, Any]:
+        """Build the `args` dict `setup_demo` takes, from RoboTwin's own config files.
+
+        Pass `task_name` for any scene that is built: RoboTwin reads it back as `self.task_name` to
+        look up the task's evaluation step limit, and silently allows 1000 steps without it.
+        """
         _ensure_importable()
         config_dir = ROBOTWIN_ROOT / "env_cfg" / "task_config"
         args = yaml.safe_load((config_dir / f"{self.task_config}.yml").read_text(encoding="utf-8"))
@@ -132,6 +136,8 @@ class SceneConfig:
         args["right_embodiment_config"] = _embodiment_config(right)
         args["embodiment_name"] = embodiment_name
         args["task_config"] = self.task_config
+        if task_name is not None:
+            args["task_name"] = task_name
 
         if self.head_camera:
             args["camera"]["head_camera_type"] = self.head_camera
