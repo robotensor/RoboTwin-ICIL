@@ -43,6 +43,14 @@ if [[ ! -x "${ENV_PREFIX}/bin/python" ]]; then
 fi
 PY="${ENV_PREFIX}/bin/python"
 
+# --- setuptools -------------------------------------------------------------
+# sapien 3.0.0b1 does `import pkg_resources`, which setuptools removed in 81. conda-forge's python
+# 3.10 now ships a newer setuptools, so without this pin `import sapien` fails after a clean install.
+if ! "${PY}" -c "import pkg_resources" 2>/dev/null; then
+    log "pinning setuptools<81 for sapien's pkg_resources import"
+    "${PY}" -m pip install -q "setuptools<81"
+fi
+
 # --- RoboTwin dependencies --------------------------------------------------
 if ! "${PY}" -c "import sapien, mplib, toppra" 2>/dev/null; then
     log "installing RoboTwin requirements"
