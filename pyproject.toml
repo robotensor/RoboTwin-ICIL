@@ -15,7 +15,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov", "ruff>=0.6"]
+video = ["imageio-ffmpeg>=0.5"]
+dev = ["pytest>=8", "pytest-cov", "ruff>=0.6", "imageio-ffmpeg>=0.5"]
 
 [project.scripts]
 robotwin-icil = "robotwin_icil.cli:main"

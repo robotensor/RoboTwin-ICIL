@@ -15,13 +15,17 @@ from __future__ import annotations
 
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
+
+import numpy as np
 
 from .generate import Generated, generate, scene_seeds
 from .policy import ICILPolicy, Observation, PolicyError
 from .records import SAME_SCENE, EpisodeRecord, Status
 from .scene import compare, max_error
 from .tasks import Task
+from .video import EpisodeVideo
 
 
 @dataclass(frozen=True)
@@ -32,11 +36,18 @@ class EpisodeSpec:
     max_expert_attempts: int
 
 
-def run_episode(spec: EpisodeSpec, policy: ICILPolicy, config, task_env=None) -> EpisodeRecord:
+def run_episode(
+    spec: EpisodeSpec,
+    policy: ICILPolicy,
+    config,
+    task_env=None,
+    video: EpisodeVideo | None = None,
+) -> EpisodeRecord:
     """Run one episode end to end and return its record. Never raises for a scene or model failure.
 
     A `PolicyError` does propagate: an adapter that breaks the protocol is a bug to fix, not a
-    stream of zero scores to average over.
+    stream of zero scores to average over. With `video`, the demonstration and the evaluation are
+    written as two clips; a clip that fails to write is noted in the record, never scored.
     """
     from . import robotwin
 
@@ -72,6 +83,7 @@ def run_episode(spec: EpisodeSpec, policy: ICILPolicy, config, task_env=None) ->
         )
 
     demonstration = generated.demonstration
+    video_note = _film(video, lambda: video.demonstration(demonstration))
     try:
         task_env.setup_demo(
             now_ep_num=spec.episode, seed=generated.seed, is_test=True, **config.resolve()
@@ -88,15 +100,21 @@ def run_episode(spec: EpisodeSpec, policy: ICILPolicy, config, task_env=None) ->
     try:
         mismatches = compare(generated.initial, robotwin.fingerprint(task_env))
         if mismatches:
+            # The evaluation's first frame is the evidence for a reset bug; the episode is
+            # already invalid, so observing it cannot change anything that is scored.
+            video_note += _film(video, lambda: _final_frame(video, task_env))
             return record(
                 Status.INVALID,
                 demonstration_frames=len(demonstration),
-                detail="scene drift: " + "; ".join(str(m) for m in mismatches[:5]),
+                detail="scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + video_note,
                 **{**empty, "scene_max_error": max_error(mismatches)},
             )
         policy.reset()
         policy.set_demonstration(demonstration)
-        success, detail = rollout(task_env, policy)
+        success, detail = rollout(
+            task_env, policy, observe=video.observe if video is not None else None
+        )
+        video_note += _film(video, lambda: _final_frame(video, task_env))
         return record(
             Status.SCORED,
             success=success,
@@ -104,13 +122,17 @@ def run_episode(spec: EpisodeSpec, policy: ICILPolicy, config, task_env=None) ->
             step_limit=task_env.step_lim,
             demonstration_frames=len(demonstration),
             scene_max_error=0.0,
-            detail=detail,
+            detail=detail + video_note,
         )
     finally:
         robotwin.close(task_env)
 
 
-def rollout(task_env, policy: ICILPolicy) -> tuple[bool, str]:
+def rollout(
+    task_env,
+    policy: ICILPolicy,
+    observe: Callable[[dict[str, np.ndarray]], None] | None = None,
+) -> tuple[bool, str]:
     """Drive the policy until RoboTwin reports success or the task's step limit is reached.
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
@@ -122,6 +144,8 @@ def rollout(task_env, policy: ICILPolicy) -> tuple[bool, str]:
     try:
         while not robotwin.episode_over(task_env):
             raw = robotwin.observation(task_env)
+            if observe is not None:
+                observe(raw["images"])
             observation = Observation(
                 step=int(task_env.take_action_cnt),
                 images=raw["images"],
@@ -137,6 +161,24 @@ def rollout(task_env, policy: ICILPolicy) -> tuple[bool, str]:
     except Exception as exc:
         return bool(task_env.eval_success), f"rollout error: {type(exc).__name__}: {exc}"
     return bool(task_env.eval_success), ""
+
+
+def _final_frame(video: EpisodeVideo, task_env) -> None:
+    from . import robotwin
+
+    video.observe(robotwin.observation(task_env)["images"])
+    video.finish()
+
+
+def _film(video: EpisodeVideo | None, write: Callable[[], None]) -> str:
+    """Run a video step; a failure becomes a note in the record's detail, never an outcome."""
+    if video is None:
+        return ""
+    try:
+        write()
+    except Exception as exc:
+        return f" [video: {type(exc).__name__}: {exc}]"
+    return ""
 
 
 def _rejections(generated: Generated) -> dict[str, int]:
