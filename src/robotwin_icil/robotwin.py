@@ -59,13 +59,25 @@ def _ensure_importable() -> None:
 
 
 def load_task(task_name: str):
-    """Instantiate RoboTwin's env class for a task. No scene exists until `setup_demo`."""
+    """Instantiate RoboTwin's env class for a task. No scene exists until `setup_demo`.
+
+    A task that does not exist and a task whose imports fail are different problems — the second
+    is a broken install (a missing planner, a bad pin) — so they are reported differently.
+    """
     _ensure_importable()
+    module_name = f"envs.{task_name}"
     try:
-        module = importlib.import_module(f"envs.{task_name}")
-        return getattr(module, task_name)()
-    except (ImportError, AttributeError) as exc:
-        raise RoboTwinError(f"RoboTwin has no task {task_name!r}") from exc
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name == module_name:
+            raise RoboTwinError(f"RoboTwin has no task {task_name!r}") from exc
+        raise RoboTwinError(f"importing RoboTwin task {task_name!r} failed: {exc}") from exc
+    except ImportError as exc:
+        raise RoboTwinError(f"importing RoboTwin task {task_name!r} failed: {exc}") from exc
+    task_class = getattr(module, task_name, None)
+    if task_class is None:
+        raise RoboTwinError(f"RoboTwin module {module_name} defines no class {task_name!r}")
+    return task_class()
 
 
 def unstable_error() -> type[Exception]:
