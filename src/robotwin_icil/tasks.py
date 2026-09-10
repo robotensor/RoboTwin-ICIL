@@ -94,9 +94,7 @@ def robotwin_task_names(robotwin_root: Path) -> frozenset[str]:
     envs = robotwin_root / "envs"
     if not envs.is_dir():
         raise TaskTableError(f"no RoboTwin checkout at {robotwin_root}; init the submodule")
-    return frozenset(
-        path.stem for path in envs.glob("*.py") if path.stem not in _NON_TASK_STEMS
-    )
+    return frozenset(path.stem for path in envs.glob("*.py") if path.stem not in _NON_TASK_STEMS)
 
 
 def check_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None) -> None:
@@ -111,4 +109,6 @@ def check_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None)
     if missing := sorted(upstream - ours):
         raise TaskTableError(f"RoboTwin tasks missing from {TABLE_PATH.name}: {', '.join(missing)}")
     if extra := sorted(ours - upstream):
-        raise TaskTableError(f"{TABLE_PATH.name} names tasks RoboTwin does not ship: {', '.join(extra)}")
+        raise TaskTableError(
+            f"{TABLE_PATH.name} names tasks RoboTwin does not ship: {', '.join(extra)}"
+        )
