@@ -183,6 +183,14 @@ def close(env, clear_cache: bool = False) -> None:
         pass
 
 
+def clear_render_cache() -> None:
+    """Drop SAPIEN's render cache; upstream does this every few episodes to bound memory."""
+    _ensure_importable()
+    from sapien.render import clear_cache
+
+    clear_cache()
+
+
 def episode_over(env) -> bool:
     """Upstream's own end condition: success latched by `take_action`, or the task's step limit."""
     step_lim = getattr(env, "step_lim", None)
