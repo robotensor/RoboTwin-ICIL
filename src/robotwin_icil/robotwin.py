@@ -30,6 +30,7 @@ import numpy as np
 import yaml
 
 from .demo import Demonstration, Frame
+from .scene import SceneFingerprint, unique_names
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ROBOTWIN_ROOT = REPO_ROOT / "vendor" / "RoboTwin"
@@ -217,3 +218,53 @@ def capture(env, frequency: int) -> Iterator[list[Frame]]:
 
 def demonstration_from(frames: list[Frame], frequency: int) -> Demonstration:
     return Demonstration(frames=tuple(frames), frequency=frequency)
+
+
+def fingerprint(env) -> SceneFingerprint:
+    """The live scene's initial state: take it right after `setup_demo`, before anyone acts.
+
+    Covers what makes a scene this scene: every actor's pose (object instances, placements, the
+    table), every articulation's root pose and joints (the robot, articulated objects), camera
+    extrinsics, the robot's commanded qpos, and the texture and lighting draws recorded in
+    `env.info`. Harness-only: none of it is ever handed to a policy.
+    """
+    actors = env.scene.get_all_actors()
+    articulations = env.scene.get_all_articulations()
+    actor_keys = unique_names([actor.get_name() for actor in actors])
+    articulation_keys = unique_names([articulation.get_name() for articulation in articulations])
+    textures = (
+        env.info.get("texture_info", {}) if isinstance(getattr(env, "info", None), dict) else {}
+    )
+    return SceneFingerprint(
+        actors={
+            key: _pose7(actor.get_pose()) for key, actor in zip(actor_keys, actors, strict=True)
+        },
+        articulations={
+            key: np.asarray(articulation.get_qpos(), dtype=np.float64)
+            for key, articulation in zip(articulation_keys, articulations, strict=True)
+        },
+        articulation_roots={
+            key: _pose7(articulation.get_root_pose())
+            for key, articulation in zip(articulation_keys, articulations, strict=True)
+        },
+        cameras={
+            name: np.asarray(config["extrinsic_cv"], dtype=np.float64)
+            for name, config in env.cameras.get_config().items()
+        },
+        robot_qpos=np.asarray(
+            env.robot.get_left_arm_jointState() + env.robot.get_right_arm_jointState(),
+            dtype=np.float64,
+        ),
+        extras={
+            "wall_texture": textures.get("wall_texture"),
+            "table_texture": textures.get("table_texture"),
+            "crazy_random_light": bool(getattr(env, "crazy_random_light", False)),
+            "table_z_bias": float(getattr(env, "table_z_bias", 0.0)),
+        },
+    )
+
+
+def _pose7(pose) -> np.ndarray:
+    return np.concatenate(
+        [np.asarray(pose.p, dtype=np.float64), np.asarray(pose.q, dtype=np.float64)]
+    )
