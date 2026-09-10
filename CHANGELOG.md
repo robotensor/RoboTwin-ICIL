@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (feat): `--video` writes `demonstration.mp4` and `evaluation_same_scene.mp4` per episode, from
+  frames the episode already has, so it cannot change a scene or a score (#10).
 - (feat): Same Scene episodes end to end. `run_episode` generates the demonstration, rebuilds the
   seed, verifies the scene fingerprint, resets the policy, hands it the one demonstration, and
   rolls out to RoboTwin's own success check; a resumable runner assigns tasks round-robin and
