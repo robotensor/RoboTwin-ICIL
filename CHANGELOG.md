@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (feat): one expert demonstration per episode, generated on demand by RoboTwin's own expert.
+  Scene seeds are a pure function of (global seed, episode); a seed whose scene is unstable, whose
+  plan fails, or whose expert misses or raises is a recorded rejection — never a model failure —
+  and the next seed in the stream is tried (#4).
 - (feat): `scripts/install_robotwin.sh` builds RoboTwin 2.0's simulator env reproducibly, following
   upstream's `_install.sh`: setuptools 69.5.1, the sapien and mplib patches, and CuRobo v0.7.8
   built against a CUDA 12.1 toolkit and gcc 12 inside the env; pytorch3d and XPolicyLab are
