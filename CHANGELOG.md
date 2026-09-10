@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (feat): `scripts/install_robotwin.sh` builds RoboTwin 2.0's simulator env reproducibly, following
+  upstream's `_install.sh`: setuptools 69.5.1, the sapien and mplib patches, and CuRobo v0.7.8
+  built against a CUDA 12.1 toolkit and gcc 12 inside the env; pytorch3d and XPolicyLab are
+  skipped. Documented in `docs/install.md` with the reference install (#1).
 - (feat): every episode's initial scene is fingerprinted before anyone acts — actor and
   articulation poses, joints, camera extrinsics, robot qpos, texture and light draws — and
   compared against the demonstration's; a sim test rebuilds three seeds per V1 category and
