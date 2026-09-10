@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- (feat): Same Scene episodes end to end. `run_episode` generates the demonstration, rebuilds the
+  seed, verifies the scene fingerprint, resets the policy, hands it the one demonstration, and
+  rolls out to RoboTwin's own success check; a resumable runner assigns tasks round-robin and
+  writes the run directory; `robotwin-icil eval | report | tasks`. The replay oracle scores 3/3
+  on place_object_basket (#7, #8, #11).
 - (feat): one expert demonstration per episode, generated on demand by RoboTwin's own expert.
   Scene seeds are a pure function of (global seed, episode); a seed whose scene is unstable, whose
   plan fails, or whose expert misses or raises is a recorded rejection — never a model failure —
