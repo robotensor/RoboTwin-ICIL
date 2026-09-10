@@ -30,11 +30,16 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - `scripts/eval_policy_xpolicylab.py:run_one_batch_episode` already does expert-check -> same-seed
   re-`setup_demo` -> policy rollout. It throws the expert trajectory away; this benchmark is that
   loop with the trajectory kept and given to the policy. Read it before writing a new loop.
+- Physics steps every `scene.get_timestep()` (1/250 s) and a frame is recorded every `save_freq`
+  of those steps, so a demonstration runs at 250/`save_freq` fps. `Demonstration.frequency` is that
+  rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
+- Assets load from `./assets/...` relative to the working directory, so `robotwin.py` chdirs into
+  `vendor/RoboTwin`. Resolve any path (run dir, checkpoint) to absolute before calling into it.
 
 ## Commands
 
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
-- Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin`, python 3.10, RoboTwin's own pins + assets); `$RT -m pytest -m sim`.
+- Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets.
 - Smoke: `robotwin-icil eval --policy replay --task place_object_basket --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
