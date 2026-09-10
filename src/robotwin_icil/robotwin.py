@@ -217,7 +217,7 @@ def _images(raw: dict[str, Any]) -> dict[str, np.ndarray]:
 
 
 @contextlib.contextmanager
-def capture(env, frequency: int) -> Iterator[list[Frame]]:
+def capture(env, save_freq: int) -> Iterator[list[Frame]]:
     """Record every frame the expert's `_take_picture` would have pickled, in memory.
 
     RoboTwin drives recording from inside `take_dense_action`, which calls `_take_picture()` every
@@ -243,7 +243,7 @@ def capture(env, frequency: int) -> Iterator[list[Frame]]:
 
     env._take_picture = _capture
     env.save_data = True
-    env.save_freq = frequency
+    env.save_freq = save_freq
     try:
         yield frames
     finally:
@@ -252,7 +252,17 @@ def capture(env, frequency: int) -> Iterator[list[Frame]]:
         env.save_freq = original_save_freq
 
 
-def demonstration_from(frames: list[Frame], frequency: int) -> Demonstration:
+def frame_rate_hz(env, save_freq: int) -> float:
+    """Frames per second of a recording taken every `save_freq` control steps.
+
+    RoboTwin steps physics every `scene.get_timestep()` seconds (1/250 by default) and
+    `take_dense_action` calls `_take_picture` every `save_freq` of those steps. The rate is not
+    `save_freq` itself, although upstream passes `save_freq` where a frame rate is meant.
+    """
+    return 1.0 / (float(env.scene.get_timestep()) * save_freq)
+
+
+def demonstration_from(frames: list[Frame], frequency: float) -> Demonstration:
     return Demonstration(frames=tuple(frames), frequency=frequency)
 
 

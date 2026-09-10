@@ -65,7 +65,7 @@ def scene_seeds(global_seed: int, episode: int, count: int) -> list[int]:
 
 
 def attempt(
-    task_env, seed: int, args: dict, frequency: int, episode: int
+    task_env, seed: int, args: dict, save_freq: int, episode: int
 ) -> tuple[Attempt, Demonstration | None, SceneFingerprint | None]:
     """Build the scene for one seed, run the expert once, and keep what it did if it succeeded."""
     from . import robotwin
@@ -85,14 +85,16 @@ def attempt(
 
     try:
         initial = robotwin.fingerprint(task_env)
-        with robotwin.capture(task_env, frequency) as frames:
+        with robotwin.capture(task_env, save_freq) as frames:
             task_env.play_once()
         if not task_env.plan_success:
             return Attempt(seed, Rejection.PLAN_FAILED), None, None
         if not task_env.check_success():
             return Attempt(seed, Rejection.EXPERT_FAILED), None, None
         try:
-            demonstration = robotwin.demonstration_from(frames, frequency)
+            demonstration = robotwin.demonstration_from(
+                frames, robotwin.frame_rate_hz(task_env, save_freq)
+            )
         except DemonstrationError as exc:
             return Attempt(seed, Rejection.NO_DEMONSTRATION, str(exc)), None, None
         return Attempt(seed, None), demonstration, initial
@@ -106,7 +108,7 @@ def generate(
     task_env,
     seeds: list[int],
     args_factory: Callable[[], dict],
-    frequency: int,
+    save_freq: int,
     episode: int,
     attempt_fn: Callable[
         ..., tuple[Attempt, Demonstration | None, SceneFingerprint | None]
@@ -120,7 +122,7 @@ def generate(
     attempts: list[Attempt] = []
     for seed in seeds:
         result, demonstration, initial = attempt_fn(
-            task_env, seed, args_factory(), frequency, episode
+            task_env, seed, args_factory(), save_freq, episode
         )
         attempts.append(result)
         if demonstration is not None:
