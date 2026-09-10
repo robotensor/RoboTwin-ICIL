@@ -55,7 +55,8 @@ class Demonstration:
     """One successful expert trajectory, as context for a frozen policy."""
 
     frames: tuple[Frame, ...]
-    frequency: int
+    # Frames per second of the recording: the sim rate over RoboTwin's `save_freq`.
+    frequency: float
     cameras: tuple[str, ...] = field(default=())
 
     def __post_init__(self) -> None:

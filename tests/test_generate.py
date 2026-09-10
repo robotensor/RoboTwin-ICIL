@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 
-from robotwin_icil import generate
+from fake_robotwin import FakeTaskEnv, FakeUnstable
+from robotwin_icil import generate, robotwin
 from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, Frame
 from robotwin_icil.generate import Attempt, Rejection
 from robotwin_icil.scene import SceneFingerprint
@@ -81,3 +83,12 @@ def test_every_attempt_gets_fresh_args():
     attempt_fn, _ = _scripted([Rejection.UNSTABLE, None])
     generate.generate(None, [1, 2], args_factory, 15, 0, attempt_fn=attempt_fn)
     assert len(built) == 2 and built[0] is not built[1]
+
+
+def test_a_demonstrations_frequency_is_frames_per_second(monkeypatch):
+    # RoboTwin records every `save_freq` physics steps of 1/250 s; 5 steps per frame is 50 fps,
+    # not "5". Getting this wrong mis-times every demonstration a policy is handed.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    result, demonstration, _ = generate.attempt(FakeTaskEnv(), 0, {"save_freq": 5}, 5, 0)
+    assert result.rejection is None
+    assert demonstration.frequency == pytest.approx(50.0)

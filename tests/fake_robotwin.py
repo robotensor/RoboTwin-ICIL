@@ -87,6 +87,7 @@ class FakeTaskEnv:
                 _Actor("cube", _Pose(cube)),
             ],
             get_all_articulations=lambda: [],
+            get_timestep=lambda: 1 / 250,
         )
         self.cameras = SimpleNamespace(
             get_config=lambda: {"head_camera": {"extrinsic_cv": np.eye(4)[:3]}}
