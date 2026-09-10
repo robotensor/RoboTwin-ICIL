@@ -14,9 +14,7 @@ def frame(index: int, cameras=("head_camera",), qpos_dim=BIMANUAL_QPOS_DIM) -> F
 
 
 def demo(n=5, **kwargs) -> Demonstration:
-    return Demonstration(
-        task="place_object_basket", frames=tuple(frame(i) for i in range(n)), frequency=15, **kwargs
-    )
+    return Demonstration(frames=tuple(frame(i) for i in range(n)), frequency=15, **kwargs)
 
 
 def test_shapes_and_derived_views():
@@ -39,12 +37,12 @@ def test_actions_are_the_next_state():
 
 def test_a_single_frame_is_not_a_demonstration():
     with pytest.raises(DemonstrationError):
-        Demonstration(task="t", frames=(frame(0),), frequency=15)
+        Demonstration(frames=(frame(0),), frequency=15)
 
 
 def test_frequency_must_be_positive():
     with pytest.raises(DemonstrationError):
-        Demonstration(task="t", frames=(frame(0), frame(1)), frequency=0)
+        Demonstration(frames=(frame(0), frame(1)), frequency=0)
 
 
 def test_frame_rejects_the_wrong_qpos_width():
@@ -65,12 +63,12 @@ def test_frame_rejects_a_non_rgb_image():
 def test_cameras_must_not_change_mid_demonstration():
     frames = (frame(0), Frame(index=1, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM), endpose={}))
     with pytest.raises(DemonstrationError):
-        Demonstration(task="t", frames=frames, frequency=15)
+        Demonstration(frames=frames, frequency=15)
 
 
 def test_frame_indices_must_increase():
     with pytest.raises(DemonstrationError):
-        Demonstration(task="t", frames=(frame(1), frame(0)), frequency=15)
+        Demonstration(frames=(frame(1), frame(0)), frequency=15)
 
 
 def test_unknown_camera_is_rejected():

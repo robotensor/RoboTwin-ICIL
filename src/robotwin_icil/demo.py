@@ -4,8 +4,8 @@ Model-independent on purpose. RoboTwin's expert produces frames of per-camera rg
 joint and end-effector state; a policy adapter selects what it consumes from that. The benchmark
 core never learns what any particular model wants.
 
-What is *not* here matters as much as what is. A demonstration carries no scene seed, no `info`
-dict from `play_once()`, no actor handles and no success condition — see the privileged
+What is *not* here matters as much as what is. A demonstration carries no task name, no scene
+seed, no `info` dict from `play_once()`, no actor handles and no success condition — see the privileged
 information rule in CLAUDE.md. Everything in a `Frame` is something a real robot could observe.
 """
 
@@ -54,7 +54,6 @@ class Frame:
 class Demonstration:
     """One successful expert trajectory, as context for a frozen policy."""
 
-    task: str
     frames: tuple[Frame, ...]
     frequency: int
     cameras: tuple[str, ...] = field(default=())
@@ -62,20 +61,18 @@ class Demonstration:
     def __post_init__(self) -> None:
         if len(self.frames) < 2:
             raise DemonstrationError(
-                f"{self.task}: a demonstration needs at least two frames, got {len(self.frames)}"
+                f"a demonstration needs at least two frames, got {len(self.frames)}"
             )
         if self.frequency <= 0:
-            raise DemonstrationError(
-                f"{self.task}: frequency must be positive, got {self.frequency}"
-            )
+            raise DemonstrationError(f"frequency must be positive, got {self.frequency}")
         indices = [frame.index for frame in self.frames]
         if indices != sorted(indices) or len(set(indices)) != len(indices):
-            raise DemonstrationError(f"{self.task}: frame indices are not strictly increasing")
+            raise DemonstrationError("frame indices are not strictly increasing")
         first = set(self.frames[0].images)
         for frame in self.frames:
             if set(frame.images) != first:
                 raise DemonstrationError(
-                    f"{self.task}: frame {frame.index} has cameras {sorted(frame.images)}, "
+                    f"frame {frame.index} has cameras {sorted(frame.images)}, "
                     f"expected {sorted(first)}"
                 )
         if not self.cameras:
@@ -104,7 +101,5 @@ class Demonstration:
     def images(self, camera: str) -> np.ndarray:
         """(T, h, w, 3) rgb from one camera."""
         if camera not in self.cameras:
-            raise DemonstrationError(
-                f"{self.task}: no camera {camera!r}; have {list(self.cameras)}"
-            )
+            raise DemonstrationError(f"no camera {camera!r}; have {list(self.cameras)}")
         return np.stack([frame.images[camera] for frame in self.frames])

@@ -168,7 +168,7 @@ def _images(raw: dict[str, Any]) -> dict[str, np.ndarray]:
 
 
 @contextlib.contextmanager
-def capture(env, task: str, frequency: int) -> Iterator[list[Frame]]:
+def capture(env, frequency: int) -> Iterator[list[Frame]]:
     """Record every frame the expert's `_take_picture` would have pickled, in memory.
 
     RoboTwin drives recording from inside `take_dense_action`, which calls `_take_picture()` every
@@ -203,5 +203,5 @@ def capture(env, task: str, frequency: int) -> Iterator[list[Frame]]:
         env.save_freq = original_save_freq
 
 
-def demonstration_from(frames: list[Frame], task: str, frequency: int) -> Demonstration:
-    return Demonstration(task=task, frames=tuple(frames), frequency=frequency)
+def demonstration_from(frames: list[Frame], frequency: int) -> Demonstration:
+    return Demonstration(frames=tuple(frames), frequency=frequency)
