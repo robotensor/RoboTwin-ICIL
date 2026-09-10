@@ -1,0 +1,90 @@
+# RoboTwin 2.0 task -> manipulation skill category.
+#
+# Every task in the pinned `vendor/RoboTwin` `envs/` directory appears here exactly once, so a
+# missing or renamed upstream task is caught by a test rather than silently dropped from a run.
+# `suites` names the task sets a benchmark run can ask for; `v1` is the official Same Scene set.
+
+categories:
+  pick_and_place: Pick and Place
+  stacking: Stacking
+  press_push: Press / Push
+  open_close: Open / Close
+  insertion: Insertion
+  bimanual: Bimanual Manipulation
+  articulated: Articulated Manipulation
+
+tasks:
+  # --- pick and place -------------------------------------------------------
+  dump_bin_bigbin: pick_and_place
+  move_can_pot: pick_and_place
+  move_pillbottle_pad: pick_and_place
+  move_playingcard_away: pick_and_place
+  move_stapler_pad: pick_and_place
+  place_a2b_left: pick_and_place
+  place_a2b_right: pick_and_place
+  place_bread_basket: pick_and_place
+  place_bread_skillet: pick_and_place
+  place_burger_fries: pick_and_place
+  place_can_basket: pick_and_place
+  place_cans_plasticbox: pick_and_place
+  place_container_plate: pick_and_place
+  place_dual_shoes: pick_and_place
+  place_empty_cup: pick_and_place
+  place_fan: pick_and_place
+  place_mouse_pad: pick_and_place
+  place_object_basket: pick_and_place
+  place_object_scale: pick_and_place
+  place_object_stand: pick_and_place
+  place_shoe: pick_and_place
+  put_bottles_dustbin: pick_and_place
+  # --- stacking -------------------------------------------------------------
+  blocks_ranking_rgb: stacking
+  blocks_ranking_size: stacking
+  stack_blocks_three: stacking
+  stack_blocks_two: stacking
+  stack_bowls_three: stacking
+  stack_bowls_two: stacking
+  # --- press / push ---------------------------------------------------------
+  beat_block_hammer: press_push
+  click_alarmclock: press_push
+  click_bell: press_push
+  press_stapler: press_push
+  stamp_seal: press_push
+  turn_switch: press_push
+  # --- open / close ---------------------------------------------------------
+  open_laptop: open_close
+  open_microwave: open_close
+  put_object_cabinet: open_close
+  # --- insertion ------------------------------------------------------------
+  hanging_mug: insertion
+  place_phone_stand: insertion
+  # --- bimanual -------------------------------------------------------------
+  grab_roller: bimanual
+  handover_block: bimanual
+  handover_mic: bimanual
+  lift_pot: bimanual
+  pick_diverse_bottles: bimanual
+  pick_dual_bottles: bimanual
+  # --- articulated / in-hand reorientation ----------------------------------
+  adjust_bottle: articulated
+  rotate_qrcode: articulated
+  scan_object: articulated
+  shake_bottle: articulated
+  shake_bottle_horizontally: articulated
+
+suites:
+  # The official V1 Same Scene suite: three categories, a few tasks each, chosen for short
+  # horizons and a high expert success rate. Extend only with measured generation statistics.
+  v1:
+    - place_object_basket
+    - place_a2b_left
+    - place_a2b_right
+    - place_empty_cup
+    - place_container_plate
+    - stack_blocks_two
+    - stack_bowls_two
+    - click_bell
+    - click_alarmclock
+    - press_stapler
+  # Everything in the table; used for generator surveys, not for reporting a score.
+  all: "*"
