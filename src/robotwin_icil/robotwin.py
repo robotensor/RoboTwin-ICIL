@@ -171,6 +171,18 @@ def _embodiment_config(robot_file: str) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def close(env, clear_cache: bool = False) -> None:
+    """Tear a scene down, swallowing errors: a scene that failed half-built must not end the run.
+
+    `clear_cache` also drops SAPIEN's render cache; upstream does that every few episodes to bound
+    memory over a long run.
+    """
+    try:
+        env.close_env(clear_cache=clear_cache)
+    except Exception:
+        pass
+
+
 def observation(env) -> dict[str, Any]:
     """One observation of the live scene, in the shape a `Frame` carries."""
     raw = env.get_obs()
