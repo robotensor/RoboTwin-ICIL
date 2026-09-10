@@ -72,9 +72,13 @@ def load_task(task_name: str):
     except ModuleNotFoundError as exc:
         if exc.name == module_name:
             raise RoboTwinError(f"RoboTwin has no task {task_name!r}") from exc
-        raise RoboTwinError(f"importing RoboTwin task {task_name!r} failed: {exc}") from exc
+        raise RoboTwinError(
+            f"importing RoboTwin task {task_name!r} failed: {exc}; see docs/install.md"
+        ) from exc
     except ImportError as exc:
-        raise RoboTwinError(f"importing RoboTwin task {task_name!r} failed: {exc}") from exc
+        raise RoboTwinError(
+            f"importing RoboTwin task {task_name!r} failed: {exc}; see docs/install.md"
+        ) from exc
     task_class = getattr(module, task_name, None)
     if task_class is None:
         raise RoboTwinError(f"RoboTwin module {module_name} defines no class {task_name!r}")
