@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- (fix): a demonstration's `frequency` is frames per second — the sim rate over RoboTwin's
+  `save_freq`, ~16.7 fps at the default — not `save_freq` itself, which upstream passes where it
+  means a frame rate (#3).
 - (feat): `--video` writes `demonstration.mp4` and `evaluation_same_scene.mp4` per episode, from
   frames the episode already has, so it cannot change a scene or a score (#10).
 - (feat): Same Scene episodes end to end. `run_episode` generates the demonstration, rebuilds the
