@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
+  env — and its CuRobo planners — alive at a time; a scene that fails to build, or a GPU that runs
+  out of memory, stops the run instead of being recorded as rejected seeds; records and reports
+  say why seeds were rejected (#30).
 - (feat): `robotwin-icil survey` measures RoboTwin's expert per task. Over 20 seeds it solves
   75–100% of every `v1` task but place_object_basket (45%), which leaves the suite; `v1` is
   nine tasks across Pick and Place, Stacking and Press / Push (`docs/survey.md`) (#4).
