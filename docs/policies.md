@@ -173,8 +173,10 @@ The runner describes the policy twice per run, at its start and at its end, not 
 When `describe()` gives a `parameter_checksum`, the runner describes the policy again at the end
 of the run and compares. A different checksum raises `PolicyError: ... parameters changed during
 the run: the policy must be frozen`. The audit also runs when the run raised, so an interrupted
-run is audited too. The episodes already written stay on disk, but the run cannot be trusted.
-The audit is only as strong as the checksum, so hash every parameter and buffer:
+run is audited too. The episodes already written stay on disk, and so does the failure: the run
+directory gains `audit.json`, with both checksums, and from then on neither resumes nor reports.
+Rerun under a new `--run-dir` once the policy is frozen. The audit is only as strong as the
+checksum, so hash every parameter and buffer:
 
 ```python
 def _checksum(self):

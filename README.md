@@ -173,7 +173,9 @@ A run is reproducible from its global seed; a sampling policy gets a per-episode
 stream of its own, never the scene seed. Each run directory records the benchmark and RoboTwin
 git commits, both configs, the policy's description, arguments and software environment, and
 per episode: the task, skill category, scene seed, number of expert generation attempts, rollout
-length, outcome and what the policy reported about the rollout. With `--video`, demonstration and evaluation clips
+length, outcome and what the policy reported about the rollout. A run whose policy changed its
+parameters, as its `parameter_checksum` shows, also holds `audit.json` and is neither resumed nor
+reported. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 
