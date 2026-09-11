@@ -10,12 +10,14 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import camera_profiles
 from . import report as report_
 from . import tasks as tasks_
-from .policy import PolicyError, make_policy, parse_policy_arg
+from .policy import REMOTE, PolicyError, builtin_names, make_policy, parse_policy_arg
 from .records import RecordError, RunDir
+from .remote import SERVER_LOG
 from .robotwin import RoboTwinError
 
 
@@ -45,7 +47,7 @@ def _eval(args: argparse.Namespace) -> int:
         camera_profile=args.camera_profile,
     )
     try:
-        records = run(spec, make_policy(args.policy, **args.policy_args), config)
+        records = run(spec, make_policy(args.policy, **_policy_kwargs(args)), config)
     except RoboTwinError as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1
@@ -53,6 +55,18 @@ def _eval(args: argparse.Namespace) -> int:
     print()
     print(report_.render(built, RunDir(spec.run_dir).manifest(), table), end="")
     return 0
+
+
+def _policy_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """The policy's keyword arguments: its `--policy-arg`s, and for `remote` its server's log.
+
+    A policy server spawned for the run logs into the run directory, beside the records its log
+    explains. That path is not an argument anyone gave, so `policy_config` does not record it.
+    """
+    kwargs = dict(args.policy_args)
+    if args.policy == REMOTE and "log" not in kwargs and "address" not in kwargs:
+        kwargs["log"] = str(Path(args.run_dir).resolve() / SERVER_LOG)
+    return kwargs
 
 
 def _report(args: argparse.Namespace) -> int:
@@ -169,7 +183,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("eval", help="run episodes and record them in a run directory")
     run.add_argument(
-        "--policy", required=True, help="built-in name (replay, dummy) or module:Class"
+        "--policy",
+        required=True,
+        help=f"built-in name ({', '.join(builtin_names())}) or module:Class",
     )
     run.add_argument(
         "--policy-arg",

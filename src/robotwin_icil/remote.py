@@ -44,6 +44,8 @@ TIMEOUT_S = 120.0
 KILL_GRACE_S = 5.0
 LOG_TAIL_LINES = 20
 AUTHKEY_ENV = "ROBOTWIN_ICIL_AUTHKEY"
+# Where `robotwin-icil eval` has a spawned server log: in the run directory.
+SERVER_LOG = "policy_server.log"
 _PACKAGE = Path(__file__).resolve().parent
 
 

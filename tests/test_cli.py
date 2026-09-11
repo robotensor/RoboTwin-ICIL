@@ -299,3 +299,39 @@ def test_a_policy_arg_the_policy_does_not_take_fails_cleanly(tmp_path, stop_at_r
     assert cli.main(argv) == 1
     assert "policy 'replay' does not take these arguments" in capsys.readouterr().err
     assert stop_at_run == {}
+
+
+@pytest.fixture
+def built(monkeypatch):
+    """The spec and keyword arguments `eval` builds its policy from; nothing is spawned."""
+    seen = {}
+
+    def make_policy(spec, **kwargs):
+        seen.update(spec=spec, kwargs=kwargs)
+        raise RoboTwinError("stopped before the policy")
+
+    monkeypatch.setattr(cli, "make_policy", make_policy)
+    return seen
+
+
+def test_a_spawned_policy_server_logs_into_the_run_directory(tmp_path, stop_at_run, built):
+    argv = [*EVAL, "--run-dir", str(tmp_path / "run"), "--policy", "remote"]
+    assert cli.main([*argv, "--policy-arg", "policy=mypkg:Model"]) == 1
+    assert built == {
+        "spec": "remote",
+        "kwargs": {"policy": "mypkg:Model", "log": str(tmp_path / "run" / "policy_server.log")},
+    }
+
+
+@pytest.mark.parametrize(
+    "args", [["log=elsewhere.log"], ["address=gpu-box:41000", "authkey_file=key"]]
+)
+def test_a_policy_server_log_is_left_alone_when_given_or_not_spawned(tmp_path, built, args):
+    argv = [*EVAL, "--run-dir", str(tmp_path), "--policy", "remote"]
+    assert cli.main([*argv, *(x for arg in args for x in ("--policy-arg", arg))]) == 1
+    assert "log" not in built["kwargs"] or built["kwargs"]["log"] == "elsewhere.log"
+
+
+def test_only_remote_gets_a_log(tmp_path, built):
+    assert cli.main([*EVAL, "--run-dir", str(tmp_path)]) == 1
+    assert built == {"spec": "replay", "kwargs": {}}
