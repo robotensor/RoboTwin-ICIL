@@ -36,7 +36,7 @@ from robotwin_icil.policy import ICILPolicy
 
 class MyPolicy(ICILPolicy):
     name = "my_icil_model"
-    action_type = "qpos"            # or "ee"
+    action_type = "qpos"  # or "ee"
 
     def __init__(self, checkpoint: str = "checkpoints/model.pt"):
         super().__init__()
@@ -44,14 +44,14 @@ class MyPolicy(ICILPolicy):
         self.model = torch.load(checkpoint).eval().requires_grad_(False)
 
     def _reset(self):
-        self.context = None         # clear KV cache, history, recurrent state
+        self.context = None  # clear KV cache, history, recurrent state
 
     def _set_demonstration(self, demo):
         with torch.inference_mode():
             self.context = self.model.encode(
-                images=demo.images("head_camera"),   # (T, h, w, 3) uint8
-                states=demo.qpos(),                  # (T, 14)
-                actions=demo.actions(),              # (T-1, 14)
+                images=demo.images("head_camera"),  # (T, h, w, 3) uint8
+                states=demo.qpos(),  # (T, 14)
+                actions=demo.actions(),  # (T-1, 14)
             )
 
     def _act(self, obs):
