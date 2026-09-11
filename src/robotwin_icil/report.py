@@ -10,7 +10,7 @@ Rates are fractions in `[0, 1]` everywhere; `render` is the single place they be
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .records import EpisodeRecord, RunManifest, Status
@@ -43,6 +43,8 @@ class Diagnostics:
     rejections_by_reason: dict[str, int]
     mean_rollout_steps: float | None
     mean_successful_rollout_steps: float | None
+    # For each rejection reason, the detail seen most often: what the failure actually was.
+    rejection_examples: dict[str, str] = field(default_factory=dict)
 
     @property
     def expert_rejection_rate(self) -> float | None:
@@ -68,6 +70,7 @@ class Diagnostics:
             "rejections_by_reason": dict(sorted(self.rejections_by_reason.items())),
             "mean_rollout_steps": self.mean_rollout_steps,
             "mean_successful_rollout_steps": self.mean_successful_rollout_steps,
+            "rejection_examples": dict(sorted(self.rejection_examples.items())),
         }
 
 
@@ -127,6 +130,7 @@ def build(records: list[EpisodeRecord], table: TaskTable) -> Report:
         rejections_by_reason=dict(reasons),
         mean_rollout_steps=_mean([r.steps for r in scored]),
         mean_successful_rollout_steps=_mean([r.steps for r in scored if r.success]),
+        rejection_examples=_examples(records),
     )
     return Report(
         overall=_rate(records), by_category=by_category, by_task=by_task, diagnostics=diagnostics
@@ -176,8 +180,19 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
         + (", ".join(f"{k} {v}" for k, v in sorted(d.rejections_by_reason.items())) or "none"),
         f"  mean rollout steps {_fmt(d.mean_rollout_steps)}, successful {_fmt(d.mean_successful_rollout_steps)}",
     ]
+    for reason, example in d.rejection_examples.items():
+        lines.append(f"    e.g. {reason}: {example[:120]}")
     return "\n".join(lines) + "\n"
 
 
 def _fmt(value: float | None) -> str:
     return "—" if value is None else f"{value:.1f}"
+
+
+def _examples(records: list[EpisodeRecord]) -> dict[str, str]:
+    """For each rejection reason, the detail seen most often across the run."""
+    seen: dict[str, Counter[str]] = {}
+    for record in records:
+        for reason, detail in record.rejection_details.items():
+            seen.setdefault(reason, Counter())[detail] += record.rejections.get(reason, 1)
+    return {reason: counts.most_common(1)[0][0] for reason, counts in sorted(seen.items())}

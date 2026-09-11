@@ -56,6 +56,8 @@ class EpisodeRecord:
     checkpoint: str | None = None
     detail: str = ""
     duration_s: float = 0.0
+    # One example detail per rejection reason: why seeds were rejected, not only how often.
+    rejection_details: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         status = Status(self.status)

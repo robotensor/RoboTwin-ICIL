@@ -125,3 +125,10 @@ def test_both_scenes_are_built_under_the_tasks_name():
     env = FakeTaskEnv()
     run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
     assert env.task_names == ["place_object_basket", "place_object_basket"]
+
+
+def test_a_record_says_why_seeds_were_rejected():
+    seeds = scene_seeds(0, 0, 5)
+    env = FakeTaskEnv(unstable_seeds={seeds[0]})
+    record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+    assert record.rejection_details == {"unstable": f"objects unstable in seed {seeds[0]}"}
