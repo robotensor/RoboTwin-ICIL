@@ -83,8 +83,9 @@ area-resized to the checkpoint's input size (128x128 by default) and rounded to 
 processes its dataset: [0, 1], channels first, the fork's 116-pixel centre crop at evaluation.
 
 `describe()` records the adapter and `ADAPTER_VERSION`, the checkpoint and its sha256, the
-checkpoint's `training_tasks`, `training_regime` and `augmentation` from its model card
-(`"unknown"` when absent), `camera_profile_required: far_side`, a `parameter_checksum` of
+checkpoint's `training_tasks`, `training_regime` and `augmentation` from its model card (a
+checkpoint whose card names no training tasks or regime is refused, so a V1 number always says
+which tasks it was trained on), `camera_profile_required: far_side`, a `parameter_checksum` of
 every weight it runs (the policy network, the ISD and the depth model, computed at each call so
 a run can compare its start and end), k, the horizons and the DDIM steps.
 
