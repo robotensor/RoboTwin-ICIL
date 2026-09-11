@@ -119,6 +119,10 @@ robotwin-icil cameras --profile far_side --task click_bell --seed 0 --out runs/c
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
 
+# the replay oracle on the same scenes, printed beside the model: same seed, suite, config, profile
+robotwin-icil eval --policy replay --suite v1 --episodes 500 --seed 42 --run-dir runs/v1-replay
+robotwin-icil report runs/v1 --reference runs/v1-replay
+
 # an adapter's constructor arguments, repeatable; its many settings belong in its own YAML
 robotwin-icil eval --policy <adapter> --policy-arg config=configs/<adapter>.yml \
     --policy-arg temperature=0.5 --suite v1 --episodes 500 --seed 42 --run-dir runs/v1-t05
@@ -143,7 +147,7 @@ src/robotwin_icil/
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   runner.py                 episode loop, seed drawing, rejection accounting
-  records.py report.py      episode records, aggregation to overall/skill/task
+  records.py report.py      episode records, aggregation to overall/skill/task, references
   video.py                  demonstration and evaluation clips per episode
   survey.py                 the expert's own success rate per task
   png.py                    one PNG per camera, for `robotwin-icil cameras`
@@ -171,9 +175,14 @@ See [`docs/policies.md`](docs/policies.md).
 
 A run is reproducible from its global seed; a sampling policy gets a per-episode seed from a
 stream of its own, never the scene seed. Each run directory records the benchmark and RoboTwin
-git commits, both configs, the policy's description, arguments and software environment, and
-per episode: the task, skill category, scene seed, number of expert generation attempts, rollout
-length, outcome and what the policy reported about the rollout. A run whose policy changed its
+git commits, both configs, the policy's description, arguments and software environment, the
+stack it ran on (GPU and driver, torch and its CUDA, CuRobo, SAPIEN: another stack can change
+the expert's plans), and per episode: the task, skill category, scene seed, number of expert
+generation attempts, rollout length in calls and physics steps, outcome, the policy's action
+type, the arms the demonstration moved and what the policy reported about the rollout. The
+report names the camera profile, the adapter and its version, and how many evaluated tasks the
+policy was trained on; `--reference` prints other runs of the same scenes beside it, and refuses
+one that ran another seed, suite, configuration or camera profile. A run whose policy changed its
 parameters, as its `parameter_checksum` shows, also holds `audit.json` and is neither resumed nor
 reported. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to

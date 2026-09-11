@@ -168,6 +168,11 @@ different one, so another `adapter_version` or checkpoint is another run.
 
 The runner describes the policy twice per run, at its start and at its end, not per episode.
 
+The report's header names `adapter` and `adapter_version`, and counts the evaluated tasks that
+`training_tasks` names: `evaluation tasks seen in training: k/N` over the run's N tasks, labelled
+held out when k is 0 and `unknown` when the key is absent or "unknown". It labels the run; the
+score is the same Same Scene 1-Demo Success Rate either way.
+
 ### The frozen-policy audit
 
 When `describe()` gives a `parameter_checksum`, the runner describes the policy again at the end
@@ -356,3 +361,15 @@ model: where it scores below `replay`, the loss is in the path — planning, CuR
 tolerance, 31 physics steps a call — and no `ee` adapter will do better. Then run
 your adapter with `--video` and compare `demonstration.mp4` with `evaluation_same_scene.mp4` in a
 few episode directories before trusting any number.
+
+Report your run with the oracles beside it:
+
+```bash
+robotwin-icil report runs/mine --reference runs/replay --reference runs/replay_ee
+```
+
+Each reference prints in a column of its own, overall, by category and by task, named by its
+`adapter` or policy; `--json` lists them under `references`. A reference must have run the same
+global seed, suite, expert budget, configuration and camera profile, or the report refuses it and
+names the field; it may have fewer episodes, since episode i's scene depends only on the seed, the
+suite and i. References are context for the score, never a second one.
