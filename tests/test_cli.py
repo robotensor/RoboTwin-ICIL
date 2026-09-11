@@ -16,6 +16,16 @@ def test_tasks_lists_categories_and_suite_membership(capsys):
     assert "click_bell  [v1]" in out
 
 
+def test_a_broken_cameras_yml_is_reported_not_raised(monkeypatch, capsys):
+    # The parser lists the profiles, so every subcommand reads cameras.yml.
+    def broken():
+        raise camera_profiles.ProfileError("cameras.yml must hold a 'profiles' mapping")
+
+    monkeypatch.setattr(camera_profiles, "names", broken)
+    assert cli.main(["tasks"]) == 1
+    assert "must hold a 'profiles' mapping" in capsys.readouterr().err
+
+
 def test_report_reads_a_run_directory_without_a_simulator(tmp_path, capsys):
     run = RunDir(tmp_path)
     run.start(manifest())

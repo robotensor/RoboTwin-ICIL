@@ -202,7 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    try:
+        parser = build_parser()
+    except camera_profiles.ProfileError as exc:
+        print(f"robotwin-icil: {exc}", file=sys.stderr)
+        return 1
+    args = parser.parse_args(argv)
     if getattr(args, "seeds", 1) < 1:
         print("robotwin-icil: --seeds must be at least 1", file=sys.stderr)
         return 2
