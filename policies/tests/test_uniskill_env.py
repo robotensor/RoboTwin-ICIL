@@ -8,6 +8,8 @@ shared machine, the GPU lock. Run from the repository root:
     $ICIL_HOME/envs/icil-uniskill/bin/python -m pytest policies/tests/test_uniskill_env.py
 """
 
+import re
+
 import numpy as np
 import pytest
 
@@ -40,7 +42,13 @@ SMALL = {
         }
     }
 }
-SKILLS = {"camera": "far_side_camera", "crop": 180, "rate_hz": 20.0, "k": 20}
+SKILLS = {
+    "camera": "far_side_camera",
+    "crop": 180,
+    "rate_hz": 20.0,
+    "k": 20,
+    "isd_sha256": "f" * 64,
+}
 CAMERAS = {"far_side_camera": (180, 320), "left_camera": (240, 320), "right_camera": (240, 320)}
 gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU")
 
@@ -51,7 +59,7 @@ class FakeExtractor:
     skill_dim = 64
 
     def __init__(self, **describe):
-        self._describe = {**SKILLS, "isd_sha256": "f" * 64, **describe}
+        self._describe = {**SKILLS, **describe}
 
     def extract(self, demonstration):
         rows = len(skill_steps(demonstration))
@@ -258,9 +266,20 @@ def test_a_checkpoint_without_a_model_card_is_refused(small, tmp_path, metadata)
         )
 
 
-def test_skills_from_another_encoder_setting_are_refused(small):
-    with pytest.raises(PolicyError, match="k 20"):
-        make_policy(small, k=10)
+@pytest.mark.parametrize(
+    ("setting", "match"),
+    [
+        ({"k": 10}, "k 20"),
+        ({"crop": 160}, "crop 180"),
+        ({"camera": "head_camera"}, "camera 'far_side_camera'"),
+        ({"rate_hz": 10.0}, "rate_hz 20.0"),
+        ({"isd_sha256": "0" * 64}, "isd_sha256 '" + "f" * 64 + "'"),
+    ],
+)
+def test_skills_from_another_encoder_setting_are_refused(small, setting, match):
+    """Every setting the checkpoint's card pins is held against the encoder loaded here."""
+    with pytest.raises(PolicyError, match=re.escape(match)):
+        make_policy(small, **setting)
 
 
 # --- on the GPU, with the released skill encoder ------------------------------------------
