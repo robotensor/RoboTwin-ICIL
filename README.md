@@ -159,9 +159,13 @@ src/robotwin_icil/
 policies/                   robotwin-icil-policies, a separate distribution: model adapters
   src/icil_policies/common/ their numpy toolkit: rotations, aloha frames, resampling, arm
                             choice, image path, chunking, kinematics
+  src/icil_policies/bpp/    the BPP transfer adapter: conversion, model, policy, oracle,
+                            and the `icil-bpp` tool (slim, calibrate, preflight)
+  configs/                  one config file per adapter, holding its constants
   envs/                     lockfiles of the model environments
 scripts/                    install_robotwin.sh (simulator), install_policy_env.sh (models)
 docs/                       installation, policy adapters, the expert survey
+  models/                   one page per model adapter and every constant it runs on
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
 

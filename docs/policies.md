@@ -532,3 +532,18 @@ Each model runs in an environment of its own, built by
 `bash scripts/install_policy_env.sh bpp|uniskill` from the lockfiles in `policies/envs/<name>/`.
 The simulator env never imports model code; it reaches an adapter in a model env through a remote
 policy (#39). See [Model environments](install.md#model-environments) in the install guide.
+
+## The adapters that ship with the benchmark
+
+They live in `policies/`, a distribution of their own (`robotwin-icil-policies`), and each one
+documents every constant it runs on:
+
+| `--policy` | what | environment | notes |
+| --- | --- | --- | --- |
+| `icil_policies.bpp:BPPPolicy` | BPP's released LIBERO-Gen Combination checkpoint, prompted with the one demonstration | `icil-bpp`, behind `remote` | [`docs/models/bpp.md`](models/bpp.md) |
+| `icil_policies.bpp:BPPConversionReplay` | that adapter's conversion oracle: its own prompt replayed through the whole conversion and execution chain, with no model | the simulator's own | the ceiling for any model behind that adapter |
+
+An adapter names the camera profile it needs through `camera_profile_required`, so a run under
+another profile is refused before a scene is built; BPP's is `far_side`. Its execution mode sets
+`action_type` per instance, and `remote` carries the served policy's own action type to the
+simulator, so one adapter can drive `take_action('ee')` or `take_action('qpos')` from its config.
