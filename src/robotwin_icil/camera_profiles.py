@@ -255,38 +255,10 @@ def apply(
                     f"{sorted(camera_types)}"
                 )
 
-    if _collects_head(camera_before) != _collects_head(camera_after):
-        raise ProfileError(
-            f"{where} toggles camera.collect_head_camera, which changes how many cameras draw "
-            "from the RNG before the scene is built, and so every seed's scene"
-        )
-    created_before, created_after = _created(before, camera_before), _created(after, camera_after)
-    if len(created_before) != len(created_after):
-        raise ProfileError(
-            f"{where} changes the number of static cameras RoboTwin creates from "
-            f"{len(created_before)} to {len(created_after)}; each one draws from the RNG before "
-            "the scene is built, so every seed's scene would change"
-        )
     if HEAD_CAMERA in profile.replace:
         raise ProfileError(f"{where} replaces {HEAD_CAMERA}; it may not be replaced or renamed")
-    heads_before = [i for i, name in enumerate(names_before) if name == HEAD_CAMERA]
-    heads_after = [i for i, entry in enumerate(after) if entry.get("name") == HEAD_CAMERA]
-    if heads_before != heads_after:
-        raise ProfileError(f"{where} names another camera {HEAD_CAMERA}")
-    names_after = [entry.get("name") for entry in after]
-    if duplicates := sorted({name for name in names_after if names_after.count(name) > 1}):
-        raise ProfileError(
-            f"{where} leaves two cameras named {duplicates}; RoboTwin keys cameras by name, so "
-            "one would overwrite the other"
-        )
-    # `Camera.get_config()` and `get_rgba()` store the wrist cameras under these names before the
-    # static cameras, so a static camera named like one silently replaces its config and image.
-    # Reserved even while `collect_wrist_camera` is off, so a later toggle cannot collide.
-    if wrist := [name for name in names_after if name in WRIST_CAMERAS]:
-        raise ProfileError(
-            f"{where} names a static camera {wrist[0]!r}, like a wrist camera; RoboTwin keys "
-            "cameras by name, so one would overwrite the other"
-        )
+    _refuse_scene_changes(where, before, camera_before, after, camera_after)
+    created_after = _created(after, camera_after)
 
     if profile.video_camera != DEFAULT_VIDEO_CAMERA:
         rendered = [entry.get("name") for entry in created_after]
@@ -301,3 +273,45 @@ def apply(
     left = copy.deepcopy(args["left_embodiment_config"])
     left["static_camera_list"] = after
     return {**args, "camera": camera_after, "left_embodiment_config": left}
+
+
+def _refuse_scene_changes(
+    where: str,
+    before: list[dict[str, Any]],
+    camera_before: Mapping[str, Any],
+    after: list[dict[str, Any]],
+    camera_after: Mapping[str, Any],
+) -> None:
+    """Refuse static cameras that move a seed's scene, or that let one camera overwrite another."""
+    if _collects_head(camera_before) != _collects_head(camera_after):
+        raise ProfileError(
+            f"{where} toggles camera.collect_head_camera, which changes how many cameras draw "
+            "from the RNG before the scene is built, and so every seed's scene"
+        )
+    created_before, created_after = _created(before, camera_before), _created(after, camera_after)
+    if len(created_before) != len(created_after):
+        raise ProfileError(
+            f"{where} changes the number of static cameras RoboTwin creates from "
+            f"{len(created_before)} to {len(created_after)}; each one draws from the RNG before "
+            "the scene is built, so every seed's scene would change"
+        )
+    heads_before = [i for i, entry in enumerate(before) if entry.get("name") == HEAD_CAMERA]
+    heads_after = [i for i, entry in enumerate(after) if entry.get("name") == HEAD_CAMERA]
+    if len(heads_after) > len(heads_before):
+        raise ProfileError(f"{where} names another camera {HEAD_CAMERA}")
+    if heads_before != heads_after:
+        raise ProfileError(f"{where} moves or removes {HEAD_CAMERA}")
+    names_after = [entry.get("name") for entry in after]
+    if duplicates := sorted({name for name in names_after if names_after.count(name) > 1}):
+        raise ProfileError(
+            f"{where} leaves two cameras named {duplicates}; RoboTwin keys cameras by name, so "
+            "one would overwrite the other"
+        )
+    # `Camera.get_config()` and `get_rgba()` store the wrist cameras under these names before the
+    # static cameras, so a static camera named like one silently replaces its config and image.
+    # Reserved even while `collect_wrist_camera` is off, so a later toggle cannot collide.
+    if wrist := [name for name in names_after if name in WRIST_CAMERAS]:
+        raise ProfileError(
+            f"{where} names a static camera {wrist[0]!r}, like a wrist camera; RoboTwin keys "
+            "cameras by name, so one would overwrite the other"
+        )
