@@ -8,6 +8,7 @@ from icil_policies.testing import assert_conversion_pinned, conversion_digest
 from icil_policies.uniskill import conversion
 from icil_policies.uniskill.conversion import (
     Augmentation,
+    SkillCursor,
     augment_views,
     draw_augmentation,
     future_rows,
@@ -52,19 +53,32 @@ def test_the_skill_row_is_the_executed_count_held_past_the_end():
 
 
 def test_replans_every_ta_actions_take_the_row_of_the_actions_executed():
-    rows = 20
-    used = []
-    executed = 0
+    """Through the cursor `UniSkillPolicy._act` and `_plan` use, so CI covers their order."""
+    planned = []
 
     def plan(history):
-        used.append(skill_row(executed, rows))
+        planned.append(cursor.row())
         return np.zeros((16, 14))
 
-    executor = ChunkExecutor(plan, n_obs=2, n_action=8)
+    cursor = SkillCursor(ChunkExecutor(plan, n_obs=2, n_action=8))
+    cursor.set_rows(20)
     for step in range(40):
-        executor.act(step)
-        executed += 1
-    assert used == [0, 8, 16, 19, 19]
+        cursor.act(step)
+    # An action leaves before the count advances, so each re-plan reads the count before it.
+    assert planned == [0, 8, 16, 19, 19]
+    assert [step for step, _ in cursor.replans] == [0, 8, 16, 24, 32]
+    assert [row for _, row in cursor.replans] == planned
+    assert cursor.executed == 40
+
+
+def test_the_cursor_forgets_the_episode_and_needs_rows_to_index():
+    cursor = SkillCursor(ChunkExecutor(lambda history: np.zeros((16, 14)), n_obs=2, n_action=8))
+    cursor.set_rows(3)
+    cursor.act(0)
+    cursor.reset()
+    assert (cursor.executed, cursor.n_rows, cursor.replans) == (0, 0, [])
+    with pytest.raises(ValueError):
+        cursor.set_rows(0)
 
 
 def test_skill_rows_align_with_resampled_steps_and_actions():
