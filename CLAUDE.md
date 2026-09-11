@@ -42,7 +42,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets.
-- Smoke: `robotwin-icil eval --policy replay --task place_object_basket --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
+- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules

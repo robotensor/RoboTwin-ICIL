@@ -59,9 +59,9 @@ There is no zero-shot score, no ICL gain, no multi-shot setting and no difficult
 
 RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
-Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is a
-subset chosen for short horizons and high expert success rates, spanning Pick and Place, Stacking
-and Press / Push.
+Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
+short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
+expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md).
 
 ## Quick start
 
@@ -77,8 +77,10 @@ pytest -m "not sim"
 bash scripts/install_robotwin.sh
 
 # one episode, replay-oracle policy, to prove the harness end to end
-robotwin-icil eval --policy replay --task place_object_basket --episodes 1 --seed 42 \
-    --run-dir runs/smoke
+robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke
+
+# how often RoboTwin's own expert solves each task (decides suite membership)
+robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
@@ -103,9 +105,10 @@ src/robotwin_icil/
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
+  survey.py                 the expert's own success rate per task
   robotwin.py               the only module that imports RoboTwin
   cli.py
-docs/                       installation, policy adapters
+docs/                       installation, policy adapters, the expert survey
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
 
