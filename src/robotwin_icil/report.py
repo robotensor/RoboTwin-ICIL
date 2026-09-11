@@ -5,16 +5,31 @@ episodes (the expert could not solve the scene) and invalid ones (the reset did 
 never enter its denominator; they are reported as diagnostics of the benchmark, not of the model.
 
 Rates are fractions in `[0, 1]` everywhere; `render` is the single place they become percentages.
+
+Reference runs (`report --reference`), an oracle's or another model's, print in columns beside the
+run's own rates. They are context, not a second score, and stand beside a run only when they
+evaluated the same scenes: the same global seed, tasks, configuration and camera profile.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from .records import EpisodeRecord, RunManifest, Status
+from .records import EpisodeRecord, RunDir, RunManifest, Status
 from .tasks import TaskTable
+
+# What a reference must share with the reported run, besides its camera profile and configs: the
+# scenes are drawn from the global seed per episode, task by task, under the same expert budget.
+_SAME = ("evaluation_setting", "global_seed", "suite", "tasks", "max_expert_attempts")
+_MISSING = object()
+
+
+class ReportError(ValueError):
+    """A reference run cannot stand beside the reported run: it did not evaluate the same scenes."""
 
 
 @dataclass(frozen=True)
@@ -92,6 +107,77 @@ class Report:
         }
 
 
+@dataclass(frozen=True)
+class Reference:
+    """Another run of the same scenes, reported beside this one under its policy's name."""
+
+    label: str
+    run_dir: str
+    manifest: RunManifest
+    report: Report
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "run_dir": self.run_dir,
+            "policy": self.manifest.policy,
+            **self.report.to_json(),
+        }
+
+
+def policy_label(manifest: RunManifest) -> str:
+    """How a report names a run's policy: its adapter, else its policy name."""
+    return str(manifest.policy.get("adapter") or manifest.policy.get("policy") or "?")
+
+
+def differences(run: RunManifest, reference: RunManifest) -> list[str]:
+    """The fields in which `reference` did not evaluate the scenes `run` did; empty when it did.
+
+    Compared as resuming compares them (`RunManifest.identity()`), so a manifest from before
+    camera profiles reads as `stock`. The policy, its arguments, the commits and the machine may
+    differ: that is what a reference is for.
+    """
+    ours, theirs = run.identity(), reference.identity()
+    found = [
+        key if key == "tasks" else f"{key} ({theirs[key]!r}, not {ours[key]!r})"
+        for key in _SAME
+        if ours[key] != theirs[key]
+    ]
+    if run.camera_profile() != reference.camera_profile():
+        found.append(
+            f"camera profile ({_profile(reference.camera_profile())}, "
+            f"not {_profile(run.camera_profile())})"
+        )
+    for section in ("benchmark_config", "robotwin_config"):
+        mine, other = ours[section], theirs[section]
+        for key in sorted(set(mine) | set(other)):
+            if (section, key) == ("benchmark_config", "camera_profile"):
+                continue
+            if mine.get(key, _MISSING) != other.get(key, _MISSING):
+                found.append(f"{section}.{key}")
+    return found
+
+
+def load_reference(path: Path, run: RunManifest, table: TaskTable) -> Reference:
+    """Load a reference run directory, refusing one that differs from `run` in its scenes, or
+    that failed the frozen-policy audit."""
+    reference = RunDir(Path(path))
+    reference.check_audit()
+    manifest = reference.manifest()
+    found = differences(run, manifest)
+    if found:
+        raise ReportError(
+            f"reference {reference.path} differs from the reported run in {'; '.join(found)}: a "
+            "reference must run the same global seed, tasks, configuration and camera profile"
+        )
+    return Reference(
+        label=policy_label(manifest),
+        run_dir=str(reference.path),
+        manifest=manifest,
+        report=build(reference.records(), table),
+    )
+
+
 def _rate(records: list[EpisodeRecord]) -> Rate:
     scored = [r for r in records if r.scored]
     return Rate(successes=sum(1 for r in scored if r.success), episodes=len(scored))
@@ -141,8 +227,16 @@ def _percent(value: float | None) -> str:
     return "—" if value is None else f"{100 * value:.1f}%"
 
 
-def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> str:
-    """The plain-text report: overall, then each category, then its tasks."""
+def render(
+    report: Report,
+    manifest: RunManifest | None,
+    table: TaskTable,
+    references: Sequence[Reference] = (),
+) -> str:
+    """The plain-text report: overall, then each category, then its tasks.
+
+    Each reference adds a column beside the run's own rates, and its overall rate under the run's.
+    """
     lines = ["RoboTwin ICIL Benchmark", "=======================", ""]
     if manifest is not None:
         lines += [
@@ -157,21 +251,42 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             "",
         ]
     overall = report.overall
-    lines += [
-        f"Overall Same Scene 1-Demo Success:  {_percent(overall.value)}  ({overall.successes}/{overall.episodes})",
-        "",
-        "By manipulation skill:",
-    ]
-    width = max([len(t) for tasks in report.by_task.values() for t in tasks] + [24])
-    for category, rate in report.by_category.items():
-        label = table.categories[category]
+    lines.append(
+        f"Overall Same Scene 1-Demo Success:  {_percent(overall.value)}  ({overall.successes}/{overall.episodes})"
+    )
+    labels = _unique(
+        [policy_label(manifest) if manifest is not None else "this run"]
+        + [reference.label for reference in references]
+    )
+    if references:
         lines.append(
-            f"  {label:<{width}}  {_percent(rate.value):>7}  ({rate.successes}/{rate.episodes})"
+            "Reference runs (same global seed, tasks, configuration and camera profile; "
+            "not scores of this run):"
         )
-        for task, task_rate in report.by_task[category].items():
+        label_width = max(len(label) for label in labels[1:])
+        for label, reference in zip(labels[1:], references, strict=True):
             lines.append(
-                f"    {task:<{width - 2}}  {_percent(task_rate.value):>7}  ({task_rate.successes}/{task_rate.episodes})"
+                f"  {label:<{label_width}}  {_cell(reference.report.overall)}  {reference.run_dir}"
             )
+    lines += ["", "By manipulation skill:"]
+    reports = [report, *(reference.report for reference in references)]
+    rows = _rows(reports, table)
+    cells = [[_cell(_lookup(r, category, task)) for r in reports] for category, task in rows]
+    width = max([len(task) for _, task in rows if task is not None] + [24])
+    # One column needs no heading and no padding: the report reads as it always has.
+    column = max(len(text) for text in [*labels, *(c for row in cells for c in row)])
+    column = column if references else 0
+    if references:
+        lines.append(
+            (f"  {'':<{width}}  " + "  ".join(name.ljust(column) for name in labels)).rstrip()
+        )
+    for (category, task), row in zip(rows, cells, strict=True):
+        name = (
+            f"  {table.categories[category]:<{width}}"
+            if task is None
+            else f"    {task:<{width - 2}}"
+        )
+        lines.append((f"{name}  " + "  ".join(text.ljust(column) for text in row)).rstrip())
     d = report.diagnostics
     lines += [
         "",
@@ -186,6 +301,42 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
     for reason, example in d.rejection_examples.items():
         lines.append(f"    e.g. {reason}: {example[:120]}")
     return "\n".join(lines) + "\n"
+
+
+def _rows(reports: Sequence[Report], table: TaskTable) -> list[tuple[str, str | None]]:
+    """(category, task) in table order over every report, task None for a category's own row."""
+    rows: list[tuple[str, str | None]] = []
+    for category in table.categories:
+        if not any(category in r.by_category for r in reports):
+            continue
+        rows.append((category, None))
+        for task in (t.name for t in table.tasks.values() if t.category == category):
+            if any(task in r.by_task.get(category, {}) for r in reports):
+                rows.append((category, task))
+    return rows
+
+
+def _lookup(report: Report, category: str, task: str | None) -> Rate | None:
+    if task is None:
+        return report.by_category.get(category)
+    return report.by_task.get(category, {}).get(task)
+
+
+def _cell(rate: Rate | None) -> str:
+    """A rate as the report prints it; a row a run has no episodes in is a bare dash."""
+    if rate is None:
+        return f"{'—':>7}"
+    return f"{_percent(rate.value):>7}  ({rate.successes}/{rate.episodes})"
+
+
+def _unique(labels: list[str]) -> list[str]:
+    """Labels with repeats numbered, so two runs of one policy stay two columns: a, a #2."""
+    seen: Counter[str] = Counter()
+    unique = []
+    for label in labels:
+        seen[label] += 1
+        unique.append(label if seen[label] == 1 else f"{label} #{seen[label]}")
+    return unique
 
 
 def seen_in_training(manifest: RunManifest) -> tuple[int, int] | None:
