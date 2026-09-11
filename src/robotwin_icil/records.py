@@ -10,12 +10,14 @@ also holds `audit.json`, and is then neither resumed nor reported.
 from __future__ import annotations
 
 import enum
+import importlib
 import json
 import os
 import platform
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -270,5 +272,80 @@ def git_commit(path: Path) -> str | None:
     return f"{head}-dirty" if dirty else head
 
 
+# nvidia-smi answers well within this on a working machine; a hung driver must not stall a run.
+_NVIDIA_SMI_TIMEOUT_S = 5.0
+
+
 def environment() -> dict[str, str]:
-    return {"python": sys.version.split()[0], "platform": platform.platform()}
+    """The stack a run ran on: python, platform, GPU and driver, torch and the CUDA it was built
+    for, CuRobo and SAPIEN.
+
+    The Blackwell stack (torch 2.8, CUDA 12.8) can change the expert's plans, and with them which
+    seeds are rejected and what each demonstration shows, so a run must say which stack produced
+    it. An entry is present only when it could be read. This never raises, stays fast when none of
+    it is installed, and is left out of `RunManifest.identity()`: a run resumes on another machine.
+    """
+    found = {"python": sys.version.split()[0], "platform": platform.platform()}
+    for probe in (_gpu, _torch, _curobo, _sapien):
+        try:
+            found.update(probe())
+        except Exception:
+            # Provenance is best effort: a broken probe must not stop the run it describes.
+            continue
+    return found
+
+
+def _gpu() -> dict[str, str]:
+    """Every GPU's name, and the driver, from nvidia-smi; nothing when it is absent or fails."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=_NVIDIA_SMI_TIMEOUT_S,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    rows = [line.rsplit(",", 1) for line in out.splitlines() if "," in line]
+    if not rows:
+        return {}
+    return {
+        "gpu": "; ".join(name.strip() for name, _ in rows),
+        "gpu_driver": "; ".join(sorted({driver.strip() for _, driver in rows})),
+    }
+
+
+def _torch() -> dict[str, str]:
+    # Imported here and only here: the pure environment has no torch.
+    try:
+        torch = importlib.import_module("torch")
+    except ImportError:
+        return {}
+    found = {"torch": str(torch.__version__)}
+    cuda = getattr(getattr(torch, "version", None), "cuda", None)
+    if cuda:
+        found["torch_cuda"] = str(cuda)
+    return found
+
+
+def _curobo() -> dict[str, str]:
+    version = _distribution("nvidia_curobo")
+    if version is None:
+        try:
+            version = str(importlib.import_module("curobo").__version__)
+        except (ImportError, AttributeError):
+            return {}
+    return {"curobo": version}
+
+
+def _sapien() -> dict[str, str]:
+    version = _distribution("sapien")
+    return {} if version is None else {"sapien": version}
+
+
+def _distribution(name: str) -> str | None:
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None

@@ -1,9 +1,13 @@
 import json
+import subprocess
+import sys
+import types
 from dataclasses import replace
+from importlib import metadata
 
 import pytest
 
-from robotwin_icil import camera_profiles
+from robotwin_icil import camera_profiles, records
 from robotwin_icil.records import (
     SAME_SCENE,
     EpisodeRecord,
@@ -11,6 +15,7 @@ from robotwin_icil.records import (
     RunDir,
     RunManifest,
     Status,
+    environment,
     git_commit,
 )
 
@@ -248,3 +253,99 @@ def test_a_run_that_failed_the_audit_is_not_resumed(tmp_path):
         run.check_audit()
     with pytest.raises(RecordError, match="failed the frozen-policy audit"):
         run.start(manifest())
+
+
+def _installed(monkeypatch, versions, nvidia_smi=None, torch=None, curobo=None):
+    """Fake what `environment()` probes: distributions, nvidia-smi's output, torch and curobo."""
+    calls = []
+    real_run = subprocess.run
+
+    def version(name):
+        if name not in versions:
+            raise metadata.PackageNotFoundError(name)
+        return versions[name]
+
+    def run(command, **kwargs):
+        if command[0] != "nvidia-smi":  # platform.platform() asks `uname -p` the same way
+            return real_run(command, **kwargs)
+        calls.append((command, kwargs))
+        if nvidia_smi is None:
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+        if isinstance(nvidia_smi, BaseException):
+            raise nvidia_smi
+        return subprocess.CompletedProcess(command, 0, stdout=nvidia_smi, stderr="")
+
+    monkeypatch.setattr(records.metadata, "version", version)
+    monkeypatch.setattr(records.subprocess, "run", run)
+    # None in sys.modules makes the import raise ImportError, as a missing package does.
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setitem(sys.modules, "curobo", curobo)
+    return calls
+
+
+def _module(name, **attributes):
+    module = types.ModuleType(name)
+    module.__dict__.update(attributes)
+    return module
+
+
+def test_environment_with_nothing_installed_is_python_and_platform(monkeypatch):
+    calls = _installed(monkeypatch, {})
+    assert set(environment()) == {"python", "platform"}
+    # nvidia-smi was asked once, under a timeout, so a hung driver cannot stall a run.
+    [(command, kwargs)] = calls
+    assert command[0] == "nvidia-smi" and 0 < kwargs["timeout"] <= 10
+
+
+def test_environment_names_the_gpu_driver_torch_cuda_curobo_and_sapien(monkeypatch):
+    torch = _module("torch", __version__="2.8.0+cu128", version=types.SimpleNamespace(cuda="12.8"))
+    _installed(
+        monkeypatch,
+        {"nvidia_curobo": "0.7.8", "sapien": "3.0.0b1"},
+        nvidia_smi="NVIDIA GeForce RTX 5090, 575.57.08\nNVIDIA GeForce RTX 5090, 575.57.08\n",
+        torch=torch,
+    )
+    found = environment()
+    assert {k: v for k, v in found.items() if k not in ("python", "platform")} == {
+        "gpu": "NVIDIA GeForce RTX 5090; NVIDIA GeForce RTX 5090",
+        "gpu_driver": "575.57.08",
+        "torch": "2.8.0+cu128",
+        "torch_cuda": "12.8",
+        "curobo": "0.7.8",
+        "sapien": "3.0.0b1",
+    }
+    assert all(isinstance(value, str) for value in found.values())
+    assert "environment" not in manifest(environment=found).identity()
+
+
+def test_environment_falls_back_to_curobos_own_version(monkeypatch):
+    cpu_torch = _module("torch", __version__="2.4.1", version=types.SimpleNamespace(cuda=None))
+    _installed(
+        monkeypatch, {}, torch=cpu_torch, curobo=_module("curobo", __version__="0.7.7.post1")
+    )
+    found = environment()
+    assert (found["torch"], found["curobo"]) == ("2.4.1", "0.7.7.post1")
+    assert "torch_cuda" not in found and "sapien" not in found
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        subprocess.TimeoutExpired("nvidia-smi", 5.0),
+        subprocess.CalledProcessError(9, "nvidia-smi"),
+        PermissionError(13, "Permission denied"),
+    ],
+)
+def test_environment_never_raises(monkeypatch, failure):
+    _installed(monkeypatch, {"sapien": "3.0.0b1"}, nvidia_smi=failure)
+
+    def broken_import(name, package=None):
+        raise OSError(f"lib{name}.so: cannot open shared object file")
+
+    monkeypatch.setattr(records.importlib, "import_module", broken_import)
+    assert set(environment()) == {"python", "platform", "sapien"}
+
+
+def test_environment_skips_what_nvidia_smi_does_not_list(monkeypatch):
+    _installed(monkeypatch, {}, nvidia_smi="No devices were found\n")
+    assert "gpu" not in environment()
