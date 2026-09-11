@@ -23,3 +23,17 @@ jobs:
         with: { python-version: "${{ matrix.python }}" }
       - run: pip install -e ".[dev]"
       - run: pytest -q -m "not sim"
+  policies:
+    # policies/ is a separate distribution; CI installs its numpy toolkit with the core, never
+    # a model stack (those live in scripts/install_policy_env.sh's environments).
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install -e . -e "./policies[pure]" ruff==0.16.7
+      - run: ruff check policies && ruff format --check policies
+      - run: pytest -q -m "not sim" policies/tests
