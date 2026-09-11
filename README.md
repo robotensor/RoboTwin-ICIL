@@ -118,6 +118,10 @@ robotwin-icil cameras --profile far_side --task click_bell --seed 0 --out runs/c
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
+
+# an adapter's constructor arguments, repeatable; its many settings belong in its own YAML
+robotwin-icil eval --policy <adapter> --policy-arg config=configs/<adapter>.yml \
+    --policy-arg temperature=0.5 --suite v1 --episodes 500 --seed 42 --run-dir runs/v1-t05
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
@@ -165,9 +169,11 @@ See [`docs/policies.md`](docs/policies.md).
 
 ## Reproducibility
 
-A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
-git commits, both configs, and per episode: the task, skill category, scene seed, number of expert
-generation attempts, rollout length and outcome. With `--video`, demonstration and evaluation clips
+A run is reproducible from its global seed; a sampling policy gets a per-episode seed from a
+stream of its own, never the scene seed. Each run directory records the benchmark and RoboTwin
+git commits, both configs, the policy's description, arguments and software environment, and
+per episode: the task, skill category, scene seed, number of expert generation attempts, rollout
+length, outcome and what the policy reported about the rollout. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 
