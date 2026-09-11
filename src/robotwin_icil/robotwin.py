@@ -102,7 +102,8 @@ class SceneConfig:
     Recorded in the run manifest: two runs with different configs are not comparable, because the
     config decides the cameras, the embodiment and the domain randomization the expert and the
     policy both see. `camera_profile` names a profile in `cameras.yml`; any profile keeps every
-    seed's scene, but not the images a policy is given.
+    seed's scene, but not the images a policy is given. `overrides` have the last word over every
+    key, the profile's included, but are held to the same camera guard as a profile.
     """
 
     task_config: str = "demo_clean"
@@ -163,11 +164,13 @@ class SceneConfig:
         args["collect_data"] = False
         args["eval_video_save_dir"] = None
         # After the embodiment configs, whose static camera list the profile rewrites; before
-        # `overrides`, which stay the last word as they always were.
-        args = camera_profiles.apply(args, self.camera_profile, camera_types())
+        # `overrides`, which stay the last word as they always were. Overrides can reach the
+        # cameras too, so the final args are held to the profile's guard against RoboTwin's own.
+        profiled = camera_profiles.apply(args, self.camera_profile, camera_types())
         for key, value in (self.overrides or {}).items():
-            args[key] = value
-        return args
+            profiled[key] = value
+        camera_profiles.check_scene_preserved(args, profiled, "SceneConfig.overrides")
+        return profiled
 
 
 def camera_types() -> frozenset[str]:

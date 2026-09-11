@@ -6,7 +6,7 @@ import math
 import pytest
 
 from robotwin_icil import camera_profiles
-from robotwin_icil.camera_profiles import ProfileError, apply, parse
+from robotwin_icil.camera_profiles import ProfileError, apply, check_scene_preserved, parse
 
 # Copied from RoboTwin's `assets/embodiments/aloha-agilex/config.yml`, the V1 embodiment.
 STATIC_CAMERA_LIST = [
@@ -196,6 +196,26 @@ def test_a_static_camera_may_not_take_a_wrist_camera_name(static_camera_list):
             )
             with pytest.raises(ProfileError, match=f"names a static camera '{wrist}'"):
                 apply(args, parse("p", replacing("front_camera", name=wrist)))
+
+
+def test_any_args_are_held_to_the_same_guard(static_camera_list):
+    before = resolved(static_camera_list)
+    check_scene_preserved(before, apply(before, "far_side"))
+    head, front = copy.deepcopy(static_camera_list)
+    refused = [
+        ({"camera": {"collect_head_camera": False}}, "toggles camera.collect_head_camera"),
+        ({"cameras": [head, front, SIDE_CAMERA]}, "creates from 2 to 3"),
+        ({"cameras": [front, SIDE_CAMERA]}, "moves or removes head_camera"),
+        ({"cameras": [head, {**front, "name": "head_camera"}]}, "names another camera"),
+        ({"cameras": [head, {**front, "name": "right_camera"}]}, "like a wrist camera"),
+    ]
+    for change, match in refused:
+        after = copy.deepcopy(before)
+        after["camera"] = {**after["camera"], **change.get("camera", {})}
+        if "cameras" in change:
+            after["left_embodiment_config"]["static_camera_list"] = change["cameras"]
+        with pytest.raises(ProfileError, match=f"^overrides .*{match}"):
+            check_scene_preserved(before, after, "overrides")
 
 
 def test_a_camera_type_robotwin_lacks_is_refused(static_camera_list):

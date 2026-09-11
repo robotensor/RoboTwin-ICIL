@@ -124,6 +124,21 @@ def test_overrides_still_have_the_last_word(fake_checkout):
     assert config.resolve("click_bell")["camera"] == {}
 
 
+def test_overrides_are_held_to_the_camera_guard(fake_checkout):
+    from test_cameras import SIDE_CAMERA, STATIC_CAMERA_LIST
+
+    toggled = robotwin.SceneConfig(overrides={"camera": {"collect_head_camera": False}})
+    with pytest.raises(camera_profiles.ProfileError, match="SceneConfig.overrides toggles"):
+        toggled.resolve("click_bell")
+    added = {"static_camera_list": [*STATIC_CAMERA_LIST, SIDE_CAMERA]}
+    for profile in ("stock", "far_side"):
+        config = robotwin.SceneConfig(
+            camera_profile=profile, overrides={"left_embodiment_config": added}
+        )
+        with pytest.raises(camera_profiles.ProfileError, match="creates from 2 to 3"):
+            config.resolve("click_bell")
+
+
 def test_an_unknown_camera_profile_fails_before_any_scene():
     with pytest.raises(camera_profiles.ProfileError, match="unknown camera profile"):
         robotwin.SceneConfig(camera_profile="nope")

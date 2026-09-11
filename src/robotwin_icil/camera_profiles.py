@@ -315,3 +315,20 @@ def _refuse_scene_changes(
             f"{where} names a static camera {wrist[0]!r}, like a wrist camera; RoboTwin keys "
             "cameras by name, so one would overwrite the other"
         )
+
+
+def check_scene_preserved(
+    before: Mapping[str, Any], after: Mapping[str, Any], where: str = "the resolved args"
+) -> None:
+    """Refuse `after` args whose static cameras would build other scenes than `before`'s.
+
+    `apply` holds a profile to this; `SceneConfig.resolve` holds its `overrides` to it too, once
+    they have had the last word, so the guard has no way around it. Raises `ProfileError`.
+    """
+    _refuse_scene_changes(
+        where,
+        _camera_list(before),
+        before.get("camera") or {},
+        _camera_list(after),
+        after.get("camera") or {},
+    )
