@@ -177,3 +177,77 @@ def test_a_snapshot_of_a_scene_that_will_not_build_says_why(fake_task):
     with pytest.raises(robotwin.RoboTwinError, match="building click_bell seed 8 failed"):
         robotwin.snapshot("click_bell", 8, FakeConfig())
     assert [env.closed for env in fake_task] == [1, 1]
+
+
+def built(**kwargs):
+    from fake_robotwin import FakeTaskEnv
+
+    env = FakeTaskEnv(**kwargs)
+    env.setup_demo(seed=0)
+    return env
+
+
+def test_the_clock_counts_physics_steps_from_where_it_is_installed():
+    from fake_robotwin import SETTLE_STEPS
+
+    env = built()
+    assert env.scene.stepped == SETTLE_STEPS  # RoboTwin's settle, inside setup_demo
+    with robotwin.clock(env) as ticks:
+        assert ticks.steps == 0 and ticks.seconds == 0.0
+        env.scene.step()
+        env.scene.step()
+    assert ticks.steps == 2 and ticks.seconds == pytest.approx(2 / 250)
+    assert env.scene.stepped == SETTLE_STEPS + 2  # every counted step still ran
+
+
+def test_the_clock_sees_steps_taken_inside_the_env():
+    env = built(physics_per_action=3)
+    with robotwin.clock(env) as ticks:
+        env.take_action(env.target)
+    assert ticks.steps == 3
+
+
+def test_leaving_the_clock_restores_the_scenes_own_step():
+    env = built()
+    with robotwin.clock(env) as ticks:
+        assert "step" in vars(env.scene)
+    assert "step" not in vars(env.scene)
+    env.scene.step()
+    assert ticks.steps == 0
+
+
+def test_the_clock_is_removed_when_the_block_raises():
+    env = built()
+    with pytest.raises(RuntimeError, match="expert exploded"):
+        with robotwin.clock(env) as ticks:
+            env.scene.step()
+            raise RuntimeError("expert exploded")
+    assert "step" not in vars(env.scene)
+    env.scene.step()
+    assert ticks.steps == 1
+
+
+def test_nested_clocks_both_count_and_unwind_in_order():
+    env = built()
+    with robotwin.clock(env) as outer:
+        env.scene.step()
+        with robotwin.clock(env) as inner:
+            env.scene.step()
+        env.scene.step()
+    assert (outer.steps, inner.steps) == (3, 1)
+    assert "step" not in vars(env.scene)
+
+
+def test_a_scene_that_cannot_be_shadowed_is_refused():
+    class Frozen:
+        __slots__ = ()
+
+        def get_timestep(self):
+            return 1 / 250
+
+        def step(self):
+            pass
+
+    with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
+        with robotwin.clock(types.SimpleNamespace(scene=Frozen())):
+            pass

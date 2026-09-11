@@ -12,6 +12,8 @@ The mechanisms reused here, all from `vendor/RoboTwin`:
 - `Base_Task._take_picture()` — called from `take_dense_action` every `save_freq` control steps
   while `save_data` is set. Upstream pickles the frame to a cache directory; we intercept it and
   keep frames in memory instead. The submodule is never patched.
+- `env.scene.step()` — every physics step, in `take_dense_action`, `together_move_to_pose` and
+  `take_action` alike. `clock` shadows it on the scene instance to count simulated time.
 """
 
 from __future__ import annotations
@@ -310,6 +312,58 @@ def capture(env, save_freq: int) -> Iterator[list[Frame]]:
         env._take_picture = original_take_picture
         env.save_data = original_save_data
         env.save_freq = original_save_freq
+
+
+class Clock:
+    """Simulated time since a `clock` was installed: physics steps, and the seconds they span."""
+
+    def __init__(self, timestep: float) -> None:
+        self.timestep = timestep
+        self.steps = 0
+
+    @property
+    def seconds(self) -> float:
+        return self.steps * self.timestep
+
+
+@contextlib.contextmanager
+def clock(env) -> Iterator[Clock]:
+    """Count every physics step the live scene takes while the block runs.
+
+    RoboTwin's frames are not evenly spaced in time: `take_dense_action` records one frame before
+    its first physics step, one after every `save_freq`-th step from the first, and one after its
+    last, and `together_move_to_pose` steps and records in a loop of its own. Counting
+    `scene.step()` itself sees all of them. `Engine.create_scene()` returns SAPIEN's Python
+    `Scene` wrapper, whose `step` is a plain method, so an instance attribute shadows it without
+    touching the submodule, and deleting that attribute restores the class's method.
+
+    Install it after `setup_demo` and the fingerprint, so RoboTwin's stability settle is not
+    counted, and leave the block before `close`. The shadow is removed even when the block
+    raises; an enclosing clock's shadow is put back rather than deleted.
+    """
+    scene = env.scene
+    ticks = Clock(float(scene.get_timestep()))
+    enclosing = getattr(scene, "__dict__", {}).get("step")
+    step = scene.step
+
+    def counted_step(*args, **kwargs):
+        result = step(*args, **kwargs)
+        ticks.steps += 1
+        return result
+
+    try:
+        scene.step = counted_step
+    except AttributeError as exc:
+        raise RoboTwinError(
+            f"cannot count the physics steps of a {type(scene).__name__}: {exc}"
+        ) from exc
+    try:
+        yield ticks
+    finally:
+        if enclosing is None:
+            del scene.step
+        else:
+            scene.step = enclosing
 
 
 def frame_rate_hz(env, save_freq: int) -> float:
