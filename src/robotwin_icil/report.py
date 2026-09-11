@@ -149,6 +149,9 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             f"Evaluation setting:          {manifest.evaluation_setting}",
             "Demonstrations per episode:  1",
             f"Policy:                      {manifest.policy.get('policy', '?')}",
+            f"Adapter:                     {_adapter(manifest.policy)}",
+            f"Training regime:             {_regime(seen_in_training(manifest))}",
+            f"Camera profile:              {_profile(manifest.camera_profile())}",
             f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}",
             f"Global seed:                 {manifest.global_seed}",
             "",
@@ -183,6 +186,37 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
     for reason, example in d.rejection_examples.items():
         lines.append(f"    e.g. {reason}: {example[:120]}")
     return "\n".join(lines) + "\n"
+
+
+def seen_in_training(manifest: RunManifest) -> tuple[int, int] | None:
+    """(k, N): of the run's N evaluated tasks, the k its policy says it was trained on.
+
+    None when the description's `training_tasks` is "unknown" or absent: no claim either way.
+    """
+    trained = manifest.policy.get("training_tasks")
+    if not isinstance(trained, (list, tuple)):
+        return None
+    evaluated = set(manifest.tasks)
+    return len(evaluated & set(trained)), len(evaluated)
+
+
+def _regime(seen: tuple[int, int] | None) -> str:
+    """Held out when no evaluated task was trained on: V1 then measures use of the demonstration
+    rather than memory of the task."""
+    if seen is None:
+        return "unknown (evaluation tasks seen in training: unknown)"
+    k, n = seen
+    return f"{'held out' if k == 0 else 'seen tasks'} (evaluation tasks seen in training: {k}/{n})"
+
+
+def _adapter(policy: dict[str, Any]) -> str:
+    return (
+        f"{policy.get('adapter') or '—'} (adapter_version {policy.get('adapter_version') or '—'})"
+    )
+
+
+def _profile(identity: dict[str, str]) -> str:
+    return f"{identity.get('name', '?')} (sha256 {str(identity.get('sha256', '?'))[:12]})"
 
 
 def _fmt(value: float | None) -> str:

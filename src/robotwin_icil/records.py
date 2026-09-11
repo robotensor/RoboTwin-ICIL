@@ -137,6 +137,13 @@ class RunManifest:
     def from_json(cls, data: dict[str, Any]) -> RunManifest:
         return cls(**{**data, "tasks": tuple(data["tasks"])})
 
+    def camera_profile(self) -> dict[str, str]:
+        """The camera profile's identity, `stock` for manifests written before camera profiles."""
+        recorded = self.benchmark_config.get("camera_profile")
+        if recorded is None:
+            return camera_profiles.get(camera_profiles.STOCK).identity()
+        return dict(recorded)
+
     def identity(self) -> dict[str, Any]:
         """The fields a resumed run must share with the run it continues.
 
@@ -153,7 +160,7 @@ class RunManifest:
         data.pop("policy_environment", None)
         stock = camera_profiles.get(camera_profiles.STOCK).identity()
         benchmark_config = data["benchmark_config"]
-        benchmark_config.setdefault("camera_profile", stock)
+        benchmark_config["camera_profile"] = self.camera_profile()
         if benchmark_config["camera_profile"] == stock:
             data["robotwin_config"].pop("static_cameras", None)
         return data

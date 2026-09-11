@@ -2,8 +2,9 @@ import dataclasses
 
 import pytest
 
-from robotwin_icil import report, tasks
+from robotwin_icil import camera_profiles, report, tasks
 from robotwin_icil.records import SAME_SCENE, EpisodeRecord, Status
+from test_records import manifest
 
 
 def record(
@@ -113,3 +114,63 @@ def test_the_report_says_what_rejections_actually_were():
     assert "e.g. expert_error: RuntimeError: CUDA error: out of memory" in report.render(
         built, None, tasks.table()
     )
+
+
+V1 = tuple(task.name for task in tasks.table().suite("v1"))
+
+
+def v1_run(profile="stock", **policy):
+    return manifest(
+        suite="v1",
+        tasks=V1,
+        policy={"policy": "icil", **policy},
+        benchmark_config={"camera_profile": camera_profiles.get(profile).identity()},
+    )
+
+
+def header(run):
+    return report.render(report.build([], tasks.table()), run, tasks.table())
+
+
+def test_the_header_labels_the_adapter_and_its_version_and_the_camera_profile():
+    text = header(v1_run("far_side", adapter="icil_policies.bpp", adapter_version="0.3.0"))
+    assert "Adapter:                     icil_policies.bpp (adapter_version 0.3.0)" in text
+    sha = camera_profiles.get("far_side").sha256
+    assert f"Camera profile:              far_side (sha256 {sha[:12]})" in text
+    assert "Adapter:                     — (adapter_version —)" in header(v1_run())
+
+
+def test_a_manifest_from_before_camera_profiles_is_labelled_stock():
+    legacy = manifest(benchmark_config={"task_config": "demo_clean"})
+    sha = camera_profiles.get("stock").sha256
+    assert f"Camera profile:              stock (sha256 {sha[:12]})" in header(legacy)
+
+
+@pytest.mark.parametrize(
+    "training_tasks, line",
+    [
+        (
+            ["place_object_basket", "open_laptop"],
+            "held out (evaluation tasks seen in training: 0/9)",
+        ),
+        ([*V1[:2], "place_object_basket"], "seen tasks (evaluation tasks seen in training: 2/9)"),
+        (list(V1), "seen tasks (evaluation tasks seen in training: 9/9)"),
+        ("unknown", "unknown (evaluation tasks seen in training: unknown)"),
+    ],
+)
+def test_the_header_counts_the_evaluation_tasks_seen_in_training(training_tasks, line):
+    assert f"Training regime:             {line}" in header(v1_run(training_tasks=training_tasks))
+
+
+def test_a_policy_that_does_not_say_what_it_trained_on_is_unknown():
+    run = v1_run()
+    assert "training_tasks" not in run.policy
+    assert report.seen_in_training(run) is None
+    assert "evaluation tasks seen in training: unknown" in header(run)
+    assert report.seen_in_training(v1_run(training_tasks=["click_bell"])) == (1, 9)
+
+
+def test_the_header_adds_no_score():
+    # The training labels describe the run; the only score is still the overall success rate.
+    text = header(v1_run(training_tasks=list(V1)))
+    assert "%" not in text.split("Overall Same Scene 1-Demo Success:")[0]
