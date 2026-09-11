@@ -25,7 +25,7 @@ def test_shapes_and_derived_views():
     assert d.cameras == ("head_camera",)
     assert d.qpos().shape == (5, BIMANUAL_QPOS_DIM)
     assert d.images("head_camera").shape == (5, 4, 4, 3)
-    assert d.duration_s == pytest.approx(5 / 15)
+    assert d.duration_s == pytest.approx(4 / 15)
 
 
 def test_actions_are_the_next_state():
@@ -95,6 +95,15 @@ def test_recorded_times_are_returned_as_they_are():
     # Ties are a frame taken with no physics step since the last: a primitive boundary.
     d = Demonstration(frames=timed([0.0, 0.004, 0.064, 0.064, 0.1]), frequency=50 / 3)
     np.testing.assert_array_equal(d.times(), [0.0, 0.004, 0.064, 0.064, 0.1])
+
+
+def test_duration_is_the_span_of_the_times():
+    # Five timed frames over 0.1 s would read as 5 / (50 / 3) = 0.3 s by frame count.
+    d = Demonstration(frames=timed([0.0, 0.004, 0.064, 0.064, 0.1]), frequency=50 / 3)
+    assert d.duration_s == pytest.approx(0.1)
+    # Untimed, the duplicate at a boundary adds no time.
+    frames = (frame(0), frame(1), frame(2), replace(frame(2), index=3))
+    assert Demonstration(frames=frames, frequency=15).duration_s == pytest.approx(2 / 15)
 
 
 def test_times_must_not_run_backwards():

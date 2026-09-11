@@ -108,7 +108,13 @@ class Demonstration:
 
     @property
     def duration_s(self) -> float:
-        return len(self.frames) / self.frequency
+        """Simulated seconds from the first frame to the last, by `times()`.
+
+        Not `len / frequency`: boundary duplicates, one-step gaps and remainders make the frame
+        count over the nominal rate wrong for timed data.
+        """
+        times = self.times()
+        return float(times[-1] - times[0])
 
     def times(self) -> np.ndarray:
         """(T,) simulated seconds of each frame since the expert started.
