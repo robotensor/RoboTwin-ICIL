@@ -94,7 +94,7 @@ capability 12.0) in a container:
 | libero | mujoco 3.3.0, robosuite 1.4.0 and bddl 1.0.1 with uv; gym 0.21.0 with pip after `pip==24.0 setuptools==65.5.0 wheel==0.38.4`; `deps/LIBERO` editable | gym 0.21's setup.py fails under current build tools |
 | robomimic | cmake, then the `austinapatel/robomimic` fork (branch `behavior_prompting_fixes`, pinned to `f4357ed`) with `CMAKE_POLICY_VERSION_MINIMUM=3.5`, under `constraints.txt` | BPP's LIBERO runner imports it; its egl-probe dependency needs cmake, and CMake 4 rejects egl-probe's old minimum |
 | model | `behavior_prompting` editable, `--no-deps` | its own requirements would undo the stack above |
-| benchmark | `robotwin-icil` and `policies[bpp]` editable, under `constraints.txt` | the adapter and the core types it converts |
+| benchmark | `robotwin-icil` and `policies[bpp,pure]` editable, under `constraints.txt` | the adapter, the core types it converts, and pytest for its contract tests; keyed on the checkout path and the extras, so the stage re-runs once for an env built before them |
 | backbone | `timm.create_model("vit_base_patch16_clip_224.openai", pretrained=True)` | BPP builds its model with `pretrained=true` (with `false`, its weight init rejects the CLIP ViT's bias-free patch layer) and the checkpoint overwrites the weights, but timm downloads them at construction: 576 MB into `$HF_HOME/hub` once, so servers run with `HF_HUB_OFFLINE=1` |
 | smoke | torch and CUDA, BPP's policy class, the benchmark, the backbone with `HF_HUB_OFFLINE=1` | |
 
