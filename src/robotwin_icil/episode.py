@@ -69,6 +69,7 @@ def run_episode(
             status=status,
             expert_generation_attempts=len(generated.attempts),
             rejections=_rejections(generated),
+            rejection_details=_rejection_details(generated),
             model=str(describe.get("model", describe["policy"])),
             checkpoint=describe.get("checkpoint"),
             duration_s=round(time.monotonic() - started, 3),
@@ -189,3 +190,12 @@ def _film(video: EpisodeVideo | None, write: Callable[[], None]) -> str:
 def _rejections(generated: Generated) -> dict[str, int]:
     counts = Counter(a.rejection.value for a in generated.attempts if a.rejection is not None)
     return dict(sorted(counts.items()))
+
+
+def _rejection_details(generated: Generated) -> dict[str, str]:
+    """The first detail recorded for each rejection reason, so a record says why, not just how often."""
+    details: dict[str, str] = {}
+    for attempt in generated.attempts:
+        if attempt.rejection is not None and attempt.detail:
+            details.setdefault(attempt.rejection.value, attempt.detail[:200])
+    return dict(sorted(details.items()))

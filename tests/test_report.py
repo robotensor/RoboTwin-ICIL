@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from robotwin_icil import report, tasks
@@ -94,3 +96,20 @@ def test_an_empty_run_reports_without_crashing():
     empty = report.build([], tasks.table())
     assert empty.overall.value is None and empty.by_category == {}
     assert "—" in report.render(empty, None, tasks.table())
+
+
+def test_the_report_says_what_rejections_actually_were():
+    # A run whose every seed failed the same way must name the failure, not just count it.
+    broken = dataclasses.replace(
+        record(
+            0, "click_bell", status=Status.REJECTED, attempts=20, rejections={"expert_error": 20}
+        ),
+        rejection_details={"expert_error": "RuntimeError: CUDA error: out of memory"},
+    )
+    built = report.build([broken], tasks.table())
+    assert built.to_json()["diagnostics"]["rejection_examples"] == {
+        "expert_error": "RuntimeError: CUDA error: out of memory"
+    }
+    assert "e.g. expert_error: RuntimeError: CUDA error: out of memory" in report.render(
+        built, None, tasks.table()
+    )
