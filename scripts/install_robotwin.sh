@@ -161,7 +161,11 @@ fi
 log "checking that SAPIEN renders (upstream scripts/test_render.py)"
 # shellcheck source=robotwin_env.sh
 source "${REPO_ROOT}/scripts/robotwin_env.sh"
-if ! (cd "${ROBOTWIN_ROOT}" && "${PY}" scripts/test_render.py 2>&1 | tee /dev/stderr | grep -q "Render Well"); then
+# Captured, then echoed: `tee /dev/stderr` reopens stderr's file with O_TRUNC, which wipes a log
+# that the script's output is redirected to.
+render_out=$(cd "${ROBOTWIN_ROOT}" && "${PY}" scripts/test_render.py 2>&1) || true
+printf '%s\n' "${render_out}" >&2
+if ! grep -q "Render Well" <<<"${render_out}"; then
     echo "SAPIEN cannot render on this machine; see 'Rendering' in docs/install.md" >&2
     exit 1
 fi
