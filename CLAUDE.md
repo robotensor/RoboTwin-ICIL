@@ -32,9 +32,15 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   loop with the trajectory kept and given to the policy. Read it before writing a new loop.
 - `setup_demo(is_test=True)` mirrors upstream's evaluator, but no task in the pinned checkout reads
   `is_test` (15 accept it in their signature and ignore it). It is not a held-out object split.
-- Physics steps every `scene.get_timestep()` (1/250 s) and a frame is recorded every `save_freq`
-  of those steps, so a demonstration runs at 250/`save_freq` fps. `Demonstration.frequency` is that
-  rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
+- Physics steps every `scene.get_timestep()` (1/250 s). Within a motion primitive a frame is
+  recorded every `save_freq` of those steps, so 250/`save_freq` fps is `Demonstration.frequency`,
+  the nominal rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
+  Frames are not evenly spaced: `take_dense_action`, and `together_move_to_pose` in a loop of its
+  own, also record before the first step, after the first and after the last, so each primitive
+  adds a one-step gap, a remainder and an exact duplicate where the next one starts. Time is
+  `Frame.time_s` (`Demonstration.times()`) and `Observation.time_s`, from `robotwin.clock`, which
+  counts `scene.step()` calls from after `setup_demo` and the fingerprint (so not RoboTwin's
+  2500-step settle) until before `close`.
 - Assets load from `./assets/...` relative to the working directory, so `robotwin.py` chdirs into
   `vendor/RoboTwin`. Resolve any path (run dir, checkpoint) to absolute before calling into it.
 
@@ -61,11 +67,12 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - No privileged state reaches the policy: scene seed, success condition, target object or
   destination id, `info` from `play_once()`, ground-truth task state, actor handles, planner
   internals. If a model needs language, it gets `"Follow the demonstrated behavior."`.
-- Demonstrations are model-independent (rgb per camera, endpose, qpos, control frequency). Per-model
-  conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
+- Demonstrations are model-independent (rgb per camera, endpose, qpos, frame times, control
+  frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
 - Reuse RoboTwin's task setup, expert, success check and reset as they are. The benchmark exposes
   that expert as an on-demand demonstration generator; it does not reimplement or fork it. In-memory
-  capture is a `_take_picture` override, not a patch to the submodule.
+  capture is a `_take_picture` override and the physics clock an instance override of
+  `scene.step`, not patches to the submodule.
 - `robotwin.py` is the only module that may import from `vendor/RoboTwin`; every other module stays
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
 - Camera profiles (`cameras.yml`, `camera_profiles.py`) only replace a static camera in its slot.
@@ -81,7 +88,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time.
 - Every episode records episode id, setting, skill category, task, scene seed, expert generation
-  attempts, success, rollout steps and model/checkpoint; every run also records the global seed,
+  attempts, success, rollout steps and physics steps, and model/checkpoint; every run also records the global seed,
   both configs and both git commits. Videos go to
   `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
