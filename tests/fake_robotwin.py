@@ -23,8 +23,8 @@ class FakeConfig:
     head_camera = None
     overrides = None
 
-    def resolve(self):
-        return {"save_freq": self.save_freq}
+    def resolve(self, task_name=None):
+        return {"save_freq": self.save_freq, "task_name": task_name}
 
 
 class _Pose:
@@ -67,10 +67,12 @@ class FakeTaskEnv:
         self.save_freq = None
         self.builds: dict[int, int] = {}
         self.setups: list[int] = []
+        self.task_names: list[str | None] = []
         self.closed = 0
 
     def setup_demo(self, now_ep_num=0, seed=0, is_test=False, **kwargs):
         self.setups.append(seed)
+        self.task_names.append(kwargs.get("task_name"))
         if seed in self.unstable_seeds:
             raise FakeUnstable(f"objects unstable in seed {seed}")
         self.builds[seed] = self.builds.get(seed, 0) + 1
