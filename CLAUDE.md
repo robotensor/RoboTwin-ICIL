@@ -100,11 +100,15 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
-  at report time.
+  at report time. `report --reference` prints other runs beside a run only when they ran the same
+  global seed, tasks, expert budget, configuration and camera profile; they are context, never a
+  second score.
 - Every episode records episode id, setting, skill category, task, scene seed, expert generation
-  attempts, success, rollout steps and physics steps, model/checkpoint and the policy's
+  attempts, success, rollout steps and physics steps, model/checkpoint, the policy's action type,
+  the arms the demonstration moved (analysis metadata, never a report slice) and the policy's
   `episode_info()`; every run also records the global seed, both configs, both git commits, the
-  policy's description and `--policy-arg`s (both part of its identity) and its environment (not).
+  policy's description and `--policy-arg`s (both part of its identity) and its environment, GPU,
+  driver, torch, CUDA, CuRobo and SAPIEN included (not).
   New record and manifest fields are defaulted, so older run directories still load and resume.
   Videos go to `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
