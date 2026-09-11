@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from robotwin_icil.demo import ARMS, EE_POSE_DIM, Demonstration
+from robotwin_icil.demo import ARMS, EE_POSE_DIM, Demonstration, DemonstrationError
 
 from .frames import EE_SLICES, QPOS_SLICES
 from .rotations import slerp
@@ -55,7 +55,9 @@ class Resampled:
 
     def images(self, camera: str) -> np.ndarray:
         """(N, h, w, 3) one camera's image at each sample."""
-        self.demonstration.images(camera)[:0]  # an unknown camera raises here, with the list
+        cameras = self.demonstration.cameras
+        if camera not in cameras:
+            raise DemonstrationError(f"no camera {camera!r}; have {list(cameras)}")
         frames = self.demonstration.frames
         return np.stack([frames[i].images[camera] for i in self.source])
 
