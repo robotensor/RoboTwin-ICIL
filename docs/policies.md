@@ -370,6 +370,10 @@ robotwin-icil report runs/mine --reference runs/replay --reference runs/replay_e
 
 Each reference prints in a column of its own, overall, by category and by task, named by its
 `adapter` or policy; `--json` lists them under `references`. A reference must have run the same
-global seed, suite, expert budget, configuration and camera profile, or the report refuses it and
-names the field; it may have fewer episodes, since episode i's scene depends only on the seed, the
-suite and i. References are context for the score, never a second one.
+global seed, suite, expert budget, RoboTwin commit, configuration and camera profile, or the report
+refuses it and names the field; the benchmark's own commit may differ. Episode i's scene depends
+only on those and i, so each reference is rated over the episodes both runs recorded, its
+diagnostics too: a finished oracle beside an interrupted run covers only the run's episodes, and a
+reference that recorded only some of them says `only n of this run's m episodes`. One that shares
+none is refused. The run's own score still covers all of its episodes. References are context for
+the score, never a second one.

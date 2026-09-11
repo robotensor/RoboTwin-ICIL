@@ -119,7 +119,7 @@ robotwin-icil cameras --profile far_side --task click_bell --seed 0 --out runs/c
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
 
-# the replay oracle on the same scenes, printed beside the model: same seed, suite, config, profile
+# the replay oracle beside the model: same seed, suite, RoboTwin commit, config and camera profile
 robotwin-icil eval --policy replay --suite v1 --episodes 500 --seed 42 --run-dir runs/v1-replay
 robotwin-icil report runs/v1 --reference runs/v1-replay
 
@@ -181,8 +181,9 @@ the expert's plans), and per episode: the task, skill category, scene seed, numb
 generation attempts, rollout length in calls and physics steps, outcome, the policy's action
 type, the arms the demonstration moved and what the policy reported about the rollout. The
 report names the camera profile, the adapter and its version, and how many evaluated tasks the
-policy was trained on; `--reference` prints other runs of the same scenes beside it, and refuses
-one that ran another seed, suite, configuration or camera profile. A run whose policy changed its
+policy was trained on; `--reference` prints other runs beside it, rated over the episodes both
+recorded, and refuses one that ran another seed, suite, RoboTwin commit, configuration or camera
+profile. A run whose policy changed its
 parameters, as its `parameter_checksum` shows, also holds `audit.json` and is neither resumed nor
 reported. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
