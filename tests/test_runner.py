@@ -144,3 +144,23 @@ def test_the_manifest_records_the_camera_profile(tmp_path, fake_sim):
         ("head_camera", "D435"),
         ("far_side_camera", "L515"),
     ]
+
+
+def test_clips_film_the_camera_the_run_names(tmp_path, monkeypatch, fake_sim):
+    cameras = []
+
+    class Recording(runner.EpisodeVideo):
+        def __init__(self, directory, camera):
+            cameras.append(camera)
+            super().__init__(directory, camera=camera)
+
+        def demonstration(self, demonstration):
+            pass
+
+        def finish(self):
+            pass
+
+    monkeypatch.setattr(runner, "EpisodeVideo", Recording)
+    run = spec(tmp_path, episodes=2, video=True, video_camera="far_side_camera")
+    runner.run(run, ReplayPolicy(), FakeConfig(), log=quiet)
+    assert cameras == ["far_side_camera", "far_side_camera"]

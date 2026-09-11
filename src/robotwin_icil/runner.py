@@ -26,7 +26,7 @@ from .records import (
     git_commit,
 )
 from .tasks import Task
-from .video import EpisodeVideo
+from .video import DEFAULT_CAMERA, EpisodeVideo
 
 DEFAULT_MAX_EXPERT_ATTEMPTS = 20
 
@@ -55,6 +55,8 @@ class RunSpec:
     clear_cache_every: int = 5
     # Clips per episode; off by default. Not part of the run's identity: it changes no result.
     video: bool = False
+    # The camera the clips show: the camera profile's `video_camera`.
+    video_camera: str = DEFAULT_CAMERA
 
 
 def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
@@ -134,7 +136,11 @@ def run(
                     policy,
                     config,
                     task_env=task_env,
-                    video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
+                    video=(
+                        EpisodeVideo(run_dir.episode_dir(episode), camera=spec.video_camera)
+                        if spec.video
+                        else None
+                    ),
                 )
                 run_dir.append(record)
                 progress += 1
