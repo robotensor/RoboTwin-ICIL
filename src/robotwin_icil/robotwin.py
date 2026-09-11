@@ -183,6 +183,11 @@ def close(env, clear_cache: bool = False) -> None:
         pass
 
 
+def gpu_exhausted(exc: BaseException) -> bool:
+    """Whether an exception is the GPU running out of memory, recognised without importing torch."""
+    return type(exc).__name__ == "OutOfMemoryError" or "CUDA out of memory" in str(exc)
+
+
 def clear_render_cache() -> None:
     """Drop SAPIEN's render cache; upstream does this every few episodes to bound memory."""
     _ensure_importable()

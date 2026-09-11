@@ -132,3 +132,24 @@ def test_a_record_says_why_seeds_were_rejected():
     env = FakeTaskEnv(unstable_seeds={seeds[0]})
     record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
     assert record.rejection_details == {"unstable": f"objects unstable in seed {seeds[0]}"}
+
+
+def test_a_scene_that_fails_to_build_stops_the_run():
+    # RoboTwin can leave the env half-built after such a failure; recording it as a rejected
+    # seed is how 320 seeds became "expert_error" in the first V1 run.
+    env = FakeTaskEnv(setup_raises_on={scene_seeds(0, 0, 5)[0]})
+    with pytest.raises(robotwin.RoboTwinError, match="planner failed to construct"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
+def test_running_out_of_gpu_memory_stops_the_run():
+    env = FakeTaskEnv(oom_on_play={scene_seeds(0, 0, 5)[0]})
+    with pytest.raises(robotwin.RoboTwinError, match="out of memory"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
+def test_an_expert_that_raises_is_still_a_rejected_seed():
+    env = FakeTaskEnv(expert_raises_on={scene_seeds(0, 0, 5)[0]})
+    record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+    assert record.status is Status.SCORED and record.rejections == {"expert_error": 1}
+    assert "target_pose cannot be None" in record.rejection_details["expert_error"]
