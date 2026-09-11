@@ -105,8 +105,6 @@ def run(
     log: Callable[[str], None] = print,
 ) -> list[EpisodeRecord]:
     """Run (or resume) every episode of `spec`, appending each record as it finishes."""
-    from . import robotwin
-
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     run_dir = RunDir(Path(spec.run_dir).resolve())
     # Described once: an adapter's description may hash its parameters, which is not free.
@@ -116,6 +114,22 @@ def run(
     plan = assign(spec.tasks, spec.episodes)
     if done:
         log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
+    _run_pending(spec, policy, config, run_dir, plan, done, description, log)
+    return sorted(run_dir.records(), key=lambda record: record.episode)
+
+
+def _run_pending(
+    spec: RunSpec,
+    policy: ICILPolicy,
+    config,
+    run_dir: RunDir,
+    plan: list[Task],
+    done: set[int],
+    description: dict[str, Any],
+    log: Callable[[str], None],
+) -> None:
+    """Run every episode of `plan` not in `done`, appending each record as it finishes."""
+    from . import robotwin
 
     # One RoboTwin env alive at a time. Each env builds two CuRobo planners on the GPU and keeps
     # them for its lifetime, so holding every task's env at once grows GPU memory with the suite.
@@ -157,7 +171,6 @@ def run(
             robotwin.close(task_env)
             task_env = None
             robotwin.free_gpu()
-    return sorted(run_dir.records(), key=lambda record: record.episode)
 
 
 def _line(record: EpisodeRecord, done: int, total: int) -> str:
