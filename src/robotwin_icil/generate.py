@@ -75,13 +75,15 @@ def attempt(
     except robotwin.unstable_error() as exc:
         robotwin.close(task_env)
         return Attempt(seed, Rejection.UNSTABLE, str(exc)), None, None
-    except Exception as exc:  # scene construction itself failed
+    except Exception as exc:
+        # A scene fails to build for reasons outside the scene — GPU memory, a missing asset, a
+        # planner that did not construct — and RoboTwin can leave the env half-built after it, so
+        # every later seed would fail the same way. That is a broken simulator, not a rejected
+        # scene: stop, rather than record it as data.
         robotwin.close(task_env)
-        return (
-            Attempt(seed, Rejection.EXPERT_ERROR, f"setup: {type(exc).__name__}: {exc}"),
-            None,
-            None,
-        )
+        raise robotwin.RoboTwinError(
+            f"building the scene for seed {seed} failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
     try:
         initial = robotwin.fingerprint(task_env)
@@ -99,6 +101,12 @@ def attempt(
             return Attempt(seed, Rejection.NO_DEMONSTRATION, str(exc)), None, None
         return Attempt(seed, None), demonstration, initial
     except Exception as exc:
+        if robotwin.gpu_exhausted(exc):
+            raise robotwin.RoboTwinError(
+                f"the GPU ran out of memory while the expert ran seed {seed}: {exc}"
+            ) from exc
+        # Anything else the expert raises is a failed seed, as upstream's collector counts it:
+        # "target_pose cannot be None" is RoboTwin finding no feasible grasp.
         return Attempt(seed, Rejection.EXPERT_ERROR, f"{type(exc).__name__}: {exc}"), None, None
     finally:
         robotwin.close(task_env)

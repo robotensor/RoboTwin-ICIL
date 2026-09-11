@@ -17,6 +17,10 @@ class FakeUnstable(Exception):
     """Stands in for RoboTwin's `UnStableError`."""
 
 
+class OutOfMemoryError(RuntimeError):
+    """Named like torch's: that is how the benchmark recognises it without importing torch."""
+
+
 class FakeConfig:
     task_config = "fake"
     save_freq = 1
@@ -53,6 +57,10 @@ class FakeTaskEnv:
         expert_misses_on=(),
         drift=False,
         rollout_raises_at=None,
+        setup_raises_on=(),
+        broken_setup=False,
+        expert_raises_on=(),
+        oom_on_play=(),
         step_lim=50,
         expert_steps=6,
     ):
@@ -61,6 +69,10 @@ class FakeTaskEnv:
         self.expert_misses_on = set(expert_misses_on)
         self.drift = drift
         self.rollout_raises_at = rollout_raises_at
+        self.setup_raises_on = set(setup_raises_on)
+        self.broken_setup = broken_setup
+        self.expert_raises_on = set(expert_raises_on)
+        self.oom_on_play = set(oom_on_play)
         self.step_lim_setting = step_lim
         self.expert_steps = expert_steps
         self.save_data = False
@@ -75,6 +87,8 @@ class FakeTaskEnv:
         self.task_names.append(kwargs.get("task_name"))
         if seed in self.unstable_seeds:
             raise FakeUnstable(f"objects unstable in seed {seed}")
+        if self.broken_setup or seed in self.setup_raises_on:
+            raise RuntimeError(f"planner failed to construct for seed {seed}")
         self.builds[seed] = self.builds.get(seed, 0) + 1
         rng = np.random.default_rng(seed)
         self.target = rng.uniform(-1.0, 1.0, QPOS_DIM)
@@ -111,6 +125,10 @@ class FakeTaskEnv:
         raise AssertionError("the benchmark must intercept _take_picture, not let upstream pickle")
 
     def play_once(self):
+        if self.seed in self.oom_on_play:
+            raise OutOfMemoryError("CUDA out of memory. Tried to allocate 20.00 MiB.")
+        if self.seed in self.expert_raises_on:
+            raise AssertionError("target_pose cannot be None for move action.")
         if self.seed in self.plan_fails_on:
             self.plan_success = False
             return {}
