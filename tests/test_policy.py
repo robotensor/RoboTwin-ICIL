@@ -125,6 +125,11 @@ def test_replay_ee_needs_the_demonstrations_endposes():
     policy.reset()
     with pytest.raises(DemonstrationError, match="endpose has no"):
         policy.set_demonstration(demonstration())
+    # The refused demonstration is not kept: acting is still refused, and a usable one is taken.
+    with pytest.raises(PolicyError, match="before set_demonstration"):
+        policy.act(observation())
+    policy.set_demonstration(ee_demonstration())
+    assert policy.act(observation()).shape == (1, BIMANUAL_EE_DIM)
 
 
 def test_replay_ee_is_a_builtin_ee_policy():

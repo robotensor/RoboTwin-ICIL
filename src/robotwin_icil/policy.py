@@ -76,8 +76,10 @@ class ICILPolicy:
             raise PolicyError(f"{self.name}: reset() must come before set_demonstration()")
         if self._demonstration is not None:
             raise PolicyError(f"{self.name}: an episode gets exactly one demonstration")
-        self._demonstration = demonstration
+        # The hook first: a demonstration it refuses is not kept, so act() still refuses to run
+        # and a corrected demonstration can still be handed over.
         self._set_demonstration(demonstration)
+        self._demonstration = demonstration
 
     def act(self, observation: Observation) -> np.ndarray:
         """The actions to execute before the next observation, shape (k, action_dim), k >= 1."""
