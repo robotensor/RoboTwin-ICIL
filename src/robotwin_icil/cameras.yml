@@ -1,0 +1,46 @@
+# Camera profiles: which static cameras RoboTwin renders, as data.
+#
+# A profile may only *replace* a static camera of the embodiment's `static_camera_list`, in its
+# slot. It may never add one, remove one, touch `head_camera`, or toggle
+# `camera.collect_head_camera`; `camera_profiles.py` refuses a profile that tries.
+#
+# Why replace-only: RoboTwin's `Camera.load_camera` calls `create_camera` for every static camera,
+# and `create_camera` draws `np.random.randn(3)` and `np.random.uniform(0, random_head_camera_dis)`
+# from numpy's global RNG, even when the bound is 0. `_init_task_env_` seeds numpy, builds the
+# cameras, and only then calls `load_actors`, so the number of static cameras created is part of
+# every seed's scene: one camera more moves every object of every seed. Replacing a camera keeps
+# the draw count, so every scene stays the same. `head_camera` is created (and draws) only while
+# `camera.collect_head_camera` is true; every other entry always draws. Names stay unique because
+# RoboTwin keys camera configs and images by name, so a duplicate would overwrite another camera.
+#
+# Keys of a profile, all optional:
+#   replace:       {existing camera name: {name, type, position, forward, left}}
+#                  `type` is a RoboTwin camera type (env_cfg/task_config/_camera_config.yml);
+#                  `forward` and `left` are world-frame directions, and must be perpendicular.
+#   camera:        a mapping merged into RoboTwin's `camera` args, e.g. `wrist_camera_type`.
+#   video_camera:  the camera `--video` films (default head_camera).
+#
+# A new or changed profile is checked by eye first: `robotwin-icil cameras --profile P --task T
+# --seed S --out DIR` writes one PNG per camera.
+
+profiles:
+  # RoboTwin's own cameras, unchanged: head_camera, front_camera and both wrist cameras.
+  stock: {}
+
+  # A third-person view from across the table, looking back at the robot.
+  #
+  # It takes the slot of `front_camera`, which sits 0.11 m above the table looking at the wall.
+  # From 4 cm in front of the wall (its front face is at y = 0.40) and 0.46 m above the 0.74 m
+  # table, it looks 38.9 degrees down (forward z = -0.628) along -y, towards the robot at
+  # y = -0.65. Its optical axis meets the table at y = -0.21, 0.21 m in front of the arm bases
+  # (about (+-0.30, -0.42, 0.78)), 0.73 m away. L515 renders 320x180 with a 45 degree vertical
+  # field, so a centred 180x180 crop is a 45 degree square. The arms enter from the top of the
+  # image, and with `left` = +x, image left is the robot's right.
+  far_side:
+    replace:
+      front_camera:
+        name: far_side_camera
+        type: L515
+        position: [0.0, 0.36, 1.20]
+        forward: [0.0, -0.778, -0.628]
+        left: [1.0, 0.0, 0.0]
