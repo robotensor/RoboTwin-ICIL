@@ -61,6 +61,12 @@ def test_the_arm_centred_view():
     assert np.abs(sharp - view).max() <= 0.5 / 255 + 1e-6
 
 
+@pytest.mark.parametrize("quantize", [True, False])
+def test_the_arm_centred_view_refuses_a_float_frame(quantize):
+    with pytest.raises(ValueError, match="uint8"):
+        images.arm_centred_view(np.full((180, 320, 3), 0.4), centre_col=160, quantize=quantize)
+
+
 def test_images_must_be_two_or_three_dimensional():
     with pytest.raises(ValueError, match=r"\(h, w\)"):
         images.bilinear_resize(np.zeros((2, 2, 2, 2)), 4)

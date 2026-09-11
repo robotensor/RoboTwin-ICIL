@@ -105,8 +105,12 @@ def arm_centred_view(
 
     With `quantize`, the 128-pixel stage is rounded to whole 0-255 levels, as a stored LIBERO
     frame is, before it is scaled to [0, 1] and resized, which is the order BPP's loader follows.
+    Only uint8 frames are accepted: a float frame already in [0, 1] would come out near black.
     """
-    small = area_resize(crop_square(np.asarray(image), crop, centre_col), middle)
+    image = np.asarray(image)
+    if image.dtype != np.uint8:
+        raise ValueError(f"expected a uint8 frame with 0-255 levels, got {image.dtype}")
+    small = area_resize(crop_square(image, crop, centre_col), middle)
     if quantize:
         small = np.clip(np.rint(small), 0, 255)
     return bilinear_resize(small / 255.0, output).astype(np.float32)
