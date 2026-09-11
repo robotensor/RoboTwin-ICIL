@@ -79,7 +79,7 @@ own success check, fractions over valid episodes.
 | Actions | predicts (16, 10) = dpos, rot6d, gripper; executes 12 as 7-dim robosuite OSC_POSE deltas (±0.05 m, ±0.5 rad per unit; gripper -1 open, +1 close) | 7-dim LIBERO deltas, same convention; executes 8 of 16 | `qpos`: 14 absolute targets (TOPP). `ee`: 16 = per arm absolute flange pose (xyz + wxyz) and gripper, one CuRobo plan per arm per call |
 | Rate and budget | 20 Hz; 550 steps | 20 Hz; 500 steps | step limit counts `take_action` calls: 400 for seven V1 tasks, 500 place_empty_cup, 800 stack_blocks_two, 900 stack_bowls_two |
 | Warm-up | 12 open-gripper steps | 5 zero-action steps | robot starts at home with both grippers open |
-| Checkpoint | `austinpatel/liberogen_spatial_combination` / `liberogen_spatial_combination_behavior_prompting.ckpt`, 6,915,257,998 B dill payload (config, EMA weights, optimizer), about 690M parameters | `HanjungKim/UniSkill` `UniSkill_final_weight/idm.pth` (80,338,210 B) and `depth-anything/Depth-Anything-V2-Small-hf` (99 MB); policy `.pth` 404 | replay oracle |
+| Checkpoint | `austinpatel/liberogen_spatial_combination` / `liberogen_spatial_combination_behavior_prompting.ckpt`, 6,915,257,998 B dill payload (config, EMA weights, optimizer), 518.8M parameters (loaded and counted) | `HanjungKim/UniSkill` `UniSkill_final_weight/idm.pth` (80,338,210 B) and `depth-anything/Depth-Anything-V2-Small-hf` (99 MB); policy `.pth` 404 | replay oracle |
 | Environment | python 3.10, torch 2.8.0+cu128 (the cu128 variant BPP documents; its default 2.7.1+cu118 has no sm_120), diffusers 0.35.1, transformers 4.57.1, timm, hydra 1.2, dill | ISD repo: torch 2.3.0, transformers 4.48. Policy fork: torch 2.0.1, diffusers 0.23, transformers 4.36, huggingface-hub < 0.25 | python 3.10, torch 2.4.1+cu121, sapien 3.0.0b1, mplib 0.2.1, CuRobo 0.7.8, huggingface_hub 0.25.0 |
 
 ## 3. Gaps and how they close
@@ -416,7 +416,11 @@ inverse kinematics built from the vendor URDF with a standard kinematics library
   included), the composed config and `SOURCE.json`, so servers do not load 6.9 GB of dill each start.
 - The model comes from the repo's own Hydra composition (`libero_policy_dunetp`,
   `task=liberogen_spatial_combination`, `+modifiers=libero/liberogen_spatial_combination`) with the
-  vision backbone's `pretrained=false`, then a strict load through `BasePolicy.load_state_dict`, which drops `_extra_training_split_info`. Not from the checkpoint's
+  vision backbone left at `pretrained=true`, then a strict load through `BasePolicy.load_state_dict`,
+  which drops `_extra_training_split_info`. With `pretrained=false`, BPP runs its own weight
+  initialisation, which rejects the CLIP ViT's bias-free patch layer; `pretrained=true` downloads the
+  backbone once and the checkpoint overwrites it, so the environment installer prefetches it and servers
+  start offline. Verified on the RTX 5090: every key matches strictly. Not from the checkpoint's
   embedded config, which lacks `use_pool_modality_pos_embed`; the code default would add a parameter
   and strict loading would fail.
 - Cameras: `agentview_rgb` from `far_side_camera` (arm-centred crop), `eye_in_hand_rgb` from the
@@ -556,8 +560,8 @@ C7. Compute: these estimates come from the qpos replay run (expert 18-89 s per s
 scored episode, so 90 episodes about 2-4 hours and 450 about 9-20 hours). End-effector modes add two
 CuRobo plans per call and, at one action per `act()`, a four-camera ray-traced observation per call,
 up to 400-900 per failed episode, so the C3 probe also times one `take_action('ee')` and one
-`get_obs()`, and M2 and M5 are re-budgeted from those numbers. Model inference is tens of
-milliseconds per chunk.
+`get_obs()`, and M2 and M5 are re-budgeted from those numbers. Model inference is cheap by comparison: BPP encodes an 8-chunk prompt in 0.45 s and predicts a
+16-step chunk in 0.09 s on the RTX 5090, using 2.2 GB of GPU memory.
 
 ## 6. Risks and open questions
 
