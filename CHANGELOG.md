@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- (feat): `robotwin-icil survey` measures RoboTwin's expert per task. Over 20 seeds it solves
+  75–100% of every `v1` task but place_object_basket (45%), which leaves the suite; `v1` is
+  nine tasks across Pick and Place, Stacking and Press / Push (`docs/survey.md`) (#4).
 - (fix): both scenes of an episode are built under the task's name, so rollouts get the
   task's own step limit instead of RoboTwin's silent 1000-step fallback (#7).
 - (docs): `docs/policies.md`, the policy adapter guide; the README layout gains `generate.py`,
