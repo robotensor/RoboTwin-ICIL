@@ -97,6 +97,15 @@ def test_report_json_carries_the_references_as_fractions(tmp_path, capsys):
     assert reference["by_task"]["pick_and_place"]["place_object_basket"]["success_rate"] == 1.0
 
 
+def test_report_reads_a_reference_over_the_episodes_the_run_recorded(tmp_path, capsys):
+    # An interrupted model run: the finished reference's second episode is not in its column.
+    model = _run(tmp_path / "model", [False])
+    replay = _run(tmp_path / "replay", [True, False], policy={"policy": "replay"})
+    assert cli.main(["report", model, "--reference", replay, "--json"]) == 0
+    [reference] = json.loads(capsys.readouterr().out)["references"]
+    assert reference["overall"] == {"successes": 1, "episodes": 1, "success_rate": 1.0}
+
+
 def test_report_refuses_a_reference_of_other_scenes(tmp_path, capsys):
     model = _run(tmp_path / "model", [True])
     other = _run(tmp_path / "other", [True], global_seed=7, policy={"policy": "replay"})

@@ -9,13 +9,14 @@ Rates are fractions in `[0, 1]` everywhere; `render` is the single place they be
 Reference runs (`report --reference`), an oracle's or another model's, print in columns beside the
 run's own rates. They are context, not a second score, and stand beside a run only when they
 evaluated the same scenes: the same global seed, tasks, RoboTwin commit, configuration and camera
-profile.
+profile. A reference is rated over the episodes both runs recorded, so a partial run's column and
+a finished reference's cover the same scenes; the run's own score still covers all of its episodes.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -169,9 +170,17 @@ def differences(run: RunManifest, reference: RunManifest) -> list[str]:
     return found
 
 
-def load_reference(path: Path, run: RunManifest, table: TaskTable) -> Reference:
+def load_reference(
+    path: Path, run: RunManifest, table: TaskTable, *, episodes: Collection[int]
+) -> Reference:
     """Load a reference run directory, refusing one that differs from `run` in its scenes, or
-    that failed the frozen-policy audit."""
+    that failed the frozen-policy audit.
+
+    `episodes` are the ids the reported run recorded. The reference is built from its records of
+    those alone: episode i is the same scene in both runs, but a rate over other episodes, a
+    finished oracle's beside an interrupted model's, would compare other scenes. A reference that
+    recorded none of them is refused.
+    """
     reference = RunDir(Path(path))
     reference.check_audit()
     manifest = reference.manifest()
@@ -182,11 +191,18 @@ def load_reference(path: Path, run: RunManifest, table: TaskTable) -> Reference:
             "reference must run the same global seed, tasks, RoboTwin commit, configuration and "
             "camera profile"
         )
+    wanted = set(episodes)
+    shared = [r for r in reference.records() if r.episode in wanted]
+    if not shared:
+        raise ReportError(
+            f"reference {reference.path} recorded none of the reported run's episodes: there are "
+            "no shared scenes to read it against"
+        )
     return Reference(
         label=policy_label(manifest),
         run_dir=str(reference.path),
         manifest=manifest,
-        report=build(reference.records(), table),
+        report=build(shared, table),
     )
 
 
@@ -247,7 +263,8 @@ def render(
 ) -> str:
     """The plain-text report: overall, then each category, then its tasks.
 
-    Each reference adds a column beside the run's own rates, and its overall rate under the run's.
+    Each reference adds a column beside the run's own rates, and its overall rate under the run's,
+    saying so when it recorded only some of the run's episodes.
     """
     lines = ["RoboTwin ICIL Benchmark", "=======================", ""]
     if manifest is not None:
@@ -273,12 +290,18 @@ def render(
     if references:
         lines.append(
             "Reference runs (same global seed, tasks, RoboTwin commit, configuration and "
-            "camera profile; not scores of this run):"
+            "camera profile; rated over the episodes both runs recorded; not scores of this run):"
         )
         label_width = max(len(label) for label in labels[1:])
+        recorded = report.diagnostics.episodes
         for label, reference in zip(labels[1:], references, strict=True):
+            shared = reference.report.diagnostics.episodes
+            coverage = (
+                f"  (only {shared} of this run's {recorded} episodes)" if shared < recorded else ""
+            )
             lines.append(
                 f"  {label:<{label_width}}  {_cell(reference.report.overall)}  {reference.run_dir}"
+                + coverage
             )
     lines += ["", "By manipulation skill:"]
     reports = [report, *(reference.report for reference in references)]

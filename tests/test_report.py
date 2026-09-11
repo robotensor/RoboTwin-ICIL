@@ -189,6 +189,8 @@ def run_dir(path, run, outcomes):
 MODEL = [("click_bell", True), ("click_bell", False), ("stack_blocks_two", False)]
 ORACLE = [("click_bell", True), ("click_bell", True), ("stack_blocks_two", True)]
 BPP = v1_run(adapter="icil_policies.bpp", adapter_version="0.3.0")
+# The episode ids the reported run recorded.
+SHARED = range(len(MODEL))
 
 
 def model_report():
@@ -208,7 +210,7 @@ def line_of(text, start):
 
 def test_a_reference_prints_in_a_column_beside_the_run(tmp_path):
     path = run_dir(tmp_path / "replay", v1_run(policy="replay"), ORACLE)
-    reference = report.load_reference(path, BPP, tasks.table())
+    reference = report.load_reference(path, BPP, tasks.table(), episodes=SHARED)
     assert reference.label == "replay" and reference.run_dir == str(path.resolve())
     text = report.render(model_report(), BPP, tasks.table(), [reference])
 
@@ -236,7 +238,9 @@ def test_two_references_and_a_row_only_one_run_has(tmp_path):
         v1_run(policy="replay"),
         [("click_bell", False), ("place_a2b_left", True)],
     )
-    references = [report.load_reference(p, BPP, tasks.table()) for p in (first, second)]
+    references = [
+        report.load_reference(p, BPP, tasks.table(), episodes=SHARED) for p in (first, second)
+    ]
     text = report.render(model_report(), BPP, tasks.table(), references)
     # Two runs of one policy are two columns, numbered.
     assert heading(text).split() == ["icil_policies.bpp", "replay", "replay", "#2"]
@@ -246,6 +250,36 @@ def test_two_references_and_a_row_only_one_run_has(tmp_path):
     assert row.split()[1] == "—" and row.endswith("100.0%  (1/1)")
     assert line_of(text, "    stack_blocks_two").rstrip().endswith("—")
     assert "0.0%  (0/1)" in line_of(text, "    click_bell")
+
+
+def test_a_reference_is_rated_over_the_episodes_both_runs_recorded(tmp_path):
+    # An interrupted model run beside a finished oracle: only episode 0's scene is in both.
+    path = run_dir(tmp_path / "replay", v1_run(policy="replay"), ORACLE)
+    reference = report.load_reference(path, BPP, tasks.table(), episodes=[0])
+    assert (reference.report.overall.successes, reference.report.overall.episodes) == (1, 1)
+    assert list(reference.report.by_task) == ["press_push"]
+    assert reference.to_json()["diagnostics"]["episodes"] == 1
+    partial = report.build([record(0, "click_bell", success=False)], tasks.table())
+    text = report.render(partial, BPP, tasks.table(), [reference])
+    assert line_of(text, "  replay").endswith(f"100.0%  (1/1)  {path.resolve()}")
+    assert "rated over the episodes both runs recorded" in text
+
+
+def test_a_reference_that_recorded_only_some_episodes_says_so(tmp_path):
+    path = run_dir(tmp_path / "replay", v1_run(policy="replay"), ORACLE[:1])
+    reference = report.load_reference(path, BPP, tasks.table(), episodes=SHARED)
+    text = report.render(model_report(), BPP, tasks.table(), [reference])
+    # The run's own score still covers all of its episodes.
+    assert "Overall Same Scene 1-Demo Success:  33.3%  (1/3)" in text
+    assert line_of(text, "  replay").endswith(
+        f"100.0%  (1/1)  {path.resolve()}  (only 1 of this run's 3 episodes)"
+    )
+
+
+def test_a_reference_that_shares_no_episodes_is_refused(tmp_path):
+    path = run_dir(tmp_path / "replay", v1_run(policy="replay"), ORACLE)
+    with pytest.raises(report.ReportError, match="recorded none of the reported run's episodes"):
+        report.load_reference(path, BPP, tasks.table(), episodes=[3, 4])
 
 
 def test_without_references_the_report_reads_as_before(tmp_path):
@@ -288,7 +322,7 @@ STOCK = camera_profiles.get("stock").identity()
 def test_a_reference_of_other_scenes_is_refused_naming_the_field(tmp_path, changes, field):
     path = run_dir(tmp_path / "other", dataclasses.replace(v1_run(policy="replay"), **changes), [])
     with pytest.raises(report.ReportError, match=re.escape(field)):
-        report.load_reference(path, BPP, tasks.table())
+        report.load_reference(path, BPP, tasks.table(), episodes=SHARED)
 
 
 def test_a_reference_may_differ_in_policy_benchmark_commit_and_machine(tmp_path):
@@ -304,14 +338,16 @@ def test_a_reference_may_differ_in_policy_benchmark_commit_and_machine(tmp_path)
 
 def test_a_reference_from_before_camera_profiles_is_a_stock_run(tmp_path):
     legacy = dataclasses.replace(v1_run(policy="replay"), benchmark_config={})
-    assert report.load_reference(run_dir(tmp_path / "legacy", legacy, ORACLE), BPP, tasks.table())
+    assert report.load_reference(
+        run_dir(tmp_path / "legacy", legacy, ORACLE), BPP, tasks.table(), episodes=SHARED
+    )
     far_side = v1_run("far_side")
     with pytest.raises(report.ReportError, match="camera profile"):
-        report.load_reference(tmp_path / "legacy", far_side, tasks.table())
+        report.load_reference(tmp_path / "legacy", far_side, tasks.table(), episodes=SHARED)
 
 
 def test_a_reference_that_failed_the_frozen_policy_audit_is_refused(tmp_path):
     path = run_dir(tmp_path / "learning", v1_run(policy="learning"), ORACLE)
     RunDir(path).fail_audit({"policy": "learning"})
     with pytest.raises(RecordError, match="failed the frozen-policy audit"):
-        report.load_reference(path, BPP, tasks.table())
+        report.load_reference(path, BPP, tasks.table(), episodes=SHARED)

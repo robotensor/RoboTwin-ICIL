@@ -65,9 +65,15 @@ def _report(args: argparse.Namespace) -> int:
     run_dir.check_audit()
     table = tasks_.table()
     manifest = run_dir.manifest()
+    records = run_dir.records()
     # Every reference is checked before anything prints: one of other scenes prints nothing.
-    references = [report_.load_reference(Path(path), manifest, table) for path in args.reference]
-    built = report_.build(run_dir.records(), table)
+    # Each is read over the episodes this run recorded, so its rates cover the same scenes.
+    episodes = {record.episode for record in records}
+    references = [
+        report_.load_reference(Path(path), manifest, table, episodes=episodes)
+        for path in args.reference
+    ]
+    built = report_.build(records, table)
     if args.json:
         payload = {**built.to_json(), "references": [r.to_json() for r in references]}
         print(json.dumps(payload, indent=2))
