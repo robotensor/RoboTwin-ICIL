@@ -11,7 +11,8 @@ Physics advances only through `scene.step()`, as in RoboTwin: the scene settles 
 
 The robot is shaped like aloha-agilex: one articulation for both arms, each with six arm joints
 and a finger joint plus its mimic. Its end-effector pose is a stand-in forward kinematics that
-maps six arm joints to `[x, y, z, qw, qx, qy, qz]`.
+maps six arm joints to `[x, y, z, qw, qx, qy, qz]` and back exactly, so an `ee` action reaches
+the joints whose endpose it names, as RoboTwin's round trip on aloha-agilex does.
 """
 
 import math
@@ -20,6 +21,7 @@ from types import SimpleNamespace
 import numpy as np
 
 QPOS_DIM = 14
+EE_DIM = 16
 # RoboTwin settles a new scene for 2500 physics steps inside `setup_demo`; a few stand in for them.
 SETTLE_STEPS = 10
 # aloha-agilex's `gripper_scale`: finger positions, in metres, for gripper values 0 and 1.
@@ -29,10 +31,15 @@ FINGER_STOP = 0.01
 
 
 def endpose_of(arm_qpos):
-    """The fake's forward kinematics: six arm joints -> a flange pose."""
+    """The fake's forward kinematics: six arm joints -> a flange pose, inverted by `joints_of`."""
     vector = 0.5 * np.asarray(arm_qpos[3:6], dtype=float)  # |vector| < 1 for joints in [-1, 1]
     w = math.sqrt(max(0.0, 1.0 - float(vector @ vector)))
     return [*map(float, arm_qpos[:3]), w, *map(float, vector)]
+
+
+def joints_of(endpose):
+    endpose = np.asarray(endpose, dtype=float)
+    return np.concatenate([endpose[:3], 2.0 * endpose[4:7]])
 
 
 def finger(gripper_value):
@@ -177,6 +184,7 @@ class FakeTaskEnv:
         self.setups: list[int] = []
         self.task_names: list[str | None] = []
         self.closed = 0
+        self.action_types: list[str] = []
         # Closes of a scene whose `step` was still shadowed: a clock left running.
         self.closed_while_clocked = 0
 
@@ -252,11 +260,24 @@ class FakeTaskEnv:
         if self.rollout_raises_at is not None and self.take_action_cnt == self.rollout_raises_at:
             raise RuntimeError("simulator exploded")
         self.take_action_cnt += 1
-        self.qpos = np.asarray(action, dtype=float)
+        self.action_types.append(action_type)
+        self.qpos = self._joint_target(action, action_type)
         for _ in range(self.physics_per_action):
             self.scene.step()
         if self.check_success():
             self.eval_success = True
+
+    @staticmethod
+    def _joint_target(action, action_type):
+        """Where the joints go: a qpos action is the target, an `ee` action is inverted to one."""
+        action = np.asarray(action, dtype=float)
+        width = {"qpos": QPOS_DIM, "ee": EE_DIM}[action_type]
+        if action.shape != (width,):
+            raise ValueError(f"{action_type} action has shape {action.shape}, expected ({width},)")
+        if action_type == "qpos":
+            return action
+        left, right = action[:8], action[8:]
+        return np.concatenate([joints_of(left[:7]), left[7:], joints_of(right[:7]), right[7:]])
 
     def close_env(self, clear_cache=False):
         self.closed += 1

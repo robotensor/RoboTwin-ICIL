@@ -7,7 +7,13 @@ from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import robotwin, tasks
 from robotwin_icil.episode import EpisodeSpec, run_episode
 from robotwin_icil.generate import scene_seeds
-from robotwin_icil.policy import DummyPolicy, ICILPolicy, PolicyError, ReplayPolicy
+from robotwin_icil.policy import (
+    DummyPolicy,
+    ICILPolicy,
+    PolicyError,
+    ReplayEEPolicy,
+    ReplayPolicy,
+)
 from robotwin_icil.records import SAME_SCENE, Status
 
 
@@ -32,6 +38,14 @@ def test_replay_succeeds_from_the_same_scene():
     assert record.evaluation_setting == SAME_SCENE and record.skill_category == "pick_and_place"
     assert record.steps == env.expert_steps and record.demonstration_frames == env.expert_steps + 1
     assert record.scene_seed == scene_seeds(0, 0, 5)[0]
+
+
+def test_replay_ee_succeeds_from_the_same_scene_through_the_ee_path():
+    env = FakeTaskEnv()
+    record = run_episode(spec(), ReplayEEPolicy(), FakeConfig(), task_env=env)
+    assert record.status is Status.SCORED and record.success
+    assert record.steps == env.expert_steps
+    assert set(env.action_types) == {"ee"}
 
 
 def test_the_rollout_starts_from_a_rebuilt_scene_not_the_experts_final_state():

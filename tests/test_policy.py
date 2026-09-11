@@ -3,13 +3,20 @@ import dataclasses
 import numpy as np
 import pytest
 
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, Frame
+from robotwin_icil.demo import (
+    BIMANUAL_EE_DIM,
+    BIMANUAL_QPOS_DIM,
+    Demonstration,
+    DemonstrationError,
+    Frame,
+)
 from robotwin_icil.policy import (
     NEUTRAL_INSTRUCTION,
     DummyPolicy,
     ICILPolicy,
     Observation,
     PolicyError,
+    ReplayEEPolicy,
     ReplayPolicy,
     make_policy,
 )
@@ -22,6 +29,25 @@ def demonstration(n: int = 4, offset: float = 0.0) -> Demonstration:
             images={"head_camera": np.zeros((4, 4, 3), dtype=np.uint8)},
             qpos=np.full(BIMANUAL_QPOS_DIM, offset + i),
             endpose={},
+        )
+        for i in range(n)
+    )
+    return Demonstration(frames=frames, frequency=15)
+
+
+def ee_demonstration(n: int = 4, offset: float = 0.0) -> Demonstration:
+    """A demonstration whose flanges rise by 1 cm a frame, and whose left gripper closes."""
+    frames = tuple(
+        Frame(
+            index=i,
+            images={"head_camera": np.zeros((4, 4, 3), dtype=np.uint8)},
+            qpos=np.full(BIMANUAL_QPOS_DIM, offset + i),
+            endpose={
+                "left_endpose": [0.0, 0.0, offset + 0.01 * i, 1.0, 0.0, 0.0, 0.0],
+                "left_gripper": 1.0 if i < n - 1 else 0.0,
+                "right_endpose": [0.1, 0.0, offset + 0.01 * i, 1.0, 0.0, 0.0, 0.0],
+                "right_gripper": 1.0,
+            },
         )
         for i in range(n)
     )
@@ -70,6 +96,43 @@ def test_reset_leaves_nothing_from_the_previous_episode():
     assert policy.act(observation())[0, 0] == 11.0
 
 
+def test_replay_ee_plays_the_ee_actions_in_order_then_holds_the_last():
+    demo = ee_demonstration(n=3)
+    policy = ReplayEEPolicy()
+    policy.reset()
+    policy.set_demonstration(demo)
+    played = np.concatenate([policy.act(observation(step)) for step in range(4)])
+    assert played.shape == (4, BIMANUAL_EE_DIM)
+    expected = demo.ee_actions()
+    np.testing.assert_array_equal(played, [expected[0], expected[1], expected[1], expected[1]])
+    assert played[-1, 7] == 0.0  # the last frame's commanded gripper: closed
+
+
+def test_replay_ee_starts_each_episode_from_its_own_demonstration():
+    policy = ReplayEEPolicy()
+    policy.reset()
+    policy.set_demonstration(ee_demonstration(n=3))
+    policy.act(observation())
+    policy.reset()
+    with pytest.raises(PolicyError):
+        policy.act(observation())  # nothing left from the last episode to act on
+    policy.set_demonstration(ee_demonstration(n=3, offset=10.0))
+    assert policy.act(observation())[0, 2] == pytest.approx(10.01)
+
+
+def test_replay_ee_needs_the_demonstrations_endposes():
+    policy = ReplayEEPolicy()
+    policy.reset()
+    with pytest.raises(DemonstrationError, match="endpose has no"):
+        policy.set_demonstration(demonstration())
+
+
+def test_replay_ee_is_a_builtin_ee_policy():
+    policy = make_policy("replay_ee")
+    assert isinstance(policy, ReplayEEPolicy)
+    assert policy.action_type == "ee" and policy.describe()["action_type"] == "ee"
+
+
 def test_dummy_holds_the_current_state():
     policy = DummyPolicy()
     policy.reset()
@@ -93,7 +156,15 @@ class _NotFinite(ICILPolicy):
         return np.full(BIMANUAL_QPOS_DIM, np.nan)
 
 
-@pytest.mark.parametrize("cls", [_WrongWidth, _NotFinite])
+class _QposWidthForEE(ICILPolicy):
+    name = "qpos_width_for_ee"
+    action_type = "ee"
+
+    def _act(self, observation):
+        return np.zeros(BIMANUAL_QPOS_DIM)
+
+
+@pytest.mark.parametrize("cls", [_WrongWidth, _NotFinite, _QposWidthForEE])
 def test_malformed_actions_are_rejected(cls):
     policy = cls()
     policy.reset()

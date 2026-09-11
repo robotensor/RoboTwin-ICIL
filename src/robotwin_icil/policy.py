@@ -150,7 +150,28 @@ class ReplayPolicy(ICILPolicy):
         return demonstration.actions()
 
 
-BUILTIN: dict[str, type[ICILPolicy]] = {"dummy": DummyPolicy, "replay": ReplayPolicy}
+class ReplayEEPolicy(ReplayPolicy):
+    """Plays the demonstration's end-effector targets back through `take_action('ee')`.
+
+    The ceiling of the `ee` path for any model: each call re-plans both arms with CuRobo to the
+    next frame's flange pose and commanded gripper value. Where it falls short of `replay`, the
+    loss is in that path — planning, its goal tolerance, at least 31 physics steps per call —
+    not in a model.
+    """
+
+    name = "replay_ee"
+    action_type = "ee"
+
+    @staticmethod
+    def _played(demonstration: Demonstration) -> np.ndarray:
+        return demonstration.ee_actions()
+
+
+BUILTIN: dict[str, type[ICILPolicy]] = {
+    "dummy": DummyPolicy,
+    "replay": ReplayPolicy,
+    "replay_ee": ReplayEEPolicy,
+}
 
 
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
