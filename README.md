@@ -112,6 +112,9 @@ robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --ru
 # how often RoboTwin's own expert solves each task (decides suite membership)
 robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 
+# check a camera profile by eye: one PNG per camera of one scene
+robotwin-icil cameras --profile far_side --task click_bell --seed 0 --out runs/cameras
+
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
