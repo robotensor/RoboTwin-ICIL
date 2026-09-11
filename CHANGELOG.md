@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- (feat): policy configuration, seeding, provenance and a frozen-policy audit.
+  `eval --policy-arg KEY=VALUE`, repeatable, passes keyword arguments to the policy, each value
+  read as YAML; an adapter's many settings go in its own YAML as `config=PATH`. The manifest
+  records them as `policy_config`, part of the run's identity with the policy's description, so
+  a resume under other arguments or another `adapter_version` is refused. Optional hooks, no-ops
+  by default: `seed()` before every `reset()`, from the policy's own stream
+  `default_rng([global_seed, episode, POLICY_STREAM])` and never the scene seed; `episode_info()`,
+  checked as JSON and stored as the record's `policy_info`; `close()`, once, in the runner's
+  `finally`; `environment()`, recorded as `policy_environment` and left out of the identity.
+  `describe()` gains a checked convention (`adapter`, `adapter_version`, `checkpoint`,
+  `checkpoint_sha256`, `training_tasks`, `camera_profile_required`, `parameter_checksum`): a
+  policy that requires another camera profile is refused before any episode, and a checksum
+  that differs between the start and the end of a run raises `PolicyError`. The policy is
+  described at the start and end of a run instead of per episode. New fields default, so older
+  runs still load and resume (#37).
 - (feat): end-effector views, measured finger joints and a `replay_ee` oracle.
   `Demonstration.endposes()` gives each frame as the 16 numbers `take_action('ee')` reads — per
   arm the world-frame flange pose, wxyz, then the commanded gripper — `ee_actions()` the next
