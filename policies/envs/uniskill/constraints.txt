@@ -1,0 +1,5 @@
+# Held fixed while later stages install into icil-uniskill: the simulators and the benchmark's own
+# packages must not move torch or numpy.
+torch==2.8.0
+torchvision==0.23.0
+numpy==1.26.4

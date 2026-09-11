@@ -16,6 +16,36 @@ dependencies = [
 [project.optional-dependencies]
 # What CI installs: the numpy toolkit and its tests, no model code.
 pure = ["numpy>=1.24,<2", "pytest>=8"]
+# Each model environment's own pins, mirroring policies/envs/<name>/ (a test checks it).
+# scripts/install_policy_env.sh builds the rest of each stack around them.
+bpp = [
+  "torch==2.8.0",
+  "torchvision==0.23.0",
+  "numpy==1.26.4",
+  "hydra-core==1.2.0",
+  "omegaconf==2.3.1",
+  "dill==0.3.7",
+  "einops==0.6.1",
+  "timm==1.0.20",
+  "diffusers==0.35.1",
+  "transformers==4.57.1",
+  "huggingface_hub==0.35.3",
+  "accelerate==1.10.1",
+  "safetensors==0.6.2",
+  "h5py==3.16.0",
+]
+uniskill = [
+  "torch==2.8.0",
+  "torchvision==0.23.0",
+  "numpy==1.26.4",
+  "transformers==4.57.1",
+  "diffusers==0.35.1",
+  "huggingface_hub==0.35.3",
+  "accelerate==1.10.1",
+  "safetensors==0.6.2",
+  "einops==0.8.1",
+  "h5py==3.15.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/icil_policies"]

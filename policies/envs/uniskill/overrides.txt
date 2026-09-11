@@ -1,0 +1,3 @@
+# UniSkill-Policy's pyproject `[tool.uv] override-dependencies`, applied when its submodules
+# (LIBERO, robosuite, robocasa) install.
+mujoco==3.4.0
