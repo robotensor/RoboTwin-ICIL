@@ -124,7 +124,10 @@ def receive(conn, timeout: float | None = None) -> Message:
     specs = header.pop("arrays", None)
     if not isinstance(op, str) or not isinstance(specs, list):
         raise ProtocolError("the header needs a string 'op' and a list 'arrays'")
-    arrays = [_array(spec, _receive_frame(conn, deadline, timeout)) for spec in specs]
+    # Every frame first: a message refused for one of its arrays is still read whole, so the
+    # next message starts where it should.
+    raws = [_receive_frame(conn, deadline, timeout) for _ in specs]
+    arrays = [_array(spec, raw) for spec, raw in zip(specs, raws, strict=True)]
     return Message(op, {key: _decode(value, arrays, key) for key, value in header.items()})
 
 

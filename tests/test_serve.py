@@ -179,6 +179,19 @@ def test_an_operation_that_raises_is_answered_with_an_error_and_serving_goes_on(
             (),
             "a dict key must be hashable",
         ),
+        (
+            {
+                "op": "act",
+                "x": {"$": "array", "index": 0},
+                "y": {"$": "array", "index": 1},
+                "arrays": [
+                    {"name": "x", "dtype": "|O", "shape": [1]},
+                    {"name": "y", "dtype": "<f8", "shape": [1]},
+                ],
+            },
+            (b"\0" * 8, b"\0" * 8),
+            "dtype '|O' is not one the protocol carries",
+        ),
     ],
 )
 def test_a_malformed_message_is_answered_with_an_error_and_serving_goes_on(
