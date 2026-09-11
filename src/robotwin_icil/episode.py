@@ -169,6 +169,7 @@ def rollout(
                 qpos=raw["qpos"],
                 endpose=raw["endpose"],
                 time_s=ticks.seconds if ticks is not None else None,
+                gripper_joints=raw["gripper_joints"],
             )
             for action in policy.act(observation):
                 task_env.take_action(action, action_type=policy.action_type)

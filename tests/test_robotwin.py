@@ -2,6 +2,7 @@
 
 import types
 
+import numpy as np
 import pytest
 import yaml
 
@@ -251,3 +252,27 @@ def test_a_scene_that_cannot_be_shadowed_is_refused():
     with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
         with robotwin.clock(types.SimpleNamespace(scene=Frozen())):
             pass
+
+
+def test_an_observation_reads_where_the_fingers_are_not_the_command():
+    from fake_robotwin import FINGER_OPEN, FINGER_STOP
+
+    env = built()
+    env.qpos[6], env.qpos[13] = 1.0, 0.0  # left commanded open, right closed on an object
+    obs = robotwin.observation(env)
+    assert obs["endpose"]["right_gripper"] == 0.0  # RoboTwin's value is the command
+    np.testing.assert_allclose(obs["gripper_joints"]["left"], [FINGER_OPEN] * 2)
+    np.testing.assert_allclose(obs["gripper_joints"]["right"], [FINGER_STOP] * 2)
+
+
+def test_captured_frames_carry_endposes_and_gripper_joints():
+    from fake_robotwin import endpose_of, finger
+
+    env = built()
+    with robotwin.capture(env, save_freq=1) as frames:
+        env.play_once()
+    demonstration = robotwin.demonstration_from(frames, frequency=250.0)
+    last = demonstration.frames[-1]
+    np.testing.assert_allclose(last.gripper_joints["left"], [finger(env.qpos[6])] * 2)
+    np.testing.assert_allclose(demonstration.endposes()[-1, :7], endpose_of(env.qpos[:6]))
+    assert demonstration.endposes()[-1, 15] == env.qpos[13]

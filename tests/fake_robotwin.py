@@ -8,8 +8,13 @@ target the expert must reach are drawn from `np.random.default_rng(seed)`.
 Physics advances only through `scene.step()`, as in RoboTwin: the scene settles for a few steps in
 `setup_demo`, the expert records a frame every `save_freq` steps, and `take_action` runs
 `physics_per_action` steps.
+
+The robot is shaped like aloha-agilex: one articulation for both arms, each with six arm joints
+and a finger joint plus its mimic. Its end-effector pose is a stand-in forward kinematics that
+maps six arm joints to `[x, y, z, qw, qx, qy, qz]`.
 """
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -17,6 +22,22 @@ import numpy as np
 QPOS_DIM = 14
 # RoboTwin settles a new scene for 2500 physics steps inside `setup_demo`; a few stand in for them.
 SETTLE_STEPS = 10
+# aloha-agilex's `gripper_scale`: finger positions, in metres, for gripper values 0 and 1.
+FINGER_CLOSED, FINGER_OPEN = -0.01, 0.045
+# The fingers close on an object this far apart: measured, they stop there whatever the command.
+FINGER_STOP = 0.01
+
+
+def endpose_of(arm_qpos):
+    """The fake's forward kinematics: six arm joints -> a flange pose."""
+    vector = 0.5 * np.asarray(arm_qpos[3:6], dtype=float)  # |vector| < 1 for joints in [-1, 1]
+    w = math.sqrt(max(0.0, 1.0 - float(vector @ vector)))
+    return [*map(float, arm_qpos[:3]), w, *map(float, vector)]
+
+
+def finger(gripper_value):
+    """Where a finger joint is for a commanded gripper value: an object stops it closing."""
+    return max(FINGER_CLOSED + gripper_value * (FINGER_OPEN - FINGER_CLOSED), FINGER_STOP)
 
 
 class FakeUnstable(Exception):
@@ -79,6 +100,48 @@ class _Scene:
         self.stepped += 1
 
 
+class _Joint:
+    def __init__(self, name):
+        self._name = name
+
+    def get_name(self):
+        return self._name
+
+
+class _Articulation:
+    """aloha-agilex's robot: both arms in one articulation, `get_qpos()` per active joint."""
+
+    def __init__(self, env):
+        self._env = env
+        self._joints = [_Joint(f"f{side}_joint{k}") for side in "lr" for k in range(1, 9)]
+
+    def get_active_joints(self):
+        return list(self._joints)
+
+    def get_qpos(self):
+        q = self._env.qpos
+        return np.concatenate([q[:6], [finger(q[6])] * 2, q[7:13], [finger(q[13])] * 2]).astype(
+            np.float32
+        )
+
+
+class _Robot:
+    """What the benchmark reads off RoboTwin's `Robot`: joint state and the gripper joints."""
+
+    def __init__(self, env):
+        self._env = env
+        self.left_entity = self.right_entity = _Articulation(env)
+        joints = self.left_entity.get_active_joints()
+        self.left_gripper = [(joints[6], 1.0, 0.0), (joints[7], 1.0, 0.0)]
+        self.right_gripper = [(joints[14], 1.0, 0.0), (joints[15], 1.0, 0.0)]
+
+    def get_left_arm_jointState(self):
+        return list(self._env.qpos[:7])
+
+    def get_right_arm_jointState(self):
+        return list(self._env.qpos[7:])
+
+
 class FakeTaskEnv:
     def __init__(
         self,
@@ -138,10 +201,7 @@ class FakeTaskEnv:
         self.cameras = SimpleNamespace(
             get_config=lambda: {"head_camera": {"extrinsic_cv": np.eye(4)[:3]}}
         )
-        self.robot = SimpleNamespace(
-            get_left_arm_jointState=lambda: list(self.qpos[:7]),
-            get_right_arm_jointState=lambda: list(self.qpos[7:]),
-        )
+        self.robot = _Robot(self)
         self.info = {"texture_info": {"wall_texture": 0, "table_texture": 0}}
         self.crazy_random_light = False
         self.table_z_bias = 0.0
@@ -178,7 +238,12 @@ class FakeTaskEnv:
         return {
             "observation": {"head_camera": {"rgb": np.zeros((16, 16, 3), dtype=np.uint8)}},
             "joint_action": {"vector": self.qpos.copy()},
-            "endpose": {},
+            "endpose": {
+                "left_endpose": endpose_of(self.qpos[:6]),
+                "left_gripper": float(self.qpos[6]),
+                "right_endpose": endpose_of(self.qpos[7:13]),
+                "right_gripper": float(self.qpos[13]),
+            },
         }
 
     def take_action(self, action, action_type="qpos"):

@@ -190,3 +190,12 @@ def test_episodes_without_a_rollout_ran_no_physics_steps():
     )
     assert drifted.status is Status.INVALID and rejected.status is Status.REJECTED
     assert drifted.physics_steps == rejected.physics_steps == 0
+
+
+def test_observations_carry_the_measured_gripper_joints():
+    policy = _Watcher()
+    run_episode(spec(), policy, FakeConfig(), task_env=FakeTaskEnv())
+    assert policy.observations
+    for observation in policy.observations:
+        assert set(observation.gripper_joints) == {"left", "right"}
+        assert observation.gripper_joints["left"].shape == (2,)

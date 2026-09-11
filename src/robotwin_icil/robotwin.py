@@ -241,7 +241,30 @@ def observation(env) -> dict[str, Any]:
         "images": _images(raw),
         "qpos": np.asarray(raw["joint_action"]["vector"], dtype=np.float64),
         "endpose": copy.deepcopy(raw.get("endpose", {})),
+        "gripper_joints": gripper_joints(env),
     }
+
+
+def gripper_joints(env) -> dict[str, np.ndarray]:
+    """Where each arm's gripper joints are, in metres: measured, not commanded.
+
+    RoboTwin's own gripper value, in `joint_action` and `endpose`, is the last command, so it
+    reads closed while the fingers rest on an object. `Robot.init_joints` keeps each gripper as
+    `(joint, scale, bias)` triples, the base joint first and its mimics after (`fl_joint7` then
+    `fl_joint8` on aloha-agilex), on that arm's articulation, whose `get_qpos()` holds one
+    position per active joint. Proprioception a real robot has, so not privileged.
+    """
+    robot = env.robot
+    return {
+        "left": _joint_positions(robot.left_entity, robot.left_gripper),
+        "right": _joint_positions(robot.right_entity, robot.right_gripper),
+    }
+
+
+def _joint_positions(entity, gripper) -> np.ndarray:
+    qpos = np.asarray(entity.get_qpos(), dtype=np.float64)
+    active = entity.get_active_joints()
+    return np.array([qpos[active.index(joint)] for joint, _scale, _bias in gripper])
 
 
 def snapshot(task_name: str, seed: int, config: SceneConfig) -> dict[str, np.ndarray]:
@@ -302,6 +325,7 @@ def capture(env, save_freq: int, ticks: Clock | None = None) -> Iterator[list[Fr
                 qpos=obs["qpos"],
                 endpose=obs["endpose"],
                 time_s=ticks.seconds if ticks is not None else None,
+                gripper_joints=obs["gripper_joints"],
             )
         )
 
