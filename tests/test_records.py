@@ -113,3 +113,9 @@ def test_an_episode_recorded_twice_is_an_error(tmp_path):
 
 def test_git_commit_of_a_non_repository_is_none(tmp_path):
     assert git_commit(tmp_path) is None
+
+
+def test_records_written_before_rejection_details_still_load():
+    data = record().to_json()
+    data.pop("rejection_details")
+    assert EpisodeRecord.from_json(data).rejection_details == {}
