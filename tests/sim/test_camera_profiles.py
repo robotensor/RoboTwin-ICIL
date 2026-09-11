@@ -25,11 +25,9 @@ def _build(task_env, task, seed, profile):
     args = robotwin.SceneConfig(camera_profile=profile).resolve(task)
     try:
         task_env.setup_demo(now_ep_num=0, seed=seed, is_test=True, **args)
-    except robotwin.unstable_error():
-        robotwin.close(task_env)
-        return None
-    try:
         return robotwin.fingerprint(task_env), robotwin.observation(task_env)["images"]
+    except robotwin.unstable_error():
+        return None
     finally:
         robotwin.close(task_env)
 
