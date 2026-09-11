@@ -19,6 +19,8 @@
 #                  `type` is a RoboTwin camera type (env_cfg/task_config/_camera_config.yml);
 #                  `forward` and `left` are world-frame directions, and must be perpendicular.
 #   camera:        a mapping merged into RoboTwin's `camera` args, e.g. `wrist_camera_type`.
+#                  `head_camera_type` may change head_camera's type; its name, slot and
+#                  pose stay, and it still draws once from the RNG.
 #   video_camera:  the camera `--video` films (default head_camera).
 #
 # A new or changed profile is checked by eye first: `robotwin-icil cameras --profile P --task T

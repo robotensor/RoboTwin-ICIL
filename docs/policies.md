@@ -113,6 +113,9 @@ or removes a camera, touches `head_camera`, toggles `camera.collect_head_camera`
 cameras with one name or names a static camera `left_camera` or `right_camera` (the wrist
 cameras' names) is refused, with no override: `SceneConfig.overrides` are held to the same
 guard. Every profile therefore builds the same scene from the same seed; only the images differ.
+A profile may still change a camera's type through `camera.head_camera_type` or
+`camera.wrist_camera_type`: `head_camera` then keeps its name, slot and pose, but not its image
+size or field of view.
 The run manifest records the profile and the static cameras, and a run directory does not resume
 under another profile.
 
