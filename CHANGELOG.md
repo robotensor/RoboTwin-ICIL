@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- (docs): `docs/policies.md`, the policy adapter guide; the README layout gains `generate.py`,
+  `video.py` and `--video`; CLAUDE.md records the frame rate, the working-directory move and that
+  RoboTwin's `is_test` selects nothing (#12).
 - (fix): a demonstration's `frequency` is frames per second — the sim rate over RoboTwin's
   `save_freq`, ~16.7 fps at the default — not `save_freq` itself, which upstream passes where it
   means a frame rate (#3).
