@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!-- A synthetic, mesh-free two-arm robot shaped like aloha-agilex for the pure kinematics
+     tests: a `footprint` root, fixed arm bases, six revolute joints per arm ending in
+     fl_link6 / fr_link6 (the same axis pattern, including the half-turn rolls), a fixed
+     mobile-base branch and prismatic fingers with a mimic. Its numbers are made up, rounded
+     and simplified; it is not aloha. The simulator test checks aloha's own URDF against
+     RoboTwin's endposes. -->
+<robot name="aloha_like">
+  <link name="footprint"/>
+  <link name="base_link"/>
+  <joint name="box_joint" type="fixed">
+    <origin xyz="0 0 0.15" rpy="0 0 0"/>
+    <parent link="footprint"/>
+    <child link="base_link"/>
+  </joint>
+
+  <link name="fl_base_link"/>
+  <link name="fl_link1"/>
+  <link name="fl_link2"/>
+  <link name="fl_link3"/>
+  <link name="fl_link4"/>
+  <link name="fl_link5"/>
+  <link name="fl_link6"/>
+  <link name="fl_link7"/>
+  <link name="fl_link8"/>
+  <joint name="fl_base_joint" type="fixed">
+    <origin xyz="0.23 0.30 0.78" rpy="0 0 0.02"/>
+    <parent link="footprint"/>
+    <child link="fl_base_link"/>
+  </joint>
+  <joint name="fl_joint1" type="revolute">
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <parent link="fl_base_link"/>
+    <child link="fl_link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint2" type="revolute">
+    <origin xyz="0.025 0 0.04" rpy="0 0 0"/>
+    <parent link="fl_link1"/>
+    <child link="fl_link2"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint3" type="revolute">
+    <origin xyz="-0.26 0.005 0" rpy="3.14159 0 -0.016"/>
+    <parent link="fl_link2"/>
+    <child link="fl_link3"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint4" type="revolute">
+    <origin xyz="0.25 0 -0.06" rpy="0 0 0"/>
+    <parent link="fl_link3"/>
+    <child link="fl_link4"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint5" type="revolute">
+    <origin xyz="0.07 0.0015 -0.085" rpy="0 0 -0.016"/>
+    <parent link="fl_link4"/>
+    <child link="fl_link5"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint6" type="revolute">
+    <origin xyz="0.03 0 0.085" rpy="3.14159 0 0"/>
+    <parent link="fl_link5"/>
+    <child link="fl_link6"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint7" type="prismatic">
+    <origin xyz="0.085 0.024 0" rpy="0 0 0"/>
+    <parent link="fl_link6"/>
+    <child link="fl_link7"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.048" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fl_joint8" type="prismatic">
+    <origin xyz="0.085 -0.024 0" rpy="0 0 0"/>
+    <parent link="fl_link6"/>
+    <child link="fl_link8"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.048" effort="100" velocity="10"/>
+    <mimic joint="fl_joint7" multiplier="1" offset="0"/>
+  </joint>
+
+  <link name="fr_base_link"/>
+  <link name="fr_link1"/>
+  <link name="fr_link2"/>
+  <link name="fr_link3"/>
+  <link name="fr_link4"/>
+  <link name="fr_link5"/>
+  <link name="fr_link6"/>
+  <joint name="fr_base_joint" type="fixed">
+    <origin xyz="0.23 -0.31 0.78" rpy="0 0 0.01"/>
+    <parent link="footprint"/>
+    <child link="fr_base_link"/>
+  </joint>
+  <joint name="fr_joint1" type="revolute">
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <parent link="fr_base_link"/>
+    <child link="fr_link1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fr_joint2" type="revolute">
+    <origin xyz="0.025 0 0.04" rpy="0 0 0"/>
+    <parent link="fr_link1"/>
+    <child link="fr_link2"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fr_joint3" type="revolute">
+    <origin xyz="-0.26 0.005 0" rpy="3.14159 0 -0.016"/>
+    <parent link="fr_link2"/>
+    <child link="fr_link3"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fr_joint4" type="revolute">
+    <origin xyz="0.25 0 -0.06" rpy="0 0 0"/>
+    <parent link="fr_link3"/>
+    <child link="fr_link4"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fr_joint5" type="revolute">
+    <origin xyz="0.07 0.0015 -0.085" rpy="0 0 -0.016"/>
+    <parent link="fr_link4"/>
+    <child link="fr_link5"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+  <joint name="fr_joint6" type="revolute">
+    <origin xyz="0.03 0 0.085" rpy="3.14159 0 0"/>
+    <parent link="fr_link5"/>
+    <child link="fr_link6"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3" upper="3" effort="100" velocity="10"/>
+  </joint>
+</robot>
