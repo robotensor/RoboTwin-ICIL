@@ -440,13 +440,16 @@ def robot_state(env) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def capture(env, save_freq: int, images: bool = True) -> Iterator[list[Frame]]:
+def capture(
+    env, save_freq: int, ticks: Clock | None = None, images: bool = True
+) -> Iterator[list[Frame]]:
     """Record every frame the expert's `_take_picture` would have pickled, in memory.
 
     RoboTwin drives recording from inside `take_dense_action`, which calls `_take_picture()` every
     `save_freq` control steps when `save_data` is set. Overriding the method on the instance keeps
     the expert, its timing and the submodule untouched — the frames are simply kept rather than
-    written to a cache directory that would then be read back and deleted.
+    written to a cache directory that would then be read back and deleted. With a running
+    `clock`, each frame carries the simulated time it was taken at.
 
     With `images=False` a frame is `robot_state`: the same joints and endpose at the same steps,
     no image, and `get_obs` is never called, so no camera ray-traces. Only a caller that never
@@ -466,6 +469,7 @@ def capture(env, save_freq: int, images: bool = True) -> Iterator[list[Frame]]:
                 images=obs["images"],
                 qpos=obs["qpos"],
                 endpose=obs["endpose"],
+                time_s=ticks.seconds if ticks is not None else None,
             )
         )
 

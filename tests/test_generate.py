@@ -142,3 +142,21 @@ def test_an_attempt_without_images_renders_nothing_and_ends_the_same_way(plan_fa
     assert plain_demo.frequency == rendered_demo.frequency
     assert (plain_demo.cameras, rendered_demo.cameras) == ((), ("head_camera",))
     assert arms_moved(plain_demo) == arms_moved(rendered_demo) == ("left",)
+
+
+def test_demonstration_frames_carry_simulated_time(monkeypatch):
+    # The fake expert records every `save_freq` physics steps. The clock starts after
+    # setup_demo, so the scene's settle is not part of the demonstration's time.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv()
+    _, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    np.testing.assert_allclose(demonstration.times(), np.arange(len(demonstration)) * 5 / 250)
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+def test_the_clock_is_gone_before_a_failed_expert_is_closed(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(expert_raises_on={0})
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert env.closed == 1 and env.closed_while_clocked == 0
