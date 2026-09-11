@@ -189,12 +189,6 @@ build_bpp() {
 # --- uniskill -----------------------------------------------------------------
 # Not yet built end to end: #43 builds it and fixes these pins (policies/envs/uniskill).
 
-uniskill_simulators() {
-    local fork="$1"
-    uvpip -c "${LOCKS}/constraints.txt" --override "${LOCKS}/overrides.txt" \
-        -e "${fork}/robosuite" -e "${fork}/robocasa" -e "${fork}/LIBERO"
-}
-
 uniskill_model() {
     local fork="$1" isd="$2" site
     # The fork's own pins (torch 2.0.1, diffusers 0.23, transformers 4.36) are the ones replaced.
@@ -208,15 +202,13 @@ uniskill_model() {
 build_uniskill() {
     local isd="${SRC_ROOT}/${ISD_DIR}" fork="${SRC_ROOT}/${POLICY_DIR}"
     checkout "${isd}" "${ISD_URL}" "${ISD_COMMIT}"
-    checkout "${fork}" "${POLICY_URL}" "${POLICY_COMMIT}" "${POLICY_SUBMODULES[@]}"
-    # The fork's own install_env.sh adds this missing package marker.
-    [[ -f "${fork}/LIBERO/libero/__init__.py" ]] || touch "${fork}/LIBERO/libero/__init__.py"
+    # Not its LIBERO, robosuite and robocasa submodules: only the fork's LIBERO training and
+    # evaluation scripts import them, never the adapter, and robocasa pins numpy 1.23.3.
+    checkout "${fork}" "${POLICY_URL}" "${POLICY_COMMIT}"
     make_venv
     stage torch "$(key "${TORCH_INDEX}" "${TORCH[@]}")" install_torch
     stage core "$(file_key "${LOCKS}/requirements.lock" "${LOCKS}/constraints.txt")" \
         uvpip -c "${LOCKS}/constraints.txt" -r "${LOCKS}/requirements.lock"
-    stage simulators "$(key "${POLICY_COMMIT}" "$(file_key "${LOCKS}/constraints.txt" "${LOCKS}/overrides.txt")")" \
-        uniskill_simulators "${fork}"
     stage model "$(key "${POLICY_COMMIT}" "${ISD_COMMIT}")" uniskill_model "${fork}" "${isd}"
     stage benchmark "$(file_key "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
         "${LOCKS}/constraints.txt")" install_benchmark
