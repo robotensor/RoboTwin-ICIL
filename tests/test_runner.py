@@ -374,3 +374,27 @@ def test_the_audit_runs_when_the_run_raises_too(tmp_path, monkeypatch, fake_sim)
 def test_a_policy_without_a_checksum_is_not_audited(tmp_path, fake_sim):
     records = runner.run(spec(tmp_path), Learning(checksum=None), FakeConfig(), log=quiet)
     assert len(records) == 4
+
+
+def test_the_manifest_records_the_policy_config_and_a_resume_must_share_it(tmp_path, fake_sim):
+    config = {"config": tmp_path / "bpp.yml", "temperature": 0.5, "deterministic": True}
+    runner.run(spec(tmp_path, policy_config=config), ReplayPolicy(), FakeConfig(), log=quiet)
+    recorded = RunDir(tmp_path / "run").manifest().policy_config
+    assert recorded == {
+        "config": str(tmp_path / "bpp.yml"),
+        "temperature": 0.5,
+        "deterministic": True,
+    }
+
+    runner.run(spec(tmp_path, policy_config=config), ReplayPolicy(), FakeConfig(), log=quiet)
+    other = {**config, "temperature": 0.7}
+    with pytest.raises(RecordError, match="already holds a different run"):
+        runner.run(spec(tmp_path, policy_config=other), ReplayPolicy(), FakeConfig(), log=quiet)
+    with pytest.raises(RecordError, match="already holds a different run"):
+        runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+
+
+def test_a_resume_under_another_adapter_version_is_refused(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), Described(adapter_version="0.1.0"), FakeConfig(), log=quiet)
+    with pytest.raises(RecordError, match="already holds a different run"):
+        runner.run(spec(tmp_path), Described(adapter_version="0.2.0"), FakeConfig(), log=quiet)

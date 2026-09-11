@@ -9,9 +9,9 @@ what `episodes.jsonl` already holds.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from pathlib import Path
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path, PurePath
 from typing import Any
 
 from . import camera_profiles
@@ -58,6 +58,8 @@ class RunSpec:
     video: bool = False
     # The camera the clips show: the camera profile's `video_camera`.
     video_camera: str = DEFAULT_CAMERA
+    # The keyword arguments the policy was built with; recorded, and part of the run's identity.
+    policy_config: Mapping[str, Any] = field(default_factory=dict)
 
 
 def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
@@ -96,7 +98,14 @@ def manifest_for(
         },
         environment=environment(),
         policy_environment=_policy_environment(policy),
+        policy_config=_policy_config(spec.policy_config),
     )
+
+
+def _policy_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The policy's keyword arguments as the manifest holds them: plain JSON, paths as strings."""
+    stringified = {k: str(v) if isinstance(v, PurePath) else v for k, v in config.items()}
+    return json_mapping(stringified, "policy config")
 
 
 def _policy_environment(policy: ICILPolicy) -> dict[str, str]:

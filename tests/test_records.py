@@ -195,3 +195,17 @@ def test_a_manifest_from_before_policy_environments_still_loads(tmp_path):
     data.pop("policy_environment")
     (tmp_path / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
     assert RunDir(tmp_path).manifest().policy_environment == {}
+
+
+def test_a_manifest_from_before_policy_configs_is_a_run_without_policy_arguments(tmp_path):
+    data = manifest().to_json()
+    data.pop("policy_config")
+    (tmp_path / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    run = RunDir(tmp_path)
+    legacy = run.manifest()
+    assert legacy.policy_config == {}
+    assert legacy.identity() == manifest(policy_config={}).identity()
+    assert legacy.identity() != manifest(policy_config={"temperature": 0.5}).identity()
+    run.start(manifest())  # an older run directory still resumes with no --policy-arg
+    with pytest.raises(RecordError):
+        run.start(manifest(policy_config={"temperature": 0.5}))

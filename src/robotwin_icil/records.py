@@ -108,6 +108,9 @@ class RunManifest:
     # The policy's own `environment()`: its python, torch, CUDA, GPU and model commits. Empty for
     # policies that report none, and in manifests written before policies could.
     policy_environment: dict[str, str] = field(default_factory=dict)
+    # The keyword arguments the policy was built with (`eval --policy-arg`). Part of the run's
+    # identity; manifests written before it existed built their policy with none.
+    policy_config: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
@@ -126,7 +129,8 @@ class RunManifest:
         cameras are the embodiment's own, implied by `embodiment` and the RoboTwin commit as
         before, so they are recorded for the reader but compared only under another profile.
         The machine may differ between a run and its resumption, so neither the benchmark's
-        environment nor the policy's is compared.
+        environment nor the policy's is compared. The policy's description and `policy_config`
+        are: a resume with another adapter version or other policy arguments is another run.
         """
         data = self.to_json()
         data.pop("environment", None)
