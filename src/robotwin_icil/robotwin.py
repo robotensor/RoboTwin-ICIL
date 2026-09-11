@@ -268,6 +268,17 @@ def gpu_exhausted(exc: BaseException) -> bool:
     return type(exc).__name__ == "OutOfMemoryError" or "CUDA out of memory" in str(exc)
 
 
+def gpu_lost(exc: BaseException) -> bool:
+    """Whether an exception is the renderer losing the GPU: Vulkan's device-lost error.
+
+    SAPIEN raises it from a camera read (`vk::Device::waitForFences: ErrorDeviceLost`), for
+    instance when another process has filled the GPU's memory. The process cannot render again,
+    so no later seed or step in it means anything.
+    """
+    text = str(exc)
+    return "ErrorDeviceLost" in text or "VK_ERROR_DEVICE_LOST" in text
+
+
 def free_gpu() -> None:
     """Hand the memory of released envs — CuRobo's planners live on the GPU — back to the driver."""
     gc.collect()
