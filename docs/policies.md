@@ -112,9 +112,9 @@ Scene check could not notice, since both builds of an episode would carry it. A 
 or removes a camera, touches `head_camera`, toggles `camera.collect_head_camera`, leaves two
 cameras with one name or names a static camera `left_camera` or `right_camera` (the wrist
 cameras' names) is refused, with no override: `SceneConfig.overrides` are held to the same
-guard. Every profile therefore builds the same
-scene from the same seed; only the images differ. The run manifest records the profile and the
-static cameras, and a run directory does not resume under another profile.
+guard. Every profile therefore builds the same scene from the same seed; only the images differ.
+The run manifest records the profile and the static cameras, and a run directory does not resume
+under another profile.
 
 A new or changed profile is checked by eye first — one PNG per camera of one scene:
 
