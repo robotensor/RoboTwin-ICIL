@@ -146,9 +146,11 @@ def run(
 
     The run owns the policy's end: `policy.close()` is called exactly once, however the run ends.
     Before that, the frozen-policy audit describes the policy again: when the run finished, and
-    also when it raised, if the policy gave a `parameter_checksum` at the start.
+    also when it raised, if the policy gave a `parameter_checksum` at the start. A failed audit is
+    recorded in the run directory before it is raised, so the run neither resumes nor reports.
     """
     description: dict[str, Any] | None = None
+    began = False
     finished = False
     try:
         # Resolve before entering the RoboTwin seam, which moves the working directory.
@@ -157,6 +159,7 @@ def run(
         # its parameters, which is not free.
         description = _described(policy, config)
         run_dir.start(manifest_for(spec, policy, config, description))
+        began = True
         done = run_dir.completed()
         plan = assign(spec.tasks, spec.episodes)
         if done:
@@ -169,21 +172,29 @@ def run(
             if description is not None and (
                 finished or description.get("parameter_checksum") is not None
             ):
-                _audit(policy, description)
+                # A run refused at the start may have been pointed at another run's directory:
+                # only a run this call began or resumed is marked.
+                _audit(policy, description, run_dir if began else None)
         finally:
             policy.close()
 
 
-def _audit(policy: ICILPolicy, started: dict[str, Any]) -> None:
+def _audit(policy: ICILPolicy, started: dict[str, Any], run_dir: RunDir | None) -> None:
     """The frozen-policy audit: the parameters a run ends with are the ones it started with.
 
     Only as strong as the adapter's `parameter_checksum`; a policy that gives none is not audited.
+    A failure is written to `run_dir`, when given, before it is raised: a fresh copy of the policy
+    would describe itself as the manifest does, and resume the run as if nothing had happened.
     """
     ended = policy.describe()
     check_description(ended)
     before = started.get("parameter_checksum")
     after = ended.get("parameter_checksum")
     if before is not None and after != before:
+        if run_dir is not None:
+            run_dir.fail_audit(
+                {"policy": policy.name, "parameter_checksum": {"start": before, "end": after}}
+            )
         raise PolicyError(
             f"{policy.name}: parameters changed during the run: the policy must be frozen "
             f"(parameter_checksum {before!r} at the start, {after!r} at the end)"

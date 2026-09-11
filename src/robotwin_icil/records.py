@@ -3,7 +3,8 @@
 A run directory holds `manifest.json` (what was run, against which commits and configs) and
 `episodes.jsonl` (one line per episode, appended and flushed as each finishes). Reporting reads
 only these files, so a finished run is re-reported without a simulator, and an interrupted run
-resumes by skipping the episodes already on disk.
+resumes by skipping the episodes already on disk. A run whose policy failed the frozen-policy audit
+also holds `audit.json`, and is then neither resumed nor reported.
 """
 
 from __future__ import annotations
@@ -24,6 +25,9 @@ SAME_SCENE = "same_scene"
 
 MANIFEST = "manifest.json"
 EPISODES = "episodes.jsonl"
+# Written only when the policy's parameters changed during the run; its absence is a pass, or a
+# run that predates the audit.
+AUDIT = "audit.json"
 
 
 class RecordError(ValueError):
@@ -155,11 +159,17 @@ class RunDir:
     def episodes_path(self) -> Path:
         return self.path / EPISODES
 
+    @property
+    def audit_path(self) -> Path:
+        return self.path / AUDIT
+
     def episode_dir(self, episode: int) -> Path:
         return self.path / f"episode_{episode:05d}"
 
     def start(self, manifest: RunManifest) -> None:
-        """Begin a run, or continue one: a directory already holding a different run is refused."""
+        """Begin a run, or continue one: a directory already holding a different run is refused,
+        and so is one whose run failed the frozen-policy audit."""
+        self.check_audit()
         self.path.mkdir(parents=True, exist_ok=True)
         if self.manifest_path.exists():
             existing = self.manifest()
@@ -205,6 +215,23 @@ class RunDir:
 
     def completed(self) -> set[int]:
         return {record.episode for record in self.records()}
+
+    def fail_audit(self, detail: dict[str, Any]) -> None:
+        """Record that the policy's parameters changed during this run.
+
+        The error that follows ends with the process; this file does not, so a later resume or
+        report still knows the episodes on disk came from a policy that was not frozen.
+        """
+        _write_json(self.audit_path, {"frozen": False, **detail})
+
+    def check_audit(self) -> None:
+        """Raise `RecordError` if this run failed the frozen-policy audit."""
+        if self.audit_path.exists():
+            raise RecordError(
+                f"{self.path} failed the frozen-policy audit (see {AUDIT}): the policy's "
+                "parameters changed during the run, so its episodes are neither resumed nor "
+                "reported; choose a new --run-dir"
+            )
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:

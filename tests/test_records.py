@@ -209,3 +209,19 @@ def test_a_manifest_from_before_policy_configs_is_a_run_without_policy_arguments
     run.start(manifest())  # an older run directory still resumes with no --policy-arg
     with pytest.raises(RecordError):
         run.start(manifest(policy_config={"temperature": 0.5}))
+
+
+def test_a_run_that_failed_the_audit_is_not_resumed(tmp_path):
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    run.check_audit()  # nothing recorded, nothing refused
+    run.fail_audit({"policy": "learning", "parameter_checksum": {"start": "a", "end": "b"}})
+    assert json.loads((tmp_path / "audit.json").read_text()) == {
+        "frozen": False,
+        "policy": "learning",
+        "parameter_checksum": {"start": "a", "end": "b"},
+    }
+    with pytest.raises(RecordError, match="failed the frozen-policy audit"):
+        run.check_audit()
+    with pytest.raises(RecordError, match="failed the frozen-policy audit"):
+        run.start(manifest())

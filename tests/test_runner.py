@@ -362,8 +362,40 @@ def test_a_policy_whose_parameters_change_fails_the_audit(tmp_path, fake_sim):
     with pytest.raises(PolicyError, match="parameters changed during the run: the policy must be"):
         runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
     assert policy.closed == 1
-    # What ran is on disk; the error, not the records, says it cannot be trusted.
+    # What ran stays on disk, and so does the failure, which outlives the error.
     assert len(RunDir(tmp_path / "run").records()) == 4
+    audit = json.loads((tmp_path / "run" / "audit.json").read_text())
+    assert audit["frozen"] is False and audit["policy"] == "learning"
+    assert audit["parameter_checksum"]["start"] == "00000000-0"
+    assert audit["parameter_checksum"]["end"] != "00000000-0"
+
+
+def test_a_run_that_failed_the_audit_does_not_resume(tmp_path, fake_sim):
+    with pytest.raises(PolicyError, match="parameters changed"):
+        runner.run(spec(tmp_path), Learning(), FakeConfig(), log=quiet)
+    # A fresh copy starts from the checksum the manifest holds, so its identity matches: only the
+    # recorded failure stops it.
+    with pytest.raises(RecordError, match="failed the frozen-policy audit"):
+        runner.run(spec(tmp_path), Learning(), FakeConfig(), log=quiet)
+
+
+class Drifting(Learning):
+    """Changes its checksum each time it is described, whether or not it acted."""
+
+    name = "drifting"
+
+    def describe(self):
+        self.updates += 1
+        return super().describe()
+
+
+def test_a_refused_run_does_not_mark_the_directory_it_was_refused(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    with pytest.raises(PolicyError, match="parameters changed") as raised:
+        runner.run(spec(tmp_path, global_seed=4), Drifting(), FakeConfig(), log=quiet)
+    assert isinstance(raised.value.__context__, RecordError)
+    assert not (tmp_path / "run" / "audit.json").exists()
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)  # still resumes
 
 
 def test_a_frozen_policy_passes_the_audit(tmp_path, fake_sim):
@@ -381,6 +413,7 @@ def test_the_audit_runs_when_the_run_raises_too(tmp_path, monkeypatch, fake_sim)
         runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
     assert isinstance(raised.value.__context__, robotwin.RoboTwinError)
     assert policy.closed == 1
+    assert (tmp_path / "run" / "audit.json").exists()
 
 
 def test_a_policy_without_a_checksum_is_not_audited(tmp_path, fake_sim):
