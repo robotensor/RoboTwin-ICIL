@@ -52,6 +52,67 @@ def test_report_refuses_a_run_that_failed_the_frozen_policy_audit(tmp_path, caps
         assert captured.out == ""
 
 
+def _run(path, outcomes, **overrides):
+    run = RunDir(path)
+    run.start(manifest(**overrides))
+    for episode, success in enumerate(outcomes):
+        run.append(record(episode, success=success))
+    return str(path)
+
+
+def test_report_prints_reference_runs_beside_the_run(tmp_path, capsys):
+    model = _run(tmp_path / "model", [True, False], policy={"policy": "icil", "adapter": "bpp"})
+    replay = _run(tmp_path / "replay", [True, True], policy={"policy": "replay"})
+    dummy = _run(tmp_path / "dummy", [False, False], policy={"policy": "dummy"})
+
+    assert cli.main(["report", model, "--reference", replay]) == 0
+    out = capsys.readouterr().out
+    assert "Overall Same Scene 1-Demo Success:  50.0%  (1/2)" in out
+    assert "  replay   100.0%  (2/2)" in out
+    assert out.splitlines()[out.splitlines().index("By manipulation skill:") + 1].split() == [
+        "bpp",
+        "replay",
+    ]
+
+    assert cli.main(["report", model, "--reference", replay, "--reference", dummy]) == 0
+    out = capsys.readouterr().out
+    assert "  dummy      0.0%  (0/2)" in out
+    row = next(line for line in out.splitlines() if line.startswith("    place_object_basket"))
+    assert row.split()[1:] == ["50.0%", "(1/2)", "100.0%", "(2/2)", "0.0%", "(0/2)"]
+
+
+def test_report_json_carries_the_references_as_fractions(tmp_path, capsys):
+    model = _run(tmp_path / "model", [True, False])
+    replay = _run(tmp_path / "replay", [True, True], policy={"policy": "replay"})
+
+    assert cli.main(["report", model, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["references"] == []
+    assert cli.main(["report", model, "--reference", replay, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["overall"]["success_rate"] == 0.5
+    [reference] = data["references"]
+    assert reference["label"] == "replay" and reference["policy"] == {"policy": "replay"}
+    assert reference["run_dir"] == str((tmp_path / "replay").resolve())
+    assert reference["overall"] == {"successes": 2, "episodes": 2, "success_rate": 1.0}
+    assert reference["by_task"]["pick_and_place"]["place_object_basket"]["success_rate"] == 1.0
+
+
+def test_report_refuses_a_reference_of_other_scenes(tmp_path, capsys):
+    model = _run(tmp_path / "model", [True])
+    other = _run(tmp_path / "other", [True], global_seed=7, policy={"policy": "replay"})
+    for flags in ([], ["--json"]):
+        assert cli.main(["report", model, "--reference", other, *flags]) == 1
+        captured = capsys.readouterr()
+        assert "differs from the reported run in global_seed (7, not 42)" in captured.err
+        assert captured.out == ""
+
+
+def test_report_refuses_a_reference_that_is_not_a_run_directory(tmp_path, capsys):
+    model = _run(tmp_path / "model", [True])
+    assert cli.main(["report", model, "--reference", str(tmp_path / "missing")]) == 1
+    assert "no manifest.json" in capsys.readouterr().err
+
+
 def test_report_on_a_non_run_directory_fails_cleanly(tmp_path, capsys):
     assert cli.main(["report", str(tmp_path)]) == 1
     assert "no manifest.json" in capsys.readouterr().err

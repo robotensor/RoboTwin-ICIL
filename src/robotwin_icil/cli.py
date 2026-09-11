@@ -64,11 +64,15 @@ def _report(args: argparse.Namespace) -> int:
     # Scores from a policy whose parameters changed are not scores of a frozen policy.
     run_dir.check_audit()
     table = tasks_.table()
+    manifest = run_dir.manifest()
+    # Every reference is checked before anything prints: one of other scenes prints nothing.
+    references = [report_.load_reference(Path(path), manifest, table) for path in args.reference]
     built = report_.build(run_dir.records(), table)
     if args.json:
-        print(json.dumps(built.to_json(), indent=2))
+        payload = {**built.to_json(), "references": [r.to_json() for r in references]}
+        print(json.dumps(payload, indent=2))
     else:
-        print(report_.render(built, run_dir.manifest(), table), end="")
+        print(report_.render(built, manifest, table, references), end="")
     return 0
 
 
@@ -231,6 +235,14 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument(
         "--json", action="store_true", help="fractions as JSON instead of the text report"
     )
+    rep.add_argument(
+        "--reference",
+        action="append",
+        default=[],
+        metavar="REF_DIR",
+        help="another run of the same scenes (an oracle, another model) to print beside this "
+        "one; repeatable; refused unless its seed, tasks, config and camera profile match",
+    )
     rep.set_defaults(handler=_report)
 
     sur = commands.add_parser(
@@ -280,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         return args.handler(args)
     except (
         RecordError,
+        report_.ReportError,
         PolicyError,
         RoboTwinError,
         tasks_.TaskTableError,
