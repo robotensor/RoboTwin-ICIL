@@ -8,8 +8,8 @@ converts between the benchmark's model-independent types and whatever the model 
 robotwin-icil eval --policy mypkg.adapters:MyPolicy --suite v1 --episodes 500 --seed 42 --run-dir runs/mine
 ```
 
-`--policy` takes a built-in name (`replay`, `dummy`) or any importable `module:Class` that
-subclasses `ICILPolicy`. Adapters live outside `robotwin_icil`.
+`--policy` takes a built-in name (`replay`, `replay_ee`, `dummy`) or any importable
+`module:Class` that subclasses `ICILPolicy`. Adapters live outside `robotwin_icil`.
 
 ## The lifecycle
 
@@ -71,19 +71,34 @@ trajectory from the very scene the rollout will start in:
 
 | | |
 | --- | --- |
-| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` (14,), `endpose`, `time_s` |
+| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` (14,), `endpose`, `time_s`, `gripper_joints` |
 | `frequency` | nominal frames per second: the spacing of frames within one motion primitive |
 | `cameras` | the camera names present in every frame |
 | `times()` | `(T,)` simulated seconds of each frame since the expert started; see [Time](#time) |
 | `qpos()` | `(T, 14)` robot state over the demonstration |
 | `actions()` | `(T-1, 14)` the position target of each transition — the next frame's `qpos` |
+| `endposes()` | `(T, 16)` end-effector state in `take_action('ee')` layout; see [The `ee` path](#the-ee-path) |
+| `ee_actions()` | `(T-1, 16)` the end-effector target of each transition — the next frame's `endposes()` row |
+| `arms_moved(threshold_m=0.02)` | the arms, of `"left"` and `"right"`, whose flange path is longer than the threshold (provisional) |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
 
 **Each observation** (`robotwin_icil.policy.Observation`) has the same modalities as a frame —
-`images`, `qpos`, `endpose`, `time_s` — plus `step` and `instruction`.
+`images`, `qpos`, `endpose`, `time_s`, `gripper_joints` — plus `step` and `instruction`.
 
 The 14-dim `qpos` is RoboTwin's bimanual joint vector: left arm joints (6), left gripper, right arm
 joints (6), right gripper. Grippers run from 0 (closed) to 1 (open).
+
+`endpose` is RoboTwin's own dict: `left_endpose` and `right_endpose`, each `[x, y, z, qw, qx, qy,
+qz]` in the world frame, and `left_gripper` and `right_gripper`. The pose is the flange's
+(`fl_link6` / `fr_link6` on aloha-agilex), not the tool centre's: the tool centre point is 0.12 m
+further along the pose's own +x axis. Quaternions are scalar-first (wxyz).
+
+The gripper values in `qpos` and `endpose` are the **command**, not a measurement: a gripper
+closed on an object reads 0 however wide the object holds its fingers. `gripper_joints` is the
+measurement — `"left"` and `"right"` map to the positions, in metres, of that arm's gripper
+joints (on aloha-agilex the finger joint and its mimic, from -0.01 closed to 0.045 open). A real
+robot's fingers report the same, so it is proprioception, not privileged state. Frames and
+observations recorded before it was read carry `None`.
 
 ## Time
 
@@ -171,9 +186,26 @@ unchanged; the episode ends as soon as RoboTwin latches success or the task's st
 | `action_type` | `action_dim` | layout |
 | --- | --- | --- |
 | `qpos` | 14 | the same joint vector as `qpos` above: absolute position targets |
-| `ee` | 16 | per arm: end-effector pose (7) then gripper, as RoboTwin's `take_action(action_type='ee')` reads it |
+| `ee` | 16 | per arm, left then right: flange pose (7) then gripper, as RoboTwin's `take_action(action_type='ee')` reads it |
 
 Actions of the wrong width or containing non-finite values raise `PolicyError`.
+
+### The `ee` path
+
+An `ee` action is `[left pose (7), left gripper, right pose (7), right gripper]`, the layout of
+`demo.endposes()`: each pose `[x, y, z, qw, qx, qy, qz]` in the world frame, wxyz, **the flange
+pose** as `endpose` reports it — the tool centre point is 0.12 m further along the pose's own +x
+axis, so an adapter that thinks at the tool centre converts back to the flange — and each
+gripper a commanded value from 0 (closed) to 1 (open). Feeding an arm's own `endpose` back is an
+exact round trip on aloha-agilex; RoboTwin's expert returns an arm to its start the same way.
+
+Each call plans **both** arms with CuRobo from their measured joints, then runs max(left, right)
+physics steps of 1/250 s: at least 31 (0.124 s) when a plan succeeds, even for an unchanged
+target, and 50 with that arm not commanded when its plan fails. An arm the policy means to keep
+still must still be given a pose; the fixed hold — its endpose from the episode's first
+observation and its gripper value — is what the simulator tests check. The task's step limit
+counts `take_action` calls, not physics steps: an `ee` call spends one step of the budget however
+long it runs, and `obs.time_s` and the record's `physics_steps` show the time it took.
 
 ## The policy is frozen
 
@@ -190,6 +222,11 @@ robotwin-icil eval --policy replay --suite v1 --episodes 20 --seed 42 --run-dir 
 ```
 
 `ReplayPolicy` plays the demonstration's actions back verbatim. Under Same Scene it is the
-harness's own upper bound, so it tells you what a perfect imitator scores on your machine. Then run
+harness's own upper bound, so it tells you what a perfect imitator scores on your machine.
+
+An `ee` adapter should also run `--policy replay_ee`, which plays `demo.ee_actions()` back through
+`take_action('ee')` in order and holds the last. It is the ceiling of the `ee` path for any
+model: where it scores below `replay`, the loss is in the path — planning, CuRobo's goal
+tolerance, 31 physics steps a call — and no `ee` adapter will do better. Then run
 your adapter with `--video` and compare `demonstration.mp4` with `evaluation_same_scene.mp4` in a
 few episode directories before trusting any number.
