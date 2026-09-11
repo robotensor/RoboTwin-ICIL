@@ -215,7 +215,7 @@ def test_a_policy_seed_does_not_depend_on_resume_order(tmp_path, fake_sim):
     assert resumed.seeds == policy.seeds[2:]
 
 
-class Closing(ReplayPolicy):
+class Closing(Counting):
     """Counts `close()` calls: a model server or a GPU model must be released exactly once."""
 
     name = "closing"
@@ -240,6 +240,8 @@ def test_the_policy_is_closed_once_when_an_episode_raises(tmp_path, monkeypatch,
     with pytest.raises(robotwin.RoboTwinError):
         runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
     assert policy.closed == 1
+    # No checksum, and the run did not finish: nothing to audit, so no second description.
+    assert policy.described == 1
 
 
 def test_the_policy_is_closed_when_the_run_is_refused(tmp_path, fake_sim):
@@ -285,9 +287,13 @@ class Described(ReplayPolicy):
     def __init__(self, **fields):
         super().__init__()
         self.fields = fields
+        self.closed = 0
 
     def describe(self):
         return {**super().describe(), **self.fields}
+
+    def close(self):
+        self.closed += 1
 
 
 def test_a_policy_needing_another_camera_profile_is_refused_up_front(tmp_path, fake_sim):
@@ -296,18 +302,21 @@ def test_a_policy_needing_another_camera_profile_is_refused_up_front(tmp_path, f
         runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
     assert fake_sim == []  # not one env built, not one seed drawn
     assert not (tmp_path / "run" / "manifest.json").exists()
+    assert policy.closed == 1  # refused before the manifest, closed all the same
 
     runner.run(spec(tmp_path), Described(camera_profile_required="stock"), FakeConfig(), log=quiet)
     assert RunDir(tmp_path / "run").manifest().policy["camera_profile_required"] == "stock"
 
 
 def test_a_description_off_the_convention_refuses_the_run(tmp_path, fake_sim):
+    unhashed = Described(checkpoint_sha256="abc")
     with pytest.raises(PolicyError, match="'checkpoint_sha256' must be 64 hex digits"):
-        runner.run(spec(tmp_path), Described(checkpoint_sha256="abc"), FakeConfig(), log=quiet)
+        runner.run(spec(tmp_path), unhashed, FakeConfig(), log=quiet)
     misspelt = Described(camera_profile_required="farside")
     with pytest.raises(PolicyError, match="'camera_profile_required' must be a camera profile's"):
         runner.run(spec(tmp_path), misspelt, FakeConfig(), log=quiet)
     assert fake_sim == []
+    assert (unhashed.closed, misspelt.closed) == (1, 1)
 
 
 def test_a_description_resumes_as_json_reads_it_back(tmp_path, fake_sim):
