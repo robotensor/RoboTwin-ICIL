@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- (feat): end-effector views, measured finger joints and a `replay_ee` oracle.
+  `Demonstration.endposes()` gives each frame as the 16 numbers `take_action('ee')` reads — per
+  arm the world-frame flange pose, wxyz, then the commanded gripper — `ee_actions()` the next
+  one per transition, and `arms_moved()` the arms whose flange travels more than 2 cm
+  (provisional). RoboTwin's gripper value is the command, which reads closed on an object, so
+  frames and observations gain `gripper_joints`, the finger joint positions measured off the
+  robot; it defaults to None, so older demonstrations still load. `replay_ee` plays
+  `ee_actions()` back, the ceiling of the `ee` path for any adapter. `docs/policies.md`
+  documents the path: at least 31 physics steps per call, 50 on a failed plan, step limits
+  counting calls. Sim tests measure an idle arm's drift under a fixed and an echoed hold, what
+  CuRobo does with 0-20 mm targets, and run `replay_ee` on click_bell (#36).
 - (feat): a physics clock. Demonstration frames are not evenly spaced — every motion primitive
   adds a one-step gap, a remainder and an exact duplicate where the next one starts — so frame
   index over `frequency` is not time. `robotwin.clock` counts `scene.step()` through an instance
