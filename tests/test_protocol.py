@@ -277,6 +277,24 @@ def test_a_malformed_message_is_refused(header, frames, message):
         protocol.receive(b, timeout=1)
 
 
+def test_a_message_refused_for_an_array_is_read_whole():
+    header = {
+        "op": "act",
+        "x": {"$": "array", "index": 0},
+        "y": {"$": "array", "index": 1},
+        "arrays": [
+            {"name": "x", "dtype": "|O", "shape": [1]},
+            {"name": "y", "dtype": "<f8", "shape": [1]},
+        ],
+    }
+    a, b = raw_message(header, b"\0" * 8, b"\0" * 8)
+    with a, b:
+        protocol.send(a, "ping")
+        with pytest.raises(ProtocolError, match=r"dtype '\|O'"):
+            protocol.receive(b, timeout=1)
+        assert protocol.receive(b, timeout=1) == protocol.Message("ping", {})
+
+
 def test_receive_times_out_and_reports_eof():
     a, b = multiprocessing.Pipe()
     with b:
