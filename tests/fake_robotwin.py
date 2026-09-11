@@ -4,6 +4,10 @@ It implements exactly the surface the benchmark touches — `setup_demo`, `play_
 `check_success`, `take_action`, `get_obs`, `close_env`, and what `robotwin.fingerprint` reads — and,
 like RoboTwin, builds its scene as a pure function of the seed: a cube placement and the joint
 target the expert must reach are drawn from `np.random.default_rng(seed)`.
+
+Physics advances only through `scene.step()`, as in RoboTwin: the scene settles for a few steps in
+`setup_demo`, the expert records a frame every `save_freq` steps, and `take_action` runs
+`physics_per_action` steps.
 """
 
 from types import SimpleNamespace
@@ -11,6 +15,8 @@ from types import SimpleNamespace
 import numpy as np
 
 QPOS_DIM = 14
+# RoboTwin settles a new scene for 2500 physics steps inside `setup_demo`; a few stand in for them.
+SETTLE_STEPS = 10
 
 
 class FakeUnstable(Exception):
@@ -49,6 +55,30 @@ class _Actor:
         return self._pose
 
 
+class _Scene:
+    """What the benchmark reads off RoboTwin's scene.
+
+    `step` is a method of the class, as it is on SAPIEN's Python `Scene` wrapper, so an instance
+    attribute can shadow it and deleting that attribute brings it back.
+    """
+
+    def __init__(self, cube):
+        self.cube = cube
+        self.stepped = 0
+
+    def get_all_actors(self):
+        return [_Actor("table", _Pose([0.0, 0.0, 0.74])), _Actor("cube", _Pose(self.cube))]
+
+    def get_all_articulations(self):
+        return []
+
+    def get_timestep(self):
+        return 1 / 250
+
+    def step(self):
+        self.stepped += 1
+
+
 class FakeTaskEnv:
     def __init__(
         self,
@@ -64,6 +94,7 @@ class FakeTaskEnv:
         oom_on_play=(),
         step_lim=50,
         expert_steps=6,
+        physics_per_action=1,
     ):
         self.unstable_seeds = set(unstable_seeds)
         self.plan_fails_on = set(plan_fails_on)
@@ -76,12 +107,15 @@ class FakeTaskEnv:
         self.oom_on_play = set(oom_on_play)
         self.step_lim_setting = step_lim
         self.expert_steps = expert_steps
+        self.physics_per_action = physics_per_action
         self.save_data = False
         self.save_freq = None
         self.builds: dict[int, int] = {}
         self.setups: list[int] = []
         self.task_names: list[str | None] = []
         self.closed = 0
+        # Closes of a scene whose `step` was still shadowed: a clock left running.
+        self.closed_while_clocked = 0
 
     def setup_demo(self, now_ep_num=0, seed=0, is_test=False, **kwargs):
         self.setups.append(seed)
@@ -98,14 +132,9 @@ class FakeTaskEnv:
             cube = cube + 0.01  # what an unseeded RNG in scene construction would do
         self.seed = seed
         self.qpos = np.zeros(QPOS_DIM)
-        self.scene = SimpleNamespace(
-            get_all_actors=lambda: [
-                _Actor("table", _Pose([0.0, 0.0, 0.74])),
-                _Actor("cube", _Pose(cube)),
-            ],
-            get_all_articulations=lambda: [],
-            get_timestep=lambda: 1 / 250,
-        )
+        self.scene = _Scene(cube)
+        for _ in range(SETTLE_STEPS):
+            self.scene.step()
         self.cameras = SimpleNamespace(
             get_config=lambda: {"head_camera": {"extrinsic_cv": np.eye(4)[:3]}}
         )
@@ -137,6 +166,8 @@ class FakeTaskEnv:
         self._take_picture()
         for k in range(1, steps + 1):
             self.qpos = self.target * k / self.expert_steps
+            for _ in range(self.save_freq or 1):
+                self.scene.step()
             self._take_picture()
         return {"info": {"{A}": "cube"}}
 
@@ -157,8 +188,13 @@ class FakeTaskEnv:
             raise RuntimeError("simulator exploded")
         self.take_action_cnt += 1
         self.qpos = np.asarray(action, dtype=float)
+        for _ in range(self.physics_per_action):
+            self.scene.step()
         if self.check_success():
             self.eval_success = True
 
     def close_env(self, clear_cache=False):
         self.closed += 1
+        scene = getattr(self, "scene", None)
+        if scene is not None and "step" in vars(scene):
+            self.closed_while_clocked += 1
