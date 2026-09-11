@@ -480,3 +480,55 @@ diagnostics too: a finished oracle beside an interrupted run covers only the run
 reference that recorded only some of them says `only n of this run's m episodes`. One that shares
 none is refused. The run's own score still covers all of its episodes. References are context for
 the score, never a second one.
+
+## The `policies/` distribution
+
+Adapters live in `policies/`, the separate distribution `robotwin-icil-policies` (package
+`icil_policies`). It depends on `robotwin-icil`; the core never imports it and nothing in
+`src/robotwin_icil` names a model, which a test checks.
+
+```bash
+uv pip install -e . -e "policies[pure]"
+pytest policies/tests -m "not sim"
+```
+
+| extra | what | installed in |
+| --- | --- | --- |
+| `pure` | numpy and pytest | CI, the simulator env, any adapter's pure tests |
+| `bpp` | BPP's pins: torch 2.8.0, hydra-core 1.2.0, timm 1.0.20, diffusers 0.35.1, transformers 4.57.1, ... | `icil-bpp` |
+| `uniskill` | UniSkill's pins: torch 2.8.0, transformers 4.57.1, diffusers 0.35.1, ... | `icil-uniskill` |
+
+### The shared toolkit
+
+`icil_policies.common` is numpy only, so it runs in the simulator env as well as in a model env,
+and CI tests it on Python 3.10 and 3.12. Each constant in it cites the vendor file or plan
+section it comes from; thresholds not yet measured (the arm-choice tie, the re-anchoring bounds,
+the stall window) are marked provisional.
+
+| module | what |
+| --- | --- |
+| `rotations` | wxyz quaternions (returned with w >= 0), matrices, axis-angle, rot6d as the first two rows (BPP's convention), slerp |
+| `frames` | aloha-agilex: `LIBERO_TO_WORLD` (LIBERO's axes in the world, which is also the robot root's rotation), `arm_base(arm)`, `tcp_from_flange` and `flange_from_tcp` (0.12 m along the flange's +x), each arm's slots in qpos and `ee` actions |
+| `resample` | `resample(demo, rate_hz=20)`: the demonstration on a fixed grid over `times()`; positions linear, orientations slerped, grippers held, images from the nearest frame; the final frame always sampled |
+| `arms` | `choose_arm(demo)`: the arm whose tool centre travels further, a tie to the arm that moves first, then the left; `IdleArmHold`: the idle arm's first-observation joints or flange pose, and its gripper, for the whole episode |
+| `images` | `arm_centred_view`: a square crop around a column, kept inside the frame, area resize to 128, bilinear to 224 with `align_corners=False` |
+| `chunking` | `ChunkExecutor`: a history of `To` observations padded by repetition at the start, a queue of `Ta` actions, one per `act()` |
+| `virtual_target` | `VirtualTarget`: an end-effector target that keeps sub-tolerance deltas and re-anchors on the measured pose past a bound or after a failed plan; `StallDetector` |
+| `kinematics` | forward and inverse kinematics from a URDF, and `AlohaArm`: RoboTwin's endpose of an arm's six joints and back, for a `qpos_ik` execution mode only |
+
+### `ADAPTER_VERSION`
+
+Every adapter module declares `ADAPTER_VERSION`, a dotted string of integers such as `"1"` or
+`"1.2"`, which names its conversion math: how a demonstration and each observation become model
+inputs, and how model outputs become actions. Changing that math bumps it, and `describe()`
+records it (#37), so runs converted differently are not mistaken for comparable ones.
+`icil_policies.testing.assert_conversion_pinned` turns a forgotten bump into a failing test: an
+adapter's test pins the digest of its conversion's outputs on fixed inputs, one entry per
+version.
+
+### Model environments
+
+Each model runs in an environment of its own, built by
+`bash scripts/install_policy_env.sh bpp|uniskill` from the lockfiles in `policies/envs/<name>/`.
+The simulator env never imports model code; it reaches an adapter in a model env through a remote
+policy (#39). See [Model environments](install.md#model-environments) in the install guide.
