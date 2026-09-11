@@ -290,19 +290,31 @@ BUILTIN: dict[str, type[ICILPolicy]] = {
     "replay": ReplayPolicy,
     "replay_ee": ReplayEEPolicy,
 }
+# Built in as well, but not in BUILTIN: `RemotePolicy` serves another policy, named in its
+# arguments, and its module imports this one.
+REMOTE = "remote"
+
+
+def builtin_names() -> list[str]:
+    return sorted([*BUILTIN, REMOTE])
 
 
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     """A built-in name, or ``package.module:Class`` for an adapter living outside the core.
 
     `kwargs` go to the class's constructor; one it does not take is a `PolicyError`, not a
-    traceback. Every policy must also construct with none.
+    traceback. Every policy must also construct with none, but `remote`, which must be told what
+    to serve.
     """
     if spec in BUILTIN:
         return _construct(spec, BUILTIN[spec], kwargs)
+    if spec == REMOTE:
+        from .remote import RemotePolicy
+
+        return _construct(spec, RemotePolicy, kwargs)
     module_name, sep, class_name = spec.partition(":")
     if not sep:
-        known = ", ".join(sorted(BUILTIN))
+        known = ", ".join(builtin_names())
         raise PolicyError(f"unknown policy {spec!r}; built-ins are {known}, or give module:Class")
     try:
         cls = getattr(importlib.import_module(module_name), class_name)
