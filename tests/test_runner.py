@@ -275,3 +275,41 @@ def test_a_policy_environment_holds_strings(tmp_path, fake_sim):
     with pytest.raises(PolicyError, match="environment\\(\\): 'cuda' must be a string, not float"):
         runner.run(spec(tmp_path), Provenanced({"cuda": 12.8}), FakeConfig(), log=quiet)
     assert not (tmp_path / "run" / "manifest.json").exists()
+
+
+class Described(ReplayPolicy):
+    """Describes itself with whatever convention keys a test gives it."""
+
+    name = "described"
+
+    def __init__(self, **fields):
+        super().__init__()
+        self.fields = fields
+
+    def describe(self):
+        return {**super().describe(), **self.fields}
+
+
+def test_a_policy_needing_another_camera_profile_is_refused_up_front(tmp_path, fake_sim):
+    policy = Described(camera_profile_required="far_side")
+    with pytest.raises(PolicyError, match="requires camera profile 'far_side' but the run uses"):
+        runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert fake_sim == []  # not one env built, not one seed drawn
+    assert not (tmp_path / "run" / "manifest.json").exists()
+
+    runner.run(spec(tmp_path), Described(camera_profile_required="stock"), FakeConfig(), log=quiet)
+    assert RunDir(tmp_path / "run").manifest().policy["camera_profile_required"] == "stock"
+
+
+def test_a_description_off_the_convention_refuses_the_run(tmp_path, fake_sim):
+    with pytest.raises(PolicyError, match="'checkpoint_sha256' must be 64 hex digits"):
+        runner.run(spec(tmp_path), Described(checkpoint_sha256="abc"), FakeConfig(), log=quiet)
+    assert fake_sim == []
+
+
+def test_a_description_resumes_as_json_reads_it_back(tmp_path, fake_sim):
+    policy = Described(training_tasks=("click_bell", "stack_blocks_two"))
+    runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    manifest = RunDir(tmp_path / "run").manifest()
+    assert manifest.policy["training_tasks"] == ["click_bell", "stack_blocks_two"]
+    runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)  # a tuple is not a new run

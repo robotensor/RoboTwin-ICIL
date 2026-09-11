@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
@@ -27,6 +28,19 @@ NEUTRAL_INSTRUCTION = "Follow the demonstrated behavior."
 
 ActionType = Literal["qpos", "ee"]
 _ACTION_DIMS: dict[str, int] = {"qpos": BIMANUAL_QPOS_DIM, "ee": BIMANUAL_EE_DIM}
+
+# The `describe()` convention: optional keys an adapter fills in so a run records what it ran.
+# `check_description` holds them to their types; other keys are the adapter's own.
+DESCRIPTION_KEYS = (
+    "adapter",
+    "adapter_version",
+    "checkpoint",
+    "checkpoint_sha256",
+    "training_tasks",
+    "camera_profile_required",
+    "parameter_checksum",
+)
+_SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 
 
 class PolicyError(RuntimeError):
@@ -101,7 +115,11 @@ class ICILPolicy:
         return actions
 
     def describe(self) -> dict[str, Any]:
-        """What the run manifest records about this policy: its name, model and checkpoint."""
+        """What the run manifest records about this policy: its name, model and checkpoint.
+
+        Extend the base description with the keys of `DESCRIPTION_KEYS` that apply; the runner
+        holds it to `check_description` when a run starts.
+        """
         return {"policy": self.name, "action_type": self.action_type}
 
     # Optional hooks. Each has a no-op default, so a policy overrides only those it needs.
@@ -218,6 +236,40 @@ def json_mapping(data: Any, what: str) -> dict[str, Any]:
             raise PolicyError(f"{what}: {key!r} is not JSON-serialisable: {exc}") from exc
         plain[key] = json.loads(text)
     return plain
+
+
+def check_description(description: Any) -> None:
+    """Hold a `describe()` result to the convention, or raise `PolicyError` saying what is wrong.
+
+    It is a mapping of JSON values naming the policy under `policy`, and of the optional keys:
+    `adapter` and `adapter_version` (str), `checkpoint` (str or None), `checkpoint_sha256` (64 hex
+    digits or None), `training_tasks` (a list of task names, or "unknown"),
+    `camera_profile_required` (a camera profile's name or None) and `parameter_checksum` (str or
+    None). Any other key is the adapter's own.
+    """
+    json_mapping(description, "describe()")
+    if not isinstance(description.get("policy"), str):
+        raise PolicyError("describe() must name the policy under 'policy', as the base class does")
+    what = f"{description['policy']}: describe()"
+
+    def fail(key: str, expected: str) -> PolicyError:
+        return PolicyError(f"{what}: {key!r} must be {expected}, not {description[key]!r}")
+
+    for key in ("adapter", "adapter_version"):
+        if key in description and not isinstance(description[key], str):
+            raise fail(key, "a string")
+    for key in ("checkpoint", "camera_profile_required", "parameter_checksum"):
+        if description.get(key) is not None and not isinstance(description[key], str):
+            raise fail(key, "a string or None")
+    digest = description.get("checkpoint_sha256")
+    if digest is not None and not (isinstance(digest, str) and _SHA256.fullmatch(digest)):
+        raise fail("checkpoint_sha256", "64 hex digits or None")
+    if "training_tasks" in description:
+        tasks = description["training_tasks"]
+        if tasks != "unknown" and not (
+            isinstance(tasks, (list, tuple)) and all(isinstance(t, str) and t for t in tasks)
+        ):
+            raise fail("training_tasks", 'a list of task names or "unknown"')
 
 
 BUILTIN: dict[str, type[ICILPolicy]] = {

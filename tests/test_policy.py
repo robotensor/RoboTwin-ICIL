@@ -11,6 +11,7 @@ from robotwin_icil.demo import (
     Frame,
 )
 from robotwin_icil.policy import (
+    BUILTIN,
     NEUTRAL_INSTRUCTION,
     DummyPolicy,
     ICILPolicy,
@@ -18,6 +19,7 @@ from robotwin_icil.policy import (
     PolicyError,
     ReplayEEPolicy,
     ReplayPolicy,
+    check_description,
     json_mapping,
     make_policy,
 )
@@ -229,3 +231,57 @@ def test_every_hook_has_a_default():
     assert policy.episode_info() == {}
     assert policy.environment() == {}
     policy.close()
+
+
+@pytest.mark.parametrize("name", sorted(BUILTIN))
+def test_builtins_are_zero_argument_constructible_and_described_by_the_convention(name):
+    description = BUILTIN[name]().describe()
+    check_description(description)
+    assert description["policy"] == name and description["action_type"] in ("qpos", "ee")
+
+
+def test_a_description_may_carry_every_convention_key_and_keys_of_its_own():
+    check_description(
+        {
+            "policy": "bpp",
+            "action_type": "ee",
+            "adapter": "robotwin_icil_policies.bpp",
+            "adapter_version": "0.1.0",
+            "checkpoint": "/ckpt/bpp.pt",
+            "checkpoint_sha256": "ab" * 32,
+            "training_tasks": ["libero_10/kitchen_scene3"],
+            "camera_profile_required": "far_side",
+            "parameter_checksum": "c0ffee",
+            "prompt_chunks": 4,
+        }
+    )
+    check_description(
+        {"policy": "x", "checkpoint": None, "checkpoint_sha256": None, "training_tasks": "unknown"}
+    )
+
+
+@pytest.mark.parametrize(
+    "fields, message",
+    [
+        ({"adapter": None}, "'adapter' must be a string"),
+        ({"adapter_version": 1}, "'adapter_version' must be a string"),
+        ({"checkpoint": 3}, "'checkpoint' must be a string or None"),
+        ({"checkpoint_sha256": "ab" * 31}, "'checkpoint_sha256' must be 64 hex digits"),
+        ({"checkpoint_sha256": "zz" * 32}, "'checkpoint_sha256' must be 64 hex digits"),
+        ({"training_tasks": "click_bell"}, "'training_tasks' must be a list of task names"),
+        ({"training_tasks": ["click_bell", ""]}, "'training_tasks' must be a list"),
+        ({"camera_profile_required": ["far_side"]}, "'camera_profile_required' must be a"),
+        ({"parameter_checksum": 12}, "'parameter_checksum' must be a string or None"),
+        ({"weights": object()}, "'weights' is not JSON-serialisable"),
+    ],
+)
+def test_a_description_off_the_convention_is_refused(fields, message):
+    with pytest.raises(PolicyError, match=message):
+        check_description({"policy": "adapter", **fields})
+
+
+def test_a_description_names_its_policy():
+    with pytest.raises(PolicyError, match="must name the policy"):
+        check_description({"model": "bpp"})
+    with pytest.raises(PolicyError, match="must be a mapping"):
+        check_description(None)

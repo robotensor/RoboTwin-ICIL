@@ -16,7 +16,7 @@ from typing import Any
 
 from . import camera_profiles
 from .episode import EpisodeSpec, run_episode
-from .policy import ICILPolicy, PolicyError, json_mapping
+from .policy import ICILPolicy, PolicyError, check_description, json_mapping
 from .records import (
     SAME_SCENE,
     EpisodeRecord,
@@ -109,6 +109,24 @@ def _policy_environment(policy: ICILPolicy) -> dict[str, str]:
     return reported
 
 
+def _described(policy: ICILPolicy, config) -> dict[str, Any]:
+    """The policy's description, held to the convention, before anything is generated for it.
+
+    A policy that needs a camera profile other than the run's is refused here rather than handed
+    images from cameras it was not built for.
+    """
+    description = policy.describe()
+    check_description(description)
+    required = description.get("camera_profile_required")
+    if required is not None and required != config.camera_profile:
+        raise PolicyError(
+            f"{policy.name} requires camera profile {required!r} but the run uses "
+            f"{config.camera_profile!r}; pass --camera-profile {required}"
+        )
+    # As JSON reads it back, so a resumed run's description compares equal to the manifest's.
+    return json_mapping(description, f"{policy.name}: describe()")
+
+
 def run(
     spec: RunSpec,
     policy: ICILPolicy,
@@ -123,7 +141,7 @@ def run(
         # Resolve before entering the RoboTwin seam, which moves the working directory.
         run_dir = RunDir(Path(spec.run_dir).resolve())
         # Described once: an adapter's description may hash its parameters, which is not free.
-        description = policy.describe()
+        description = _described(policy, config)
         run_dir.start(manifest_for(spec, policy, config, description))
         done = run_dir.completed()
         plan = assign(spec.tasks, spec.episodes)
