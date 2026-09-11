@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import gc
 import importlib
 import os
 import sys
@@ -186,6 +187,17 @@ def close(env, clear_cache: bool = False) -> None:
 def gpu_exhausted(exc: BaseException) -> bool:
     """Whether an exception is the GPU running out of memory, recognised without importing torch."""
     return type(exc).__name__ == "OutOfMemoryError" or "CUDA out of memory" in str(exc)
+
+
+def free_gpu() -> None:
+    """Hand the memory of released envs — CuRobo's planners live on the GPU — back to the driver."""
+    gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def clear_render_cache() -> None:

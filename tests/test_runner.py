@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
@@ -76,3 +78,37 @@ def test_a_different_run_cannot_reuse_the_directory(tmp_path, fake_sim):
     runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     with pytest.raises(RecordError):
         runner.run(spec(tmp_path, global_seed=4), ReplayPolicy(), FakeConfig(), log=quiet)
+
+
+def test_one_env_is_alive_at_a_time(tmp_path, monkeypatch, fake_sim):
+    # Each env holds CuRobo planners on the GPU; holding all of a suite's at once ran it out.
+    events = []
+    load = robotwin.load_task
+    monkeypatch.setattr(
+        robotwin, "load_task", lambda name: events.append(f"load {name}") or load(name)
+    )
+    monkeypatch.setattr(robotwin, "free_gpu", lambda: events.append("free"))
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    first, second = (task.name for task in tasks.table().suite("v1")[:2])
+    assert events == [f"load {first}", "free", f"load {second}", "free"]
+
+
+def test_episodes_run_task_by_task_but_keep_their_assignment(tmp_path, fake_sim):
+    records = runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    suite = tasks.table().suite("v1")[:2]
+    assert [r.task for r in records] == [suite[i % 2].name for i in range(4)]
+    lines = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
+    assert [json.loads(line)["episode"] for line in lines] == [0, 2, 1, 3]
+
+
+def test_a_broken_simulator_stops_the_run_and_keeps_what_was_recorded(
+    tmp_path, monkeypatch, fake_sim
+):
+    second = tasks.table().suite("v1")[1].name
+    monkeypatch.setattr(
+        robotwin, "load_task", lambda name: FakeTaskEnv(broken_setup=(name == second))
+    )
+    with pytest.raises(robotwin.RoboTwinError):
+        runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    # The first task's episodes are on disk, so rerunning the same command resumes from there.
+    assert [r.episode for r in RunDir(tmp_path / "run").records()] == [0, 2]
