@@ -101,8 +101,8 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time. `report --reference` prints other runs beside a run only when they ran the same
-  global seed, tasks, expert budget, configuration and camera profile; they are context, never a
-  second score.
+  global seed, tasks, expert budget, RoboTwin commit, configuration and camera profile, each rated
+  over the episodes both runs recorded; they are context, never a second score.
 - Every episode records episode id, setting, skill category, task, scene seed, expert generation
   attempts, success, rollout steps and physics steps, model/checkpoint, the policy's action type,
   the arms the demonstration moved (analysis metadata, never a report slice) and the policy's
