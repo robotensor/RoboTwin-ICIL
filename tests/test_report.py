@@ -271,6 +271,9 @@ STOCK = camera_profiles.get("stock").identity()
             "benchmark_config.save_freq",
         ),
         ({"robotwin_config": {"task_config": "demo_randomized"}}, "robotwin_config.task_config"),
+        # RoboTwin's task code builds the scenes, so another checkout may build others.
+        ({"robotwin_commit": "1" * 40}, f"robotwin_commit ('{'1' * 40}', not 'def')"),
+        ({"robotwin_commit": "def-dirty"}, "robotwin_commit ('def-dirty', not 'def')"),
         (
             {"benchmark_config": {"camera_profile": camera_profiles.get("far_side").identity()}},
             "camera profile (far_side (sha256 90ff70cb567f), not stock",
@@ -288,11 +291,10 @@ def test_a_reference_of_other_scenes_is_refused_naming_the_field(tmp_path, chang
         report.load_reference(path, BPP, tasks.table())
 
 
-def test_a_reference_may_differ_in_policy_commits_and_machine(tmp_path):
+def test_a_reference_may_differ_in_policy_benchmark_commit_and_machine(tmp_path):
     other = dataclasses.replace(
         v1_run(policy="replay"),
         benchmark_commit="0" * 40,
-        robotwin_commit="1" * 40,
         episodes=18,
         environment={"gpu": "NVIDIA RTX A6000"},
         policy_config={"temperature": 0.5},

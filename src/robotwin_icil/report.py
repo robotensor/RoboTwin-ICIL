@@ -8,7 +8,8 @@ Rates are fractions in `[0, 1]` everywhere; `render` is the single place they be
 
 Reference runs (`report --reference`), an oracle's or another model's, print in columns beside the
 run's own rates. They are context, not a second score, and stand beside a run only when they
-evaluated the same scenes: the same global seed, tasks, configuration and camera profile.
+evaluated the same scenes: the same global seed, tasks, RoboTwin commit, configuration and camera
+profile.
 """
 
 from __future__ import annotations
@@ -23,8 +24,16 @@ from .records import EpisodeRecord, RunDir, RunManifest, Status
 from .tasks import TaskTable
 
 # What a reference must share with the reported run, besides its camera profile and configs: the
-# scenes are drawn from the global seed per episode, task by task, under the same expert budget.
-_SAME = ("evaluation_setting", "global_seed", "suite", "tasks", "max_expert_attempts")
+# scenes are drawn from the global seed per episode, task by task, under the same expert budget,
+# and built by RoboTwin's own task code (`load_actors`, the expert) at the commit recorded.
+_SAME = (
+    "evaluation_setting",
+    "global_seed",
+    "suite",
+    "tasks",
+    "max_expert_attempts",
+    "robotwin_commit",
+)
 _MISSING = object()
 
 
@@ -134,8 +143,10 @@ def differences(run: RunManifest, reference: RunManifest) -> list[str]:
     """The fields in which `reference` did not evaluate the scenes `run` did; empty when it did.
 
     Compared as resuming compares them (`RunManifest.identity()`), so a manifest from before
-    camera profiles reads as `stock`. The policy, its arguments, the commits and the machine may
-    differ: that is what a reference is for.
+    camera profiles reads as `stock`. The RoboTwin commit is compared as resuming compares it,
+    `-dirty` included: RoboTwin's task code builds the scenes and plans the expert's moves. The
+    policy, its arguments, the benchmark's own commit and the machine may differ: that is what a
+    reference is for.
     """
     ours, theirs = run.identity(), reference.identity()
     found = [
@@ -168,7 +179,8 @@ def load_reference(path: Path, run: RunManifest, table: TaskTable) -> Reference:
     if found:
         raise ReportError(
             f"reference {reference.path} differs from the reported run in {'; '.join(found)}: a "
-            "reference must run the same global seed, tasks, configuration and camera profile"
+            "reference must run the same global seed, tasks, RoboTwin commit, configuration and "
+            "camera profile"
         )
     return Reference(
         label=policy_label(manifest),
@@ -260,8 +272,8 @@ def render(
     )
     if references:
         lines.append(
-            "Reference runs (same global seed, tasks, configuration and camera profile; "
-            "not scores of this run):"
+            "Reference runs (same global seed, tasks, RoboTwin commit, configuration and "
+            "camera profile; not scores of this run):"
         )
         label_width = max(len(label) for label in labels[1:])
         for label, reference in zip(labels[1:], references, strict=True):
