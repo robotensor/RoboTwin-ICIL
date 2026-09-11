@@ -16,6 +16,7 @@ robotwin-icil eval --policy mypkg.adapters:MyPolicy --suite v1 --episodes 500 --
 For every episode, in this order and no other:
 
 ```text
+policy.seed(s)                      # s from the policy's own stream, never the scene seed
 policy.reset()                      # forget everything from the previous episode
 policy.set_demonstration(demo)      # exactly once
 loop:
@@ -62,7 +63,128 @@ class MyPolicy(ICILPolicy):
         return {**super().describe(), "model": self.name, "checkpoint": self.checkpoint}
 ```
 
-`describe()` goes into the run manifest; report your model and checkpoint there.
+`describe()` goes into the run manifest; report your model and checkpoint there, with the keys
+of [the `describe()` convention](#what-describe-says).
+
+## Configuration and hooks
+
+### Arguments: `--policy-arg`
+
+```bash
+robotwin-icil eval --policy mypkg.adapters:MyPolicy --policy-arg config=configs/mine.yml \
+    --policy-arg temperature=0.5 --suite v1 --episodes 500 --seed 42 --run-dir runs/mine
+```
+
+Each `--policy-arg KEY=VALUE`, repeatable, becomes one keyword argument of the policy's
+constructor. The value is read with `yaml.safe_load`: numbers, booleans (`true`, `false`, and
+YAML 1.1's `yes`, `no`, `on`, `off`) and `null` or an empty value arrive typed; a value in quotes
+is the string inside them (`"revision='0123'"`, where `revision=0123` would be octal 83);
+anything else, a path, a list or a date, stays the string given. `KEY` must be a Python
+identifier. A malformed item, a non-finite number or a `KEY` given twice is a usage error before
+the simulator loads; an argument the constructor does not take stops the run with a
+`PolicyError`.
+
+An adapter with many settings takes one argument, `config=PATH` to a YAML file of its own, and
+reads the rest from there; keep the command line for what changes between runs. The constructor
+runs before the harness moves into `vendor/RoboTwin`, so resolve relative paths there
+(`Path(config).resolve()`), not on first use.
+
+Every policy still constructs with **no** arguments: give each one a default. The tests build
+every built-in that way; do the same for yours.
+
+The manifest records the arguments as `policy_config`, paths as strings. They are part of the
+run's identity: a run directory does not resume under other arguments.
+
+### Hooks
+
+Four optional methods on `ICILPolicy`, each with a default that does nothing, so a policy
+overrides only what it needs:
+
+| hook | called | default |
+| --- | --- | --- |
+| `seed(seed)` | before every `reset()` | nothing |
+| `episode_info() -> dict` | after every rollout | `{}` |
+| `close()` | once, when the run ends, however it ends | nothing |
+| `environment() -> dict[str, str]` | once, when the run starts | `{}` |
+
+**`seed(seed)`** gets an integer drawn from `np.random.default_rng([global_seed, episode,
+POLICY_STREAM])`: the same for an episode whether or not the run was resumed, and never the scene
+seed, which comes from `default_rng([global_seed, episode])` and is privileged. Only episodes
+that reach a rollout seed the policy. Sampling policies, diffusion heads above all, become
+reproducible per episode.
+
+RoboTwin seeds torch's global RNG whenever it builds a scene: `_init_task_env_` calls
+`torch.manual_seed` with the scene seed, at least twice an episode. Noise drawn from torch's
+global RNG in the same process is therefore a function of the scene seed. An in-process adapter
+must draw its sampling noise from a `torch.Generator` of its own, seeded from `seed()`, and never
+from the global RNG:
+
+```python
+def seed(self, seed):
+    self.generator = torch.Generator(device=self.device).manual_seed(seed)
+
+
+def _act(self, obs):
+    noise = torch.randn(self.noise_shape, generator=self.generator, device=self.device)
+    ...
+```
+
+**`episode_info()`** reports what the adapter knows about the rollout it just ran: the arm it
+drove, prompt chunks, how much proprioception fell outside its training range, clipped actions.
+It is stored in the episode record as `policy_info`. Values must be plain JSON: `str`, `int`,
+`float`, `bool`, `None`, lists and dicts of them. Convert numpy values (`.item()`, `.tolist()`).
+NaN and infinity are refused too, and a value that is not JSON stops the run with a
+`PolicyError` naming its key. Episodes without a rollout (rejected, invalid) record `{}`.
+
+**`close()`** releases what the policy holds: a model on the GPU, a model server. `runner.run`
+calls it exactly once, also when an episode raises or the run is refused.
+
+**`environment()`** is the policy's own software environment, all strings: python, torch, CUDA,
+the GPU, the commits of the model's repositories. The manifest records it as
+`policy_environment`. Like the benchmark's own `environment`, it is not part of the run's
+identity, so a run resumes on another machine.
+
+### What `describe()` says
+
+The base class returns `policy` (the name) and `action_type`; extend it with
+`{**super().describe(), ...}`. These optional keys are the convention:
+
+| key | type | what |
+| --- | --- | --- |
+| `adapter` | str | the adapter: its import path or distribution |
+| `adapter_version` | str | the adapter's version |
+| `checkpoint` | str or None | the checkpoint it loaded |
+| `checkpoint_sha256` | 64 hex digits or None | that file's sha256 |
+| `training_tasks` | list of task names, or `"unknown"` | what the model was trained on |
+| `camera_profile_required` | a camera profile's name, or None | the only profile the policy runs under |
+| `parameter_checksum` | str or None | a checksum of every parameter, for [the audit](#the-frozen-policy-audit) |
+
+Any other key is the adapter's own; everything must be JSON. The runner holds the description to
+the convention when a run starts (`check_description`) and refuses the run otherwise. A policy
+whose `camera_profile_required` is not the run's `--camera-profile` is refused before one scene
+is generated. The manifest records the description, and a run directory does not resume under a
+different one, so another `adapter_version` or checkpoint is another run.
+
+The runner describes the policy twice per run, at its start and at its end, not per episode.
+
+### The frozen-policy audit
+
+When `describe()` gives a `parameter_checksum`, the runner describes the policy again at the end
+of the run and compares. A different checksum raises `PolicyError: ... parameters changed during
+the run: the policy must be frozen`. The audit also runs when the run raised, so an interrupted
+run is audited too. The episodes already written stay on disk, but the run cannot be trusted.
+The audit is only as strong as the checksum, so hash every parameter and buffer:
+
+```python
+def _checksum(self):
+    digest = hashlib.sha256()
+    for name, tensor in sorted(self.model.state_dict().items()):
+        digest.update(name.encode())
+        digest.update(tensor.detach().cpu().flatten().view(torch.uint8).numpy().tobytes())
+    return digest.hexdigest()
+```
+
+A policy that gives no checksum is not audited.
 
 ## What the policy receives
 
@@ -211,7 +333,8 @@ long it runs, and `obs.time_s` and the record's `physics_steps` show the time it
 
 No `backward()`, no optimizer, no parameter writes, anywhere, during a benchmark run. The model
 adapts only through the demonstration it is handed. Inference-time state — a KV cache, observation
-or action history, a recurrent state — is fine, and `_reset()` must clear all of it.
+or action history, a recurrent state — is fine, and `_reset()` must clear all of it. Give
+`describe()` a `parameter_checksum` and [the audit](#the-frozen-policy-audit) holds you to it.
 
 ## Validating an adapter
 
