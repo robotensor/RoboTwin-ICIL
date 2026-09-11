@@ -9,7 +9,8 @@
   counted) to before `close`, and sees `take_dense_action` and `together_move_to_pose` alike.
   Frames and observations carry `time_s` in simulated seconds; `Demonstration.times()` returns
   the frames' times, which never decrease, or for untimed data collapses exact duplicates and
-  spaces the rest at `1 / frequency`; records gain `physics_steps`. All three default, so older
+  spaces the rest at `1 / frequency`, and `duration_s` is the span of those times rather than
+  frame count over `frequency`; records gain `physics_steps`. All three default, so older
   demonstrations and runs still load (#35).
 - (feat): camera profiles that keep every seed's scene. `--camera-profile` on `eval` and
   `survey` picks one from `cameras.yml`; `far_side` puts a 45° L515 across the table in
