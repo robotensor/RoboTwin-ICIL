@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (fix): both scenes of an episode are built under the task's name, so rollouts get the
+  task's own step limit instead of RoboTwin's silent 1000-step fallback (#7).
 - (docs): `docs/policies.md`, the policy adapter guide; the README layout gains `generate.py`,
   `video.py` and `--video`; CLAUDE.md records the frame rate, the working-directory move and that
   RoboTwin's `is_test` selects nothing (#12).
