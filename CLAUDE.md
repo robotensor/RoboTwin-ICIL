@@ -89,6 +89,11 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   `scene.step`, not patches to the submodule.
 - `robotwin.py` is the only module that may import from `vendor/RoboTwin`; every other module stays
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
+- A model whose pins conflict with RoboTwin's runs in its own environment behind
+  `python -m robotwin_icil.serve`, reached through the built-in `remote` (`RemotePolicy`); the
+  simulator environment never imports model code. The wire protocol never pickles: only
+  `send_bytes`/`recv_bytes`, a JSON header and raw bool, integer and float arrays. Every remote
+  failure is a `PolicyError` that stops the server; no server outlives its client.
 - Camera profiles (`cameras.yml`, `camera_profiles.py`) only replace a static camera in its slot.
   Every static camera draws from numpy's RNG after seeding and before `load_actors`, so adding
   or removing one, or toggling `collect_head_camera`, moves every seed's scene where the
