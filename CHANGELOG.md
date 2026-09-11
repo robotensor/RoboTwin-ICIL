@@ -64,7 +64,10 @@
   `icil_policies.common.oracles` replays the demonstration resampled to 20 Hz, the ceiling of
   any 20 Hz qpos model. `icil-uniskill` now builds, without the fork's simulator submodules,
   and has a contract test; `docs/models/uniskill.md` gives every constant's source, the
-  assumptions and deviations, and a draft upstream issue for the dead link (#43).
+  assumptions and deviations, and a draft upstream issue for the dead link.
+  `scripts/install_policy_env.sh` now installs the `pure` extra, so every model env,
+  `icil-bpp` too, gets pytest for its contract tests, and keys its benchmark stage on the
+  checkout path and the extras, so an env built before this reinstalls that stage once (#43).
 - (feat): `policies/`, the adapters' own distribution `robotwin-icil-policies`, with a numpy
   toolkit and model environments. `icil_policies.common` holds what BPP's and UniSkill's
   adapters share: wxyz quaternions, axis-angle and rot6d (the first two rows); aloha's arm
