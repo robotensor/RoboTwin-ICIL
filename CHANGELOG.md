@@ -61,7 +61,8 @@
   fails a conversion that changes without a bump. `scripts/install_policy_env.sh bpp|uniskill`
   builds `$ICIL_HOME/envs/icil-<name>` with uv from lockfiles in `policies/envs/`: BPP's recipe
   as verified on an RTX 5090, and UniSkill's as planned, for #43 to verify. CI tests
-  `policies[pure]` on 3.10 and 3.12; the core never imports it (#41).
+  `policies[pure]` on 3.10 and 3.12; the core never imports it ; the BPP environment also installs `future` and `open3d`, which `bddl` and BPP's LIBERO
+  utilities import, and puts LIBERO's checkout on the path when its editable install maps nothing(#41).
 - (feat): end-effector views, measured finger joints and a `replay_ee` oracle.
   `Demonstration.endposes()` gives each frame as the 16 numbers `take_action('ee')` reads — per
   arm the world-frame flange pose, wxyz, then the commanded gripper — `ee_actions()` the next
