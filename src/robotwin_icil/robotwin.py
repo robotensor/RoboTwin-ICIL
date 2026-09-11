@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 import yaml
 
+from . import camera_profiles
 from .demo import Demonstration, Frame
 from .scene import SceneFingerprint, unique_names
 
@@ -100,13 +101,18 @@ class SceneConfig:
 
     Recorded in the run manifest: two runs with different configs are not comparable, because the
     config decides the cameras, the embodiment and the domain randomization the expert and the
-    policy both see.
+    policy both see. `camera_profile` names a profile in `cameras.yml`; any profile keeps every
+    seed's scene, but not the images a policy is given.
     """
 
     task_config: str = "demo_clean"
     save_freq: int = 15
     head_camera: str | None = None
     overrides: dict[str, Any] | None = None
+    camera_profile: str = camera_profiles.STOCK
+
+    def __post_init__(self) -> None:
+        camera_profiles.get(self.camera_profile)  # an unknown name fails before any scene is built
 
     def resolve(self, task_name: str | None = None) -> dict[str, Any]:
         """Build the `args` dict `setup_demo` takes, from RoboTwin's own config files.
@@ -156,9 +162,18 @@ class SceneConfig:
         args["need_plan"] = True
         args["collect_data"] = False
         args["eval_video_save_dir"] = None
+        # After the embodiment configs, whose static camera list the profile rewrites; before
+        # `overrides`, which stay the last word as they always were.
+        args = camera_profiles.apply(args, self.camera_profile, camera_types())
         for key, value in (self.overrides or {}).items():
             args[key] = value
         return args
+
+
+def camera_types() -> frozenset[str]:
+    """The camera types RoboTwin can build, from its own `_camera_config.yml`."""
+    path = ROBOTWIN_ROOT / "env_cfg" / "task_config" / "_camera_config.yml"
+    return frozenset(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
 def _embodiment_config(robot_file: str) -> dict[str, Any]:
