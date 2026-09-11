@@ -279,6 +279,14 @@ def apply(
             f"{where} leaves two cameras named {duplicates}; RoboTwin keys cameras by name, so "
             "one would overwrite the other"
         )
+    # `Camera.get_config()` and `get_rgba()` store the wrist cameras under these names before the
+    # static cameras, so a static camera named like one silently replaces its config and image.
+    # Reserved even while `collect_wrist_camera` is off, so a later toggle cannot collide.
+    if wrist := [name for name in names_after if name in WRIST_CAMERAS]:
+        raise ProfileError(
+            f"{where} names a static camera {wrist[0]!r}, like a wrist camera; RoboTwin keys "
+            "cameras by name, so one would overwrite the other"
+        )
 
     if profile.video_camera != DEFAULT_VIDEO_CAMERA:
         rendered = [entry.get("name") for entry in created_after]

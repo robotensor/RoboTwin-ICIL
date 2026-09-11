@@ -187,6 +187,17 @@ def test_duplicate_names_are_refused(static_camera_list):
         apply(args, parse("p", replacing("front_camera")))
 
 
+def test_a_static_camera_may_not_take_a_wrist_camera_name(static_camera_list):
+    # RoboTwin stores the wrist cameras under these names first; a static one would overwrite it.
+    for wrist in ("left_camera", "right_camera"):
+        for collect_wrist_camera in (True, False):
+            args = resolved(
+                copy.deepcopy(static_camera_list), collect_wrist_camera=collect_wrist_camera
+            )
+            with pytest.raises(ProfileError, match=f"names a static camera '{wrist}'"):
+                apply(args, parse("p", replacing("front_camera", name=wrist)))
+
+
 def test_a_camera_type_robotwin_lacks_is_refused(static_camera_list):
     args = resolved(static_camera_list)
     with pytest.raises(ProfileError, match="camera type 'D455'"):

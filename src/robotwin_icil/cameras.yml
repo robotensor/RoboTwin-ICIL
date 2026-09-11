@@ -11,7 +11,8 @@
 # every seed's scene: one camera more moves every object of every seed. Replacing a camera keeps
 # the draw count, so every scene stays the same. `head_camera` is created (and draws) only while
 # `camera.collect_head_camera` is true; every other entry always draws. Names stay unique because
-# RoboTwin keys camera configs and images by name, so a duplicate would overwrite another camera.
+# RoboTwin keys camera configs and images by name, so a duplicate would overwrite another camera;
+# `left_camera` and `right_camera` are taken by the wrist cameras.
 #
 # Keys of a profile, all optional:
 #   replace:       {existing camera name: {name, type, position, forward, left}}
