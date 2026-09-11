@@ -227,3 +227,4 @@ def test_every_hook_has_a_default():
     policy = ReplayPolicy()
     policy.seed(7)
     assert policy.episode_info() == {}
+    policy.close()

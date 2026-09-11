@@ -104,18 +104,24 @@ def run(
     config,
     log: Callable[[str], None] = print,
 ) -> list[EpisodeRecord]:
-    """Run (or resume) every episode of `spec`, appending each record as it finishes."""
-    # Resolve before entering the RoboTwin seam, which moves the working directory.
-    run_dir = RunDir(Path(spec.run_dir).resolve())
-    # Described once: an adapter's description may hash its parameters, which is not free.
-    description = policy.describe()
-    run_dir.start(manifest_for(spec, policy, config, description))
-    done = run_dir.completed()
-    plan = assign(spec.tasks, spec.episodes)
-    if done:
-        log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
-    _run_pending(spec, policy, config, run_dir, plan, done, description, log)
-    return sorted(run_dir.records(), key=lambda record: record.episode)
+    """Run (or resume) every episode of `spec`, appending each record as it finishes.
+
+    The run owns the policy's end: `policy.close()` is called exactly once, however the run ends.
+    """
+    try:
+        # Resolve before entering the RoboTwin seam, which moves the working directory.
+        run_dir = RunDir(Path(spec.run_dir).resolve())
+        # Described once: an adapter's description may hash its parameters, which is not free.
+        description = policy.describe()
+        run_dir.start(manifest_for(spec, policy, config, description))
+        done = run_dir.completed()
+        plan = assign(spec.tasks, spec.episodes)
+        if done:
+            log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
+        _run_pending(spec, policy, config, run_dir, plan, done, description, log)
+        return sorted(run_dir.records(), key=lambda record: record.episode)
+    finally:
+        policy.close()
 
 
 def _run_pending(

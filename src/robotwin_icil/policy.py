@@ -121,6 +121,12 @@ class ICILPolicy:
         `policy_info`; every value must be JSON-serialisable."""
         return {}
 
+    def close(self) -> None:
+        """Release what the policy holds: a model on the GPU, a connection to a model server.
+
+        `runner.run` calls it exactly once, when the run ends, however it ends.
+        """
+
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
 
