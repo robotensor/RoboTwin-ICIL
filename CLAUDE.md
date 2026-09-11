@@ -71,9 +71,15 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   the next seed, count it in the generator statistics; it never enters the score's denominator.
 - The policy is frozen. `policy.reset()` before every episode; no `backward()`, optimizer or
   parameter write anywhere in the evaluator. Inference-time state (KV cache, history) is fine.
+  A `parameter_checksum` in `describe()` is compared at the end of the run (the frozen-policy
+  audit, also when the run raised); `close()` runs once, in `runner.run`'s `finally`.
 - No privileged state reaches the policy: scene seed, success condition, target object or
   destination id, `info` from `play_once()`, ground-truth task state, actor handles, planner
   internals. If a model needs language, it gets `"Follow the demonstrated behavior."`.
+  `policy.seed()`, just before `reset()`, draws from `default_rng([global_seed, episode,
+  POLICY_STREAM])`: never the scene seed nor derived from it. RoboTwin reseeds torch's global
+  RNG with the scene seed on every build, so in-process adapters sample from a `torch.Generator`
+  of their own.
 - Demonstrations are model-independent (rgb per camera, endpose, qpos, measured gripper joints,
   frame times, control frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
 - Reuse RoboTwin's task setup, expert, success check and reset as they are. The benchmark exposes
@@ -95,9 +101,11 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time.
 - Every episode records episode id, setting, skill category, task, scene seed, expert generation
-  attempts, success, rollout steps and physics steps, and model/checkpoint; every run also records the global seed,
-  both configs and both git commits. Videos go to
-  `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
+  attempts, success, rollout steps and physics steps, model/checkpoint and the policy's
+  `episode_info()`; every run also records the global seed, both configs, both git commits, the
+  policy's description and `--policy-arg`s (both part of its identity) and its environment (not).
+  New record and manifest fields are defaulted, so older run directories still load and resume.
+  Videos go to `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
 ## Conventions
 
