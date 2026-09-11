@@ -24,7 +24,7 @@ from robotwin_icil.demo import Demonstration, DemonstrationError
 from robotwin_icil.policy import ICILPolicy, Observation, PolicyError
 
 from .config import load_config, verify_sha256
-from .conversion import ADAPTER_VERSION, CAMERA_PROFILE, policy_image, skill_row
+from .conversion import ADAPTER_VERSION, CAMERA_PROFILE, SkillCursor, policy_image
 
 __all__ = ["ADAPTER_VERSION", "NO_CHECKPOINT", "UniSkillPolicy"]
 
@@ -78,11 +78,10 @@ class UniSkillPolicy(ICILPolicy):
         self._check_compatible()
         n_obs, n_action, _ = self._policy.horizons
         self._executor = ChunkExecutor(self._plan, n_obs=n_obs, n_action=n_action)
+        self._cursor = SkillCursor(self._executor)
         self._generator = torch.Generator(device=self._policy.network.device)
         self._generator.manual_seed(self.config.seed)
         self._skills = None
-        self._executed = 0
-        self._replans: list[tuple[int, int]] = []
 
     def _check_compatible(self) -> None:
         policy = self._policy
@@ -112,10 +111,8 @@ class UniSkillPolicy(ICILPolicy):
         self._generator.manual_seed(int(seed))
 
     def _reset(self) -> None:
-        self._executor.reset()
+        self._cursor.reset()
         self._skills = None
-        self._executed = 0
-        self._replans = []
 
     def _set_demonstration(self, demonstration: Demonstration) -> None:
         try:
@@ -125,15 +122,13 @@ class UniSkillPolicy(ICILPolicy):
         if skills.ndim != 2 or len(skills) == 0 or skills.shape[1] != self._policy.skill_dim:
             raise PolicyError(f"{self.name}: skill rows of shape {skills.shape}")
         self._skills = self._torch.from_numpy(skills).to(self._policy.network.device)
+        self._cursor.set_rows(len(skills))
 
     def _act(self, observation: Observation) -> np.ndarray:
-        action = self._executor.act(observation)
-        self._executed += 1
-        return action
+        return self._cursor.act(observation)
 
     def _plan(self, history: list[Observation]) -> np.ndarray:
-        row = skill_row(self._executed, len(self._skills))
-        self._replans.append((self._executed, row))
+        row = self._cursor.row()
         skill = self._skills[row][None]
         actions = self._model.sample(self._policy, self._inputs(history), skill, self._generator)
         return actions[0].detach().cpu().numpy().astype(np.float64)
@@ -193,13 +188,14 @@ class UniSkillPolicy(ICILPolicy):
 
     def episode_info(self) -> dict[str, Any]:
         """The skill row at each re-plan against the demonstration's progress through its rows."""
-        rows = 0 if self._skills is None else len(self._skills)
-        last = self._replans[-1][1] if self._replans else None
+        cursor = self._cursor
+        rows = cursor.n_rows
+        last = cursor.replans[-1][1] if cursor.replans else None
         return {
             "skill_rows": rows,
-            "executed_steps": self._executed,
-            "replan_steps": [step for step, _ in self._replans],
-            "replan_rows": [row for _, row in self._replans],
+            "executed_steps": cursor.executed,
+            "replan_steps": [step for step, _ in cursor.replans],
+            "replan_rows": [row for _, row in cursor.replans],
             "skill_progress": None if last is None or rows < 2 else last / (rows - 1),
-            "held_past_end": rows > 0 and self._executed > rows - 1,
+            "held_past_end": rows > 0 and cursor.executed > rows - 1,
         }

@@ -29,6 +29,7 @@ video; the parameters are `Augmentation`'s, set in the adapter's config.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -62,6 +63,48 @@ def skill_row(executed: int, n_rows: int) -> int:
     if n_rows < 1:
         raise ValueError(f"there are no skill rows to index, got {n_rows}")
     return min(int(executed), n_rows - 1)
+
+
+class SkillCursor:
+    """The executed-action count that picks each re-plan's skill row, and the order of the two.
+
+    One cursor per episode, wrapping a `ChunkExecutor`. `act()` returns one action and only
+    then advances the count, so the row a re-plan reads is the number of actions executed
+    *before* it; `row()` is what the plan callback asks for, and records `(executed, row)` so
+    the episode can report where each re-plan sat in the demonstration. Keeping both here, and
+    not in the policy, keeps the ordering under the numpy tests that run in CI.
+    """
+
+    def __init__(self, executor: Any) -> None:
+        self._executor = executor
+        self.n_rows = 0
+        self.executed = 0
+        self.replans: list[tuple[int, int]] = []
+
+    def reset(self) -> None:
+        """Forget the episode: the chunk executor's state, the count and the re-plan record."""
+        self._executor.reset()
+        self.n_rows = 0
+        self.executed = 0
+        self.replans = []
+
+    def set_rows(self, n_rows: int) -> None:
+        """Record how many skill rows this episode's demonstration gave."""
+        if n_rows < 1:
+            raise ValueError(f"there are no skill rows to index, got {n_rows}")
+        self.n_rows = int(n_rows)
+
+    def row(self) -> int:
+        """The row a re-plan conditions on now: `skill_row` of the actions executed so far."""
+        row = skill_row(self.executed, self.n_rows)
+        self.replans.append((self.executed, row))
+        return row
+
+    def act(self, observation: Any) -> np.ndarray:
+        """One action from the executor, then the count advances."""
+        action = self._executor.act(observation)
+        self.executed += 1
+        return action
 
 
 def isd_view(image: np.ndarray, crop: int = ISD_CROP) -> np.ndarray:
