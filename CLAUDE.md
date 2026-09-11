@@ -26,7 +26,14 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   bimanual qpos). We capture frames in memory instead of via that cache.
 - Rollout is `take_action(action, action_type='qpos'|'ee')`; it stops at `step_lim`
   (`env_cfg/task_config/_eval_step_limit.yml`, per task, needs `eval_mode`) or once `eval_success`
-  is set.
+  is set. Step limits count calls, not physics steps.
+- `get_obs()['endpose']` is the flange pose per arm (`fl_link6` / `fr_link6`), `[x, y, z, qw,
+  qx, qy, qz]` in the world frame, with the tool centre 0.12 m further along its own +x axis; its
+  gripper values, like `joint_action`'s, are the command, not a measurement, so the measured
+  finger joints are read off `robot.left_entity` / `right_entity` separately. An `ee` action is
+  16 numbers in that layout; each call plans both arms with CuRobo and runs max(left, right)
+  physics steps, at least 31 when a plan succeeds and 50 with that arm not commanded when it
+  fails. Feeding an arm's own endpose back is an exact round trip on aloha-agilex.
 - `scripts/eval_policy_xpolicylab.py:run_one_batch_episode` already does expert-check -> same-seed
   re-`setup_demo` -> policy rollout. It throws the expert trajectory away; this benchmark is that
   loop with the trajectory kept and given to the policy. Read it before writing a new loop.
@@ -67,8 +74,8 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - No privileged state reaches the policy: scene seed, success condition, target object or
   destination id, `info` from `play_once()`, ground-truth task state, actor handles, planner
   internals. If a model needs language, it gets `"Follow the demonstrated behavior."`.
-- Demonstrations are model-independent (rgb per camera, endpose, qpos, frame times, control
-  frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
+- Demonstrations are model-independent (rgb per camera, endpose, qpos, measured gripper joints,
+  frame times, control frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
 - Reuse RoboTwin's task setup, expert, success check and reset as they are. The benchmark exposes
   that expert as an on-demand demonstration generator; it does not reimplement or fork it. In-memory
   capture is a `_take_picture` override and the physics clock an instance override of
