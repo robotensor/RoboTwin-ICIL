@@ -38,7 +38,7 @@ from . import protocol
 from .demo import Demonstration
 from .policy import ActionType, ICILPolicy, Observation, PolicyError, format_policy_arg
 
-# The first hello loads the model: the BPP checkpoint alone is 6.9 GB.
+# The first hello loads the model, and one adapter's checkpoint alone is 6.9 GB.
 STARTUP_TIMEOUT_S = 900.0
 TIMEOUT_S = 120.0
 # How long a server has to exit after SIGTERM, and after shutdown, before it is killed.

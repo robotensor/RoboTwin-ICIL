@@ -1,6 +1,6 @@
 """The wire protocol between the benchmark and a policy served in its own Python environment.
 
-BPP, UniSkill and RoboTwin pin libraries that conflict, so a model runs behind
+Model stacks and RoboTwin pin libraries that conflict, so a model runs behind
 `python -m robotwin_icil.serve` in an environment of its own and the simulator reaches it through
 `RemotePolicy`. Both ends speak this module, which needs only the standard library and numpy.
 
