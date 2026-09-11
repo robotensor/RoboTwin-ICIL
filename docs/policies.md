@@ -71,18 +71,42 @@ trajectory from the very scene the rollout will start in:
 
 | | |
 | --- | --- |
-| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` (14,), `endpose` |
-| `frequency` | frames per second of the recording |
+| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` (14,), `endpose`, `time_s` |
+| `frequency` | nominal frames per second: the spacing of frames within one motion primitive |
 | `cameras` | the camera names present in every frame |
+| `times()` | `(T,)` simulated seconds of each frame since the expert started; see [Time](#time) |
 | `qpos()` | `(T, 14)` robot state over the demonstration |
 | `actions()` | `(T-1, 14)` the position target of each transition — the next frame's `qpos` |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
 
 **Each observation** (`robotwin_icil.policy.Observation`) has the same modalities as a frame —
-`images`, `qpos`, `endpose` — plus `step` and `instruction`.
+`images`, `qpos`, `endpose`, `time_s` — plus `step` and `instruction`.
 
 The 14-dim `qpos` is RoboTwin's bimanual joint vector: left arm joints (6), left gripper, right arm
 joints (6), right gripper. Grippers run from 0 (closed) to 1 (open).
+
+## Time
+
+Demonstration frames are **not evenly spaced**, so a frame's index over `frequency` is not its
+time. RoboTwin's expert acts in motion primitives — an arm move, a gripper open or close — and
+records a frame before a primitive's first physics step, after every `save_freq`-th step from
+its first, and after its last. Each primitive therefore adds a frame one step after its first, a
+shorter remainder, and an exact duplicate where the next primitive starts; a gripper closing is
+many frames of a still arm.
+
+`Frame.time_s` and `Observation.time_s` are simulated seconds, counted in physics steps of
+1/250 s: the demonstration's from the expert's first frame, the rollout's from its first
+observation, both in the scene the fingerprint checked. `demo.times()` returns the frames'
+times; they never decrease, and a tie is two frames with no physics step between them. A policy
+that resamples a demonstration to its own control rate should interpolate over `times()`, not
+over the frame index, and decide what to do with ties. For frames recorded without `time_s`,
+`times()` estimates: an exact duplicate of the frame before shares its time and every other
+frame follows by `1 / frequency`.
+
+`obs.step` counts `take_action` calls, and one call runs as many physics steps as RoboTwin's
+planner needs to reach its target, so `step` is not time either; `obs.time_s` is. The episode
+record's `physics_steps` is the rollout's total. A clock is something a real robot has: neither
+time is privileged.
 
 ## Cameras
 
