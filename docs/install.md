@@ -61,6 +61,11 @@ What the script produced on the machine the V1 numbers come from:
   failure surfaces later in `robot.py`. Rerun the script and read the CuRobo build output.
 - **`unsupported GNU version`** during the CuRobo build. nvcc picked up the system gcc; the
   script points `CC`/`CXX` at the env's gcc 12.
+- **`CUDA out of memory` while building a scene.** Each RoboTwin robot builds two CuRobo motion
+  planners on the GPU when its task env is created, a few GiB each. The runner keeps one task env
+  alive at a time and releases it before the next task. If the GPU is shared with other jobs and
+  still runs out, the run stops with the error rather than recording rejections: free GPU memory,
+  then rerun `robotwin-icil eval` with the same arguments, which resumes where it stopped.
 - **`Failed to find Vulkan ICD file`** at import. SAPIEN then ships its own ICD; on the reference
   machine rendering works regardless (upstream's `scripts/test_render.py` reports "Render Well").
   If rendering fails, install the NVIDIA Vulkan driver package matching the kernel driver.
