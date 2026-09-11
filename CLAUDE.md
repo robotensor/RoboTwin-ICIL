@@ -71,8 +71,9 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Camera profiles (`cameras.yml`, `camera_profiles.py`) only replace a static camera in its slot.
   Every static camera draws from numpy's RNG after seeding and before `load_actors`, so adding
   or removing one, or toggling `collect_head_camera`, moves every seed's scene where the
-  fingerprint cannot see it. The guard refuses that and has no override; check a new or changed
-  profile by eye with `robotwin-icil cameras` first.
+  fingerprint cannot see it. The guard refuses that and has no override (it holds
+  `SceneConfig.overrides` to the same check); check a new or changed profile by eye with
+  `robotwin-icil cameras` first.
 - Skill categories are data: `tasks.yml` maps every upstream task exactly once and a test fails when
   `vendor/RoboTwin/envs/` and the table disagree. Suites are named there too; V1 is `v1`.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
