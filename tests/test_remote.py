@@ -211,6 +211,43 @@ def test_a_policy_the_server_cannot_build_is_a_policy_error_and_leaves_no_server
     assert [process.poll() is not None for process in servers] == [True]
 
 
+def test_a_model_that_loads_too_slowly_times_out_hello_and_leaves_no_server(tmp_path, servers):
+    # The server listens within a fraction of this; the model then never finishes loading.
+    with pytest.raises(PolicyError, match=r"no reply to hello within 1 s") as raised:
+        RemotePolicy(
+            policy="served_policies:SlowConstructor", startup_timeout=1.0, log=tmp_path / "s.log"
+        )
+    assert "loading the checkpoint" in str(raised.value)
+    assert [process.poll() is not None for process in servers] == [True]
+
+
+def interpreter(tmp_path, body):
+    """A stand-in for the model environment's python: a shell script doing `body`."""
+    path = tmp_path / "python"
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(0o755)
+    return str(path)
+
+
+def test_a_server_that_exits_before_it_listens_is_a_policy_error(tmp_path, servers):
+    python = interpreter(tmp_path, "echo 'no module named robotwin_icil' >&2; exit 4")
+    with pytest.raises(PolicyError) as raised:
+        RemotePolicy(policy="replay", python=python, log=tmp_path / "s.log")
+    message = str(raised.value)
+    assert "the policy server exited with status 4 before it listened" in message
+    assert "no module named robotwin_icil" in message
+    assert [process.poll() is not None for process in servers] == [True]
+
+
+def test_a_server_that_never_listens_times_out_and_is_stopped(tmp_path, servers):
+    python = interpreter(tmp_path, "exec sleep 60")
+    started = time.monotonic()
+    with pytest.raises(PolicyError, match=r"the policy server did not listen within 0.5 s"):
+        RemotePolicy(policy="replay", python=python, startup_timeout=0.5, log=tmp_path / "s.log")
+    assert time.monotonic() - started < remote.KILL_GRACE_S  # terminated, not waited out
+    assert [process.poll() is not None for process in servers] == [True]
+
+
 def test_close_shuts_the_server_down_once(tmp_path):
     policy = RemotePolicy(policy="replay", log=tmp_path / "serve.log")
     directory = policy._server.directory
