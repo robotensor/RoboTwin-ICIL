@@ -13,7 +13,8 @@
 #
 # Idempotent per stage: checkouts and downloads are skipped when present, and each install stage
 # records a hash of its pins under $ENV/.icil-stages and is skipped while they are unchanged.
-# Delete the env directory to rebuild it from scratch.
+# An existing env on a python other than PYTHON_VERSION is refused. Delete the env directory to
+# rebuild it from scratch.
 set -euo pipefail
 
 usage() {
@@ -89,9 +90,14 @@ checkout() {
     fi
 }
 
+# The stage keys leave PYTHON_VERSION out, so an env on another python is refused, not reused.
 make_venv() {
+    local have
     if [[ -x "${PY}" ]]; then
-        log "env ${ENV_DIR} exists ($("${PY}" --version)), kept"
+        have="$("${PY}" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
+        [[ "${have}" == "${PYTHON_VERSION}" || "${have}" == "${PYTHON_VERSION}".* ]] ||
+            die "${ENV_DIR} has python ${have}, pins want ${PYTHON_VERSION}: delete it to rebuild"
+        log "env ${ENV_DIR} exists (python ${have}), kept"
     else
         log "creating ${ENV_DIR}: python ${PYTHON_VERSION}, managed by uv"
         mkdir -p "$(dirname "${ENV_DIR}")"
