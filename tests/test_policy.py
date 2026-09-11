@@ -285,3 +285,26 @@ def test_a_description_names_its_policy():
         check_description({"model": "bpp"})
     with pytest.raises(PolicyError, match="must be a mapping"):
         check_description(None)
+
+
+class _Configured(ReplayPolicy):
+    name = "configured"
+
+    def __init__(self, config=None, temperature=1.0):
+        super().__init__()
+        self.config, self.temperature = config, temperature
+
+
+def test_make_policy_passes_keyword_arguments_to_the_class():
+    policy = make_policy("test_policy:_Configured", config="bpp.yml", temperature=0.5)
+    assert (policy.config, policy.temperature) == ("bpp.yml", 0.5)
+    assert make_policy("test_policy:_Configured").temperature == 1.0  # and needs none
+
+
+@pytest.mark.parametrize(
+    "spec, kwargs",
+    [("replay", {"checkpoint": "x.pt"}), ("test_policy:_Configured", {"temprature": 0.5})],
+)
+def test_make_policy_refuses_arguments_the_class_does_not_take(spec, kwargs):
+    with pytest.raises(PolicyError, match=f"policy {spec!r} does not take these arguments"):
+        make_policy(spec, **kwargs)

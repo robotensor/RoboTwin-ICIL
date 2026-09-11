@@ -12,6 +12,7 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import re
 from collections.abc import Mapping
@@ -280,9 +281,13 @@ BUILTIN: dict[str, type[ICILPolicy]] = {
 
 
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
-    """A built-in name, or ``package.module:Class`` for an adapter living outside the core."""
+    """A built-in name, or ``package.module:Class`` for an adapter living outside the core.
+
+    `kwargs` go to the class's constructor; one it does not take is a `PolicyError`, not a
+    traceback. Every policy must also construct with none.
+    """
     if spec in BUILTIN:
-        return BUILTIN[spec](**kwargs)
+        return _construct(spec, BUILTIN[spec], kwargs)
     module_name, sep, class_name = spec.partition(":")
     if not sep:
         known = ", ".join(sorted(BUILTIN))
@@ -293,4 +298,13 @@ def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
         raise PolicyError(f"cannot load policy {spec!r}: {exc}") from exc
     if not (isinstance(cls, type) and issubclass(cls, ICILPolicy)):
         raise PolicyError(f"{spec!r} is not an ICILPolicy subclass")
+    return _construct(spec, cls, kwargs)
+
+
+def _construct(spec: str, cls: type[ICILPolicy], kwargs: dict[str, Any]) -> ICILPolicy:
+    # Bound first, so a TypeError from inside the adapter's constructor keeps its traceback.
+    try:
+        inspect.signature(cls).bind(**kwargs)
+    except TypeError as exc:
+        raise PolicyError(f"policy {spec!r} does not take these arguments: {exc}") from exc
     return cls(**kwargs)
