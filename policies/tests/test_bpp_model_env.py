@@ -39,7 +39,7 @@ def test_the_composition_is_the_one_the_checkpoint_was_trained_under():
     assert shape_meta["action"]["rep"] == "delta"
     assert shape_meta["action"]["horizon"] == bpp_settings.ACTION_HORIZON
     assert shape_meta["image_resolution"] == bpp_settings.IMAGE_SIZE
-    assert cfg.env_runner.exec_action_horizon == bpp_settings.EXEC_ACTION_HORIZON
+    assert cfg.task.env_runner.exec_action_horizon == bpp_settings.EXEC_ACTION_HORIZON
     for key in ("agentview_rgb", "eye_in_hand_rgb", "ee_pos", "ee_ori", "gripper_states"):
         assert key in shape_meta["obs"]
     # The stored config lacks this key, which is why the repo composition is used, not it.
@@ -68,17 +68,28 @@ def test_slim_wrote_the_normalizer_the_numpy_oracle_reads():
 
 
 def test_the_adapter_encodes_actions_exactly_as_bpps_dataset_does():
-    """`encode_actions` against `_convert_actions`, BPP's own, on the same random actions."""
-    from behavior_prompting.train_network.dataset.libero_replay_image_dataset import (
-        _convert_actions,
-    )
+    """`encode_actions` against BPP's own rotation transformer, on the same random actions.
+
+    `_convert_actions` is that transformer applied to an action's three rotation numbers, with
+    the position and the gripper carried through; the test below compares against it directly,
+    when its module imports.
+    """
     from behavior_prompting.train_network.model.common.rotation_transformer import (
         RotationTransformer,
     )
 
+    transformer = RotationTransformer(from_rep="axis_angle", to_rep="rotation_6d")
     raw = np.random.default_rng(0).uniform(-1, 1, size=(37, 7)).astype(np.float32)
-    theirs = _convert_actions(raw, RotationTransformer(from_rep="axis_angle", to_rep="rotation_6d"))
+    theirs = np.concatenate([raw[:, :3], transformer.forward(raw[:, 3:6]), raw[:, 6:]], axis=-1)
     np.testing.assert_allclose(encode_actions(raw), theirs, atol=1e-6)
+
+    libero = pytest.importorskip("libero", reason="BPP's dataset module imports LIBERO")
+    assert libero is not None
+    from behavior_prompting.train_network.dataset.libero_replay_image_dataset import (
+        _convert_actions,
+    )
+
+    np.testing.assert_allclose(encode_actions(raw), _convert_actions(raw, transformer), atol=1e-6)
 
 
 def test_the_prompt_is_chunked_by_bpps_own_chunker():
@@ -116,3 +127,18 @@ def test_the_prompt_is_chunked_by_bpps_own_chunker():
     padded = chunks * bpp_settings.PROMPT_CHUNK_N_ACTIONS - len(prompt.actions)
     if padded:
         np.testing.assert_allclose(batch["action"][0, -1, -padded:].numpy(), 0.0)
+
+
+def test_the_adapter_encodes_actions_exactly_as_convert_actions_does():
+    """The same, against `_convert_actions` itself — which needs the LIBERO package it imports."""
+    pytest.importorskip("libero", reason="BPP's dataset module imports LIBERO")
+    from behavior_prompting.train_network.dataset.libero_replay_image_dataset import (
+        _convert_actions,
+    )
+    from behavior_prompting.train_network.model.common.rotation_transformer import (
+        RotationTransformer,
+    )
+
+    raw = np.random.default_rng(0).uniform(-1, 1, size=(37, 7)).astype(np.float32)
+    transformer = RotationTransformer(from_rep="axis_angle", to_rep="rotation_6d")
+    np.testing.assert_allclose(encode_actions(raw), _convert_actions(raw, transformer), atol=1e-6)
