@@ -12,7 +12,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .episode import EpisodeSpec, run_episode
 from .policy import ICILPolicy
@@ -104,33 +103,45 @@ def run(
     if done:
         log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
 
-    envs: dict[str, Any] = {}
-    for episode, task in enumerate(plan):
-        if episode in done:
+    # One RoboTwin env alive at a time. Each env builds two CuRobo planners on the GPU and keeps
+    # them for its lifetime, so holding every task's env at once grows GPU memory with the suite.
+    # Episodes run task by task — episode i still runs plan[i] on its own seed stream — and each
+    # task's env is released before the next one is built.
+    progress = len(done)
+    for task in spec.tasks:
+        pending = [
+            i for i, assigned in enumerate(plan) if assigned.name == task.name and i not in done
+        ]
+        if not pending:
             continue
-        task_env = envs.get(task.name)
-        if task_env is None:
-            task_env = envs[task.name] = robotwin.load_task(task.name)
-        record = run_episode(
-            EpisodeSpec(
-                episode=episode,
-                task=task,
-                global_seed=spec.global_seed,
-                max_expert_attempts=spec.max_expert_attempts,
-            ),
-            policy,
-            config,
-            task_env=task_env,
-            video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
-        )
-        run_dir.append(record)
-        log(_line(record, len(plan)))
-        if spec.clear_cache_every and (episode + 1) % spec.clear_cache_every == 0:
-            robotwin.clear_render_cache()
-    return run_dir.records()
+        task_env = robotwin.load_task(task.name)
+        try:
+            for episode in pending:
+                record = run_episode(
+                    EpisodeSpec(
+                        episode=episode,
+                        task=task,
+                        global_seed=spec.global_seed,
+                        max_expert_attempts=spec.max_expert_attempts,
+                    ),
+                    policy,
+                    config,
+                    task_env=task_env,
+                    video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
+                )
+                run_dir.append(record)
+                progress += 1
+                log(_line(record, progress, len(plan)))
+                if spec.clear_cache_every and progress % spec.clear_cache_every == 0:
+                    robotwin.clear_render_cache()
+        finally:
+            robotwin.close(task_env)
+            task_env = None
+            robotwin.free_gpu()
+    return sorted(run_dir.records(), key=lambda record: record.episode)
 
 
-def _line(record: EpisodeRecord, total: int) -> str:
+def _line(record: EpisodeRecord, done: int, total: int) -> str:
     if record.status is Status.SCORED:
         outcome = "success" if record.success else "failure"
         tail = f"{record.steps} steps"
@@ -138,6 +149,6 @@ def _line(record: EpisodeRecord, total: int) -> str:
         outcome = record.status.value
         tail = record.detail
     return (
-        f"[{record.episode + 1}/{total}] {record.task} seed={record.scene_seed} "
+        f"[{done}/{total}] episode {record.episode} {record.task} seed={record.scene_seed} "
         f"attempts={record.expert_generation_attempts} {outcome} ({tail})"
     )
