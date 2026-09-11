@@ -1,7 +1,9 @@
 import json
+from dataclasses import replace
 
 import pytest
 
+from robotwin_icil import camera_profiles
 from robotwin_icil.records import (
     SAME_SCENE,
     EpisodeRecord,
@@ -119,3 +121,45 @@ def test_records_written_before_rejection_details_still_load():
     data = record().to_json()
     data.pop("rejection_details")
     assert EpisodeRecord.from_json(data).rejection_details == {}
+
+
+def profiled(profile, static_cameras, **overrides) -> RunManifest:
+    """A manifest written since camera profiles, which records the profile and static cameras."""
+    return manifest(
+        benchmark_config={
+            "task_config": "demo_clean",
+            "camera_profile": camera_profiles.get(profile).identity(),
+        },
+        robotwin_config={"task_config": "demo_clean", "static_cameras": static_cameras},
+        **overrides,
+    )
+
+
+STOCK_CAMERAS = [{"name": "head_camera"}, {"name": "front_camera"}]
+FAR_SIDE_CAMERAS = [{"name": "head_camera"}, {"name": "far_side_camera"}]
+
+
+def test_a_manifest_from_before_camera_profiles_is_a_stock_run(tmp_path):
+    legacy = manifest(benchmark_config={"task_config": "demo_clean"})
+    assert legacy.identity() == profiled("stock", STOCK_CAMERAS).identity()
+    assert legacy.identity() != profiled("far_side", FAR_SIDE_CAMERAS).identity()
+
+    run = RunDir(tmp_path)
+    run.start(legacy)
+    run.start(profiled("stock", STOCK_CAMERAS))  # a V1 run directory still resumes
+    with pytest.raises(RecordError):
+        run.start(profiled("far_side", FAR_SIDE_CAMERAS))
+
+
+def test_a_camera_profile_is_part_of_a_runs_identity():
+    far_side = profiled("far_side", FAR_SIDE_CAMERAS)
+    assert far_side.identity() == profiled("far_side", FAR_SIDE_CAMERAS).identity()
+    assert far_side.identity() != profiled("far_side", STOCK_CAMERAS).identity()
+    edited = dict(far_side.benchmark_config, camera_profile={"name": "far_side", "sha256": "0"})
+    assert far_side.identity() != replace(far_side, benchmark_config=edited).identity()
+
+
+def test_a_manifest_from_before_camera_profiles_still_loads(tmp_path):
+    data = manifest(benchmark_config={"task_config": "demo_clean"}).to_json()
+    (tmp_path / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    assert "camera_profile" not in RunDir(tmp_path).manifest().benchmark_config

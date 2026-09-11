@@ -1,9 +1,10 @@
+import copy
 import json
 
 import pytest
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
-from robotwin_icil import robotwin, runner, tasks
+from robotwin_icil import camera_profiles, robotwin, runner, tasks
 from robotwin_icil.policy import ReplayPolicy
 from robotwin_icil.records import RecordError, RunDir
 
@@ -112,3 +113,34 @@ def test_a_broken_simulator_stops_the_run_and_keeps_what_was_recorded(
         runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     # The first task's episodes are on disk, so rerunning the same command resumes from there.
     assert [r.episode for r in RunDir(tmp_path / "run").records()] == [0, 2]
+
+
+class FarSideConfig(FakeConfig):
+    """A config whose args carry an embodiment's static cameras, under the far_side profile."""
+
+    camera_profile = "far_side"
+
+    def resolve(self, task_name=None):
+        from test_camera_profiles import STATIC_CAMERA_LIST
+
+        args = {
+            **super().resolve(task_name),
+            "camera": {"head_camera_type": "D435", "collect_head_camera": True},
+            "left_embodiment_config": {"static_camera_list": copy.deepcopy(STATIC_CAMERA_LIST)},
+        }
+        return camera_profiles.apply(args, self.camera_profile)
+
+
+def test_the_manifest_records_the_camera_profile(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    stock = RunDir(tmp_path / "run").manifest()
+    assert stock.benchmark_config["camera_profile"] == camera_profiles.get("stock").identity()
+
+    runner.run(spec(tmp_path, run_dir=tmp_path / "far"), ReplayPolicy(), FarSideConfig(), log=quiet)
+    far_side = RunDir(tmp_path / "far").manifest()
+    assert far_side.benchmark_config["camera_profile"]["name"] == "far_side"
+    cameras = far_side.robotwin_config["static_cameras"]
+    assert [(c["name"], c["type"]) for c in cameras] == [
+        ("head_camera", "D435"),
+        ("far_side_camera", "L515"),
+    ]

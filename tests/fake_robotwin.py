@@ -26,6 +26,7 @@ class FakeConfig:
     save_freq = 1
     head_camera = None
     overrides = None
+    camera_profile = "stock"
 
     def resolve(self, task_name=None):
         return {"save_freq": self.save_freq, "task_name": task_name}

@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import camera_profiles
 from .episode import EpisodeSpec, run_episode
 from .policy import ICILPolicy
 from .records import (
@@ -30,7 +31,9 @@ from .video import EpisodeVideo
 DEFAULT_MAX_EXPERT_ATTEMPTS = 20
 
 # The parts of RoboTwin's resolved args that decide what the expert and the policy see. The
-# embodiment configs themselves are large and implied by `embodiment` plus the RoboTwin commit.
+# embodiment configs themselves are large and implied by `embodiment` plus the RoboTwin commit;
+# the static cameras a camera profile rewrites in them are recorded as a derived entry,
+# `static_cameras`.
 _ROBOTWIN_CONFIG_KEYS = (
     "task_config",
     "embodiment",
@@ -80,8 +83,12 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
             "save_freq": config.save_freq,
             "head_camera": config.head_camera,
             "overrides": dict(config.overrides or {}),
+            "camera_profile": camera_profiles.get(config.camera_profile).identity(),
         },
-        robotwin_config={key: args.get(key) for key in _ROBOTWIN_CONFIG_KEYS},
+        robotwin_config={
+            **{key: args.get(key) for key in _ROBOTWIN_CONFIG_KEYS},
+            "static_cameras": camera_profiles.static_cameras(args),
+        },
         environment=environment(),
     )
 

@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import camera_profiles
+
 SAME_SCENE = "same_scene"
 
 MANIFEST = "manifest.json"
@@ -108,9 +110,20 @@ class RunManifest:
         return cls(**{**data, "tasks": tuple(data["tasks"])})
 
     def identity(self) -> dict[str, Any]:
-        """The fields a resumed run must share with the run it continues."""
+        """The fields a resumed run must share with the run it continues.
+
+        Manifests written before camera profiles existed ran RoboTwin's own cameras and recorded
+        neither a profile nor `static_cameras`, so they read as `stock`. Under `stock` the static
+        cameras are the embodiment's own, implied by `embodiment` and the RoboTwin commit as
+        before, so they are recorded for the reader but compared only under another profile.
+        """
         data = self.to_json()
         data.pop("environment", None)
+        stock = camera_profiles.get(camera_profiles.STOCK).identity()
+        benchmark_config = data["benchmark_config"]
+        benchmark_config.setdefault("camera_profile", stock)
+        if benchmark_config["camera_profile"] == stock:
+            data["robotwin_config"].pop("static_cameras", None)
         return data
 
 
