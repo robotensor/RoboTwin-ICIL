@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotwin-icil-policies"
+version = "0.1.0.dev0"
+description = "Model adapters for the robotwin-icil benchmark, and the numpy toolkit they share."
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = [
+  "robotwin-icil",
+  "numpy>=1.24,<2",
+]
+
+[project.optional-dependencies]
+# What CI installs: the numpy toolkit and its tests, no model code.
+pure = ["numpy>=1.24,<2", "pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/icil_policies"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "sim: needs the RoboTwin simulator (SAPIEN, assets, GPU)",
+  "slow: takes minutes",
+]
