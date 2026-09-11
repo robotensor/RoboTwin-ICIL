@@ -70,10 +70,20 @@ class EpisodeRecord:
     # What the policy's `episode_info()` reported after the rollout; empty when nothing was rolled
     # out, for policies that report nothing, and in records written before policies could.
     policy_info: dict[str, Any] = field(default_factory=dict)
+    # The policy's `action_type`, "qpos" or "ee": the action path the rollout went through. None
+    # in records written before the benchmark recorded it.
+    action_type: str | None = None
+    # The arms the demonstration moved, from `Demonstration.arms_moved()`. Metadata for analysis,
+    # never a report slice: the protocol has no difficulty tiers. None when no demonstration was
+    # generated, and in records written before the benchmark recorded it.
+    demonstration_arms: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         status = Status(self.status)
         object.__setattr__(self, "status", status)
+        if self.demonstration_arms is not None:
+            # JSON reads a tuple back as a list; a record compares equal to what was written.
+            object.__setattr__(self, "demonstration_arms", tuple(self.demonstration_arms))
         if status is Status.SCORED and not isinstance(self.success, bool):
             raise RecordError(f"episode {self.episode}: a scored episode needs a boolean success")
         if status is not Status.SCORED and self.success is not None:

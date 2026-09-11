@@ -190,6 +190,29 @@ def test_records_written_before_policy_info_still_load(tmp_path):
     assert [r.policy_info for r in run.records()] == [{}]
 
 
+def test_records_written_before_action_types_and_demonstration_arms_still_load(tmp_path):
+    data = record(action_type="ee", demonstration_arms=("left",)).to_json()
+    assert json.loads(json.dumps(data))["demonstration_arms"] == ["left"]
+    restored = EpisodeRecord.from_json(json.loads(json.dumps(data)))
+    assert restored == record(action_type="ee", demonstration_arms=("left",))
+    assert (restored.action_type, restored.demonstration_arms) == ("ee", ("left",))
+    for key in ("action_type", "demonstration_arms"):
+        data.pop(key)
+    legacy = EpisodeRecord.from_json(data)
+    assert (legacy.action_type, legacy.demonstration_arms) == (None, None)
+
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    run.append(record(0, action_type="qpos", demonstration_arms=("left", "right")))
+    with run.episodes_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({**data, "episode": 1}) + "\n")
+    loaded = run.records()
+    assert [(r.action_type, r.demonstration_arms) for r in loaded] == [
+        ("qpos", ("left", "right")),
+        (None, None),
+    ]
+
+
 def test_a_manifest_from_before_policy_environments_still_loads(tmp_path):
     data = manifest().to_json()
     data.pop("policy_environment")
