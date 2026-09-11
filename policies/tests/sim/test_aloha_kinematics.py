@@ -36,10 +36,11 @@ CONFIGURATIONS = (
     (-0.3, 0.8, 0.6, -0.4, 0.4, -0.6),
     (0.5, 0.2, 0.1, 0.6, 0.2, 1.0),
 )
-# The model and RoboTwin share the URDF, so they should agree to float precision; the margin
-# covers `robot_pose`'s rounded quaternion (0.707) should SAPIEN not normalize it.
-POSITION_TOLERANCE_M = 1e-3
-ROTATION_TOLERANCE_RAD = 1e-3
+# The model and RoboTwin share the URDF and agree to float32 precision: 4e-7 m and 1e-6 rad,
+# measured, with `robot_pose`'s rounded 0.707 quaternion costing nothing measurable. A model
+# error of a fraction of a millimetre, such as a base offset or an anchor mix-up, must fail.
+POSITION_TOLERANCE_M = 1e-5
+ROTATION_TOLERANCE_RAD = 1e-4
 
 
 def _build(task_env, seed):
