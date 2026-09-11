@@ -164,3 +164,24 @@ def test_clips_film_the_camera_the_run_names(tmp_path, monkeypatch, fake_sim):
     run = spec(tmp_path, episodes=2, video=True, video_camera="far_side_camera")
     runner.run(run, ReplayPolicy(), FakeConfig(), log=quiet)
     assert cameras == ["far_side_camera", "far_side_camera"]
+
+
+class Counting(ReplayPolicy):
+    """Counts `describe()` calls: an adapter's description may hash every parameter it has."""
+
+    name = "counting"
+
+    def __init__(self):
+        super().__init__()
+        self.described = 0
+
+    def describe(self):
+        self.described += 1
+        return super().describe()
+
+
+def test_the_policy_is_described_once_per_run_not_per_episode(tmp_path, fake_sim):
+    policy = Counting()
+    records = runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert policy.described == 1
+    assert {r.model for r in records} == {"counting"}

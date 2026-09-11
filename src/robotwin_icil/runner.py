@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import camera_profiles
 from .episode import EpisodeSpec, run_episode
@@ -66,7 +67,9 @@ def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
     return [tasks[i % len(tasks)] for i in range(episodes)]
 
 
-def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
+def manifest_for(
+    spec: RunSpec, policy: ICILPolicy, config, description: dict[str, Any] | None = None
+) -> RunManifest:
     from . import robotwin
 
     args = config.resolve()
@@ -77,7 +80,7 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
         tasks=tuple(task.name for task in spec.tasks),
         episodes=spec.episodes,
         max_expert_attempts=spec.max_expert_attempts,
-        policy=policy.describe(),
+        policy=policy.describe() if description is None else description,
         benchmark_commit=git_commit(robotwin.REPO_ROOT),
         robotwin_commit=git_commit(robotwin.ROBOTWIN_ROOT),
         benchmark_config={
@@ -106,7 +109,9 @@ def run(
 
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     run_dir = RunDir(Path(spec.run_dir).resolve())
-    run_dir.start(manifest_for(spec, policy, config))
+    # Described once: an adapter's description may hash its parameters, which is not free.
+    description = policy.describe()
+    run_dir.start(manifest_for(spec, policy, config, description))
     done = run_dir.completed()
     plan = assign(spec.tasks, spec.episodes)
     if done:
@@ -141,6 +146,7 @@ def run(
                         if spec.video
                         else None
                     ),
+                    description=description,
                 )
                 run_dir.append(record)
                 progress += 1

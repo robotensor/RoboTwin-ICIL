@@ -17,7 +17,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -46,12 +46,15 @@ def run_episode(
     config,
     task_env=None,
     video: EpisodeVideo | None = None,
+    description: dict[str, Any] | None = None,
 ) -> EpisodeRecord:
     """Run one episode end to end and return its record. Never raises for a scene or model failure.
 
     A `PolicyError` does propagate: an adapter that breaks the protocol is a bug to fix, not a
     stream of zero scores to average over. With `video`, the demonstration and the evaluation are
     written as two clips; a clip that fails to write is noted in the record, never scored.
+    `description` is the policy's `describe()` from the start of the run; without one, the policy
+    is described here.
     """
     from . import robotwin
 
@@ -61,7 +64,7 @@ def run_episode(
     generated = generate(
         task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
     )
-    describe = policy.describe()
+    describe = policy.describe() if description is None else description
 
     def record(status: Status, **fields) -> EpisodeRecord:
         return EpisodeRecord(
