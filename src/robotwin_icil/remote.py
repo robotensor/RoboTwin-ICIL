@@ -22,6 +22,7 @@ import os
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -96,8 +97,8 @@ class RemotePolicy(ICILPolicy):
     server's log file, appended to; a temporary file when not given, kept after the run.
     `address` connects to a running server instead, with its key in `authkey_file`; the server
     then has its own policy, arguments and log. `startup_timeout` bounds the wait for a spawned
-    server to listen and, separately, for the reply to hello, which comes once the model is
-    loaded; `timeout` bounds every other reply.
+    server to listen and, separately, for hello, whose reply comes once the model is loaded;
+    `timeout` bounds every other operation. Each bounds sending the request and, again, its reply.
     """
 
     name = "remote"
@@ -340,8 +341,10 @@ class RemotePolicy(ICILPolicy):
             raise PolicyError(f"{self.name}: {op} after close()")
         timeout = self.timeout if timeout is None else timeout
         try:
-            protocol.send(self._conn, op, **fields)
+            _send(self._conn, op, timeout, fields)
             reply = protocol.receive(self._conn, timeout)
+        except _SendTimeout:
+            raise self._failed(f"could not send {op} within {timeout:g} s") from None
         except TimeoutError:
             raise self._failed(f"no reply to {op} within {timeout:g} s") from None
         except (EOFError, OSError):
@@ -390,6 +393,53 @@ class RemotePolicy(ICILPolicy):
                 conn.close()
         if self._stopper is not None:
             self._stopper()
+
+
+class _SendTimeout(Exception):
+    """A request that could not be sent in time: the peer stopped reading."""
+
+
+def _send(conn, op: str, timeout: float, fields: dict[str, Any]) -> None:
+    """`protocol.send`, given a timeout, which `send_bytes` has not.
+
+    A peer that stops reading (stopped, partitioned, stuck) blocks a large message once the
+    socket's buffer fills, before any reply could time out. At the deadline the socket is shut
+    down, which makes the blocked write fail; the connection is then done, as after any failure.
+    """
+    message = protocol.encode(op, **fields)  # a value that cannot be sent fails before the timer
+    lock = threading.Lock()
+    state = {"sent": False, "expired": False}
+
+    def expire() -> None:
+        # Under the lock throughout: once sent, the connection may be closed and its fd reused.
+        with lock:
+            if state["sent"]:
+                return
+            state["expired"] = True
+            with contextlib.suppress(OSError):
+                fd = os.dup(conn.fileno())
+                try:
+                    sock = socket.socket(fileno=fd)
+                except OSError:
+                    os.close(fd)
+                    raise
+                with sock:
+                    sock.shutdown(socket.SHUT_RDWR)
+
+    timer = threading.Timer(timeout, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        protocol.send_encoded(conn, message)
+    except OSError:
+        if not state["expired"]:
+            raise
+    finally:
+        with lock:
+            state["sent"] = True
+        timer.cancel()
+    if state["expired"]:
+        raise _SendTimeout
 
 
 def _connect(address, family: str, authkey: bytes, timeout: float):

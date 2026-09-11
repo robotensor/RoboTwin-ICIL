@@ -5,6 +5,7 @@ no server outlives its client, after `close()` or after any failure.
 """
 
 import contextlib
+import dataclasses
 import gc
 import os
 import re
@@ -93,10 +94,8 @@ def test_the_served_policy_gets_its_arguments_and_every_operation(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(protocol, "DEMO_CHUNK_BYTES", 300)
     sent = []
-    send = protocol.send
-    monkeypatch.setattr(
-        protocol, "send", lambda conn, op, **f: sent.append(op) or send(conn, op, **f)
-    )
+    encode = protocol.encode  # every request the client sends is encoded first
+    monkeypatch.setattr(protocol, "encode", lambda op, **f: sent.append(op) or encode(op, **f))
     policy = RemotePolicy(
         policy="served_policies:Echo",
         config="a.yml",
@@ -372,12 +371,16 @@ HELLO = {
 
 
 @contextlib.contextmanager
-def fake_server(tmp_path, answer):
-    """A server in a thread, answering each message with `answer(op, fields) -> (op, fields)`."""
+def fake_server(tmp_path, answer, stall_after=None):
+    """A server in a thread, answering each message with `answer(op, fields) -> (op, fields)`.
+
+    After it answers `stall_after` it reads nothing more until the test is done with it.
+    """
     address = str(tmp_path / "fake.sock")
     (tmp_path / "fake.key").write_text(KEY)
     listener = Listener(address, "AF_UNIX", authkey=KEY.encode())
     ops = []
+    released = threading.Event()
 
     def serve():
         with listener, listener.accept() as conn:
@@ -389,10 +392,13 @@ def fake_server(tmp_path, answer):
                 ops.append(message.op)
                 op, fields = answer(message.op, message.fields)
                 protocol.send(conn, op, **fields)
+                if message.op == stall_after:
+                    released.wait(20)
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     yield address, tmp_path / "fake.key", ops
+    released.set()
     thread.join(10)
     assert not thread.is_alive(), "the client never hung up"
 
@@ -406,6 +412,27 @@ def test_a_server_of_another_protocol_version_is_refused(tmp_path):
         with pytest.raises(PolicyError, match="the policy server speaks protocol version 0, this"):
             RemotePolicy(address=address, authkey_file=key)
     assert ops == ["hello"]
+
+
+def test_a_server_that_stops_reading_times_out_the_send_and_is_hung_up_on(tmp_path):
+    # Megabytes of frames fill the socket's buffer, so the send blocks before any reply is due.
+    image = np.zeros((512, 1024, 3), dtype=np.uint8)
+    demo = demonstration()
+    demo = dataclasses.replace(
+        demo,
+        frames=tuple(dataclasses.replace(f, images={"head_camera": image}) for f in demo.frames),
+        cameras=("head_camera",),
+    )
+    answer = lambda op, fields: ("hello", HELLO) if op == "hello" else (op, {})  # noqa: E731
+    with fake_server(tmp_path, answer, stall_after="demo_begin") as (address, key, ops):
+        policy = RemotePolicy(address=address, authkey_file=key, timeout=0.5)
+        policy.reset()
+        started = time.monotonic()
+        with pytest.raises(PolicyError, match=r"could not send demo_frames within 0.5 s"):
+            policy.set_demonstration(demo)
+        assert time.monotonic() - started < remote.KILL_GRACE_S
+        policy.close()  # nothing left to stop, and nothing to raise
+    assert ops == ["hello", "reset", "demo_begin"]
 
 
 @pytest.mark.parametrize(
