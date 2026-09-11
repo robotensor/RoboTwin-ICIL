@@ -73,10 +73,10 @@ tasks:
   shake_bottle_horizontally: articulated
 
 suites:
-  # The official V1 Same Scene suite: three categories, a few tasks each, chosen for short
-  # horizons and a high expert success rate. Extend only with measured generation statistics.
+  # The official V1 Same Scene suite: three categories, a few short-horizon tasks each, kept only
+  # where RoboTwin's expert solved at least 70% of 20 surveyed seeds (docs/survey.md). Change it
+  # only with a new survey: every seed the expert fails costs a full expert run.
   v1:
-    - place_object_basket
     - place_a2b_left
     - place_a2b_right
     - place_empty_cup
