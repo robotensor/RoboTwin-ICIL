@@ -50,6 +50,18 @@
   leaves `audit.json`, after which the run directory neither resumes nor reports. The policy is
   described at the start and end of a run instead of per episode. New fields default, so older
   runs still load and resume (#37).
+- (feat): `policies/`, the adapters' own distribution `robotwin-icil-policies`, with a numpy
+  toolkit and model environments. `icil_policies.common` holds what BPP's and UniSkill's
+  adapters share: wxyz quaternions, axis-angle and rot6d (the first two rows); aloha's arm
+  bases, tool centre point and LIBERO's axes; a demonstration resampled on its frame times at
+  20 Hz; the arm choice with its tie rule and a fixed idle-arm hold; the arm-centred crop and
+  128-to-224 image path; `ChunkExecutor`; a virtual target with bounded re-anchoring and a stall
+  detector; and URDF kinematics giving RoboTwin's endpose of aloha's joints, which a sim test
+  checks against RoboTwin. Each adapter module declares `ADAPTER_VERSION`, and a test helper
+  fails a conversion that changes without a bump. `scripts/install_policy_env.sh bpp|uniskill`
+  builds `$ICIL_HOME/envs/icil-<name>` with uv from lockfiles in `policies/envs/`: BPP's recipe
+  as verified on an RTX 5090, and UniSkill's as planned, for #43 to verify. CI tests
+  `policies[pure]` on 3.10 and 3.12; the core never imports it (#41).
 - (feat): end-effector views, measured finger joints and a `replay_ee` oracle.
   `Demonstration.endposes()` gives each frame as the 16 numbers `take_action('ee')` reads — per
   arm the world-frame flange pose, wxyz, then the commanded gripper — `ee_actions()` the next
