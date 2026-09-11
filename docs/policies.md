@@ -9,7 +9,9 @@ robotwin-icil eval --policy mypkg.adapters:MyPolicy --suite v1 --episodes 500 --
 ```
 
 `--policy` takes a built-in name (`replay`, `replay_ee`, `dummy`) or any importable
-`module:Class` that subclasses `ICILPolicy`. Adapters live outside `robotwin_icil`.
+`module:Class` that subclasses `ICILPolicy`. Adapters live outside `robotwin_icil`. A model
+whose libraries conflict with RoboTwin's runs in its own environment behind the built-in
+`remote`; see [Running a model in its own environment](#running-a-model-in-its-own-environment).
 
 ## The lifecycle
 
@@ -91,7 +93,8 @@ runs before the harness moves into `vendor/RoboTwin`, so resolve relative paths 
 (`Path(config).resolve()`), not on first use.
 
 Every policy still constructs with **no** arguments: give each one a default. The tests build
-every built-in that way; do the same for yours.
+every built-in that way; do the same for yours. The one exception is `remote`, which has to be
+told what to serve.
 
 The manifest records the arguments as `policy_config`, paths as strings. They are part of the
 run's identity: a run directory does not resume under other arguments.
@@ -343,6 +346,101 @@ No `backward()`, no optimizer, no parameter writes, anywhere, during a benchmark
 adapts only through the demonstration it is handed. Inference-time state — a KV cache, observation
 or action history, a recurrent state — is fine, and `_reset()` must clear all of it. Give
 `describe()` a `parameter_checksum` and [the audit](#the-frozen-policy-audit) holds you to it.
+
+## Running a model in its own environment
+
+BPP, UniSkill and RoboTwin pin libraries that conflict — transformers, diffusers,
+huggingface_hub, and two different packages named `robomimic` — so no one Python environment
+holds a model and the simulator. An adapter stays an ordinary `ICILPolicy`: it runs in-process
+while you develop it, or behind a policy server in the model's own environment, which the
+simulator's process reaches through the built-in `remote` (`robotwin_icil.remote.RemotePolicy`).
+The simulator environment never imports model code.
+
+```bash
+robotwin-icil eval --policy remote \
+    --policy-arg policy=mypkg.adapters:MyPolicy \
+    --policy-arg python=/opt/envs/mymodel/bin/python \
+    --policy-arg config=configs/mine.yml \
+    --suite v1 --episodes 500 --seed 42 --run-dir runs/mine
+```
+
+`remote` starts `python -m robotwin_icil.serve --policy mypkg.adapters:MyPolicy --config ...`
+under that interpreter, waits for it and forwards every call. The model environment needs the
+adapter and its model, plus numpy and PyYAML, the benchmark's own dependencies; it needs neither
+the simulator nor the benchmark installed. The server gets the `robotwin_icil` package on its
+`PYTHONPATH`, the package alone through a link in a private directory, so a benchmark installed
+in site-packages does not bring the simulator environment's libraries with it.
+
+| argument | default | what |
+| --- | --- | --- |
+| `policy` | required | what the server serves: a built-in name or `module:Class`, importable in the model environment |
+| `python` | the simulator's interpreter | the model environment's interpreter |
+| `config` | none | the policy's own config file, resolved before the server starts and handed to the policy as `config=PATH` |
+| `log` | `policy_server.log` in the run directory under `eval`, else a temporary file | where the server's stdout and stderr go, appended; kept after the run |
+| `address` | none | `host:port` of a server already running (or its socket's path), instead of starting one; then give `authkey_file`, and none of `policy`, `python`, `config`, `log` or the policy's own arguments |
+| `authkey_file` | none | the running server's key |
+| `startup_timeout` | 900 | seconds for a started server to listen, and again for its reply to `hello`, which comes once the model has loaded (BPP's checkpoint is 6.9 GB) |
+| `timeout` | 120 | seconds for every other reply |
+| any other | | the served policy's own keyword argument, passed on the server's command line as a `--policy-arg`: None, a boolean, a number, a string or a path, each read back as the value given; anything else is refused |
+
+Every one of them is a `--policy-arg`, so the manifest records it in `policy_config` and a run
+does not resume under others; the log path `eval` picks is not recorded. The manifest's policy
+description is the served policy's own, with `remote: {python, address, protocol_version}`
+beside it: `python` is the interpreter the server ran under, and `address` is null for a server
+`remote` started, whose socket changes every run.
+
+### What happens in the server
+
+The server builds the policy when the client says `hello`, then answers one operation at a time
+by calling the policy's public methods: `describe`, `environment`, `seed`, `reset`, the
+demonstration streamed as `demo_begin`, `demo_frames` (chunks of about 32 MB) and `demo_end`,
+`act`, `info` (`episode_info()`), `ping`, and `shutdown`, which closes the policy before the
+server exits. So the lifecycle checks of `ICILPolicy` run where the model lives, and, since
+`RemotePolicy` is an `ICILPolicy` too, in the simulator's process as well, with the action shape
+and finiteness checks. `describe()` asks the server each time, so the frozen-policy audit sees
+the checksum the model ends the run with. Demonstrations and observations arrive bit for bit,
+every field included.
+
+A policy that raises in the server, a reply that does not come within its timeout, a server
+that hangs up or dies: each stops the server (SIGTERM to its process group, SIGKILL 5 s later)
+and raises `PolicyError` naming the server's log and quoting its last lines. The run stops as for
+any `PolicyError`, and the same command resumes it from `episodes.jsonl`. `close()` asks the
+server to shut down and stops it whatever it answers, so no server outlives a run, however the
+run ends.
+
+### A model on another machine
+
+Start the server in the model's environment on the GPU machine, with the benchmark's `src` on
+its `PYTHONPATH`, and point `remote` at it:
+
+```bash
+# on the GPU machine
+PYTHONPATH=/path/to/robotwin-icil-benchmark/src python -m robotwin_icil.serve \
+    --policy mypkg.adapters:MyPolicy --config configs/mine.yml \
+    --address 0.0.0.0:41000 --authkey-file keys/policy.key
+# on the simulator machine
+robotwin-icil eval --policy remote --policy-arg address=gpu-box:41000 \
+    --policy-arg authkey_file=keys/policy.key --suite v1 --episodes 500 --seed 42 --run-dir runs/mine
+```
+
+`serve` takes `--policy`, `--config` and `--policy-arg KEY=VALUE` as `eval` reads it, and the key
+from `--authkey-file FILE` or `--authkey-env NAME`; it logs to stderr. It serves one client and
+exits on `shutdown` or when that client hangs up, so start it again for the next run. The same
+`--address` takes a Unix socket's path.
+
+### Security
+
+- Both ends prove they hold the key before anything else is said (`multiprocessing.connection`'s
+  HMAC challenge). The key authenticates; it does not encrypt.
+- Nothing is pickled. Only `send_bytes` and `recv_bytes` are used, never `Connection.send` or
+  `recv`: a message is a JSON header and raw arrays of bool, integer and float dtypes, with object
+  arrays refused at both ends, so neither peer can make the other run code.
+- A server `remote` starts listens on a Unix socket in a private temporary directory, with a
+  fresh 32-byte key handed over in an environment variable, never on the command line where
+  `ps` would show it; the server removes it from its environment before the model loads.
+- TCP only on a trusted network: the traffic is not encrypted, and a peer that connects and says
+  nothing holds the server's handshake. A client with the wrong key is refused and the server
+  listens on. Elsewhere, serve on `127.0.0.1` and reach it through an SSH tunnel.
 
 ## Validating an adapter
 
