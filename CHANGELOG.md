@@ -8,7 +8,9 @@
   RTX 5090) installs torch 2.8.0+cu128 and builds CuRobo with CUDA 12.8 and gcc 13 for the GPU's
   own arch. In containers without them it installs `libegl1` and writes the NVIDIA Vulkan ICD and
   EGL vendor manifests, which `robotwin_icil` points SAPIEN at when they live in the env; the
-  render check no longer truncates a redirected install log (#33).
+  render check no longer truncates a redirected install log; SAPIEN's OIDN denoiser, which cannot run
+  on Blackwell and hangs renders under GPU contention, is turned off there, leaving images unchanged
+  (#33).
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
