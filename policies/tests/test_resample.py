@@ -50,6 +50,30 @@ def test_a_sample_at_a_tied_time_takes_the_last_frame_there():
     np.testing.assert_array_equal(out.held, [0, 2, 3])
 
 
+def test_float32_step_times_still_tie_on_the_grid():
+    # The core's clock: steps times SAPIEN's float32 timestep, so step 25 is 5 ns past 0.1 s.
+    steps = np.array([0, 1, 16, 24, 25, 25, 26, 40])
+    times = steps * float(np.float32(STEP))
+    assert times[4] > 0.1
+    rows = [
+        endpose_row((0.1 * t, 0, 0), left_gripper=1.0 if i < 5 else 0.0)
+        for i, t in enumerate(times)
+    ]
+    qpos = np.zeros((len(times), 14))
+    qpos[5:, 6] = 0.3
+    out = resample(demonstration(rows, times=times, qpos=qpos), rate_hz=20)
+    # The gripper command issued at step 25 shows at the 0.1 s sample, not 50 ms later.
+    np.testing.assert_array_equal(out.held, [0, 1, 5, 6, 7])
+    np.testing.assert_array_equal(out.endposes[:, 7], [1, 1, 0, 0, 0])
+    np.testing.assert_array_equal(out.qpos[:, 6], [0, 0, 0.3, 0.3, 0.3])
+    np.testing.assert_array_equal(out.source, [0, 2, 5, 7, 7])  # nearest; 5 is at 0.1 s
+    inside = out.times <= times[-1]
+    np.testing.assert_allclose(out.endposes[inside, 0], 0.1 * out.times[inside], atol=1e-9)
+    # A demonstration ending on a grid point gets no extra sample past it.
+    ends = np.array([0, 250]) * float(np.float32(STEP))
+    np.testing.assert_allclose(sample_times(ends, 20), np.arange(21) / 20)
+
+
 def test_grippers_are_held_while_positions_interpolate():
     times = [0.0, 0.1]
     rows = [endpose_row((0, 0, 0), left_gripper=1.0), endpose_row((0.1, 0, 0), left_gripper=0.0)]

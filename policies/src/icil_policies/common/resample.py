@@ -20,6 +20,11 @@ between them. A sample at such a time takes the last of those frames, which carr
 command issued at that instant; a sample between two times interpolates from the last frame of
 the earlier time to the first of the later one. Untimed demonstrations use
 `Demonstration.times()`'s estimate.
+
+Frame times are step counts times SAPIEN's float32 timestep, 0.004000000189989805 s for 1/250,
+so a frame at step 25 sits 5 ns after the 0.1 s grid point, an error of 4.75e-8 of the time
+that grows with it. Times within `time_slack` of each other are one instant, both for the ties
+above and for the final frame: it is far below a physics step for any demonstration's length.
 """
 
 from __future__ import annotations
@@ -35,6 +40,11 @@ from .frames import EE_SLICES, QPOS_SLICES
 from .rotations import slerp
 
 DEFAULT_RATE_HZ = 20.0
+
+
+def time_slack(t: np.ndarray | float) -> np.ndarray | float:
+    """How far apart two times near `t` may be and still be one instant, in seconds."""
+    return 1e-9 + 1e-6 * np.abs(t)
 
 
 @dataclass(frozen=True)
@@ -73,8 +83,9 @@ def sample_times(times: np.ndarray, rate_hz: float, include_end: bool = True) ->
         raise ValueError(f"rate_hz must be positive and finite, got {rate_hz}")
     times = np.asarray(times, dtype=np.float64)
     start, end = float(times[0]), float(times[-1])
-    count = math.floor((end - start) * rate_hz + 1e-9) + 1
-    if include_end and start + (count - 1) / rate_hz < end - 1e-12:
+    slack = time_slack(end)
+    count = math.floor((end - start + slack) * rate_hz) + 1
+    if include_end and start + (count - 1) / rate_hz < end - slack:
         count += 1
     return start + np.arange(count) / rate_hz
 
@@ -86,12 +97,14 @@ def resample(
     times = demonstration.times()
     grid = sample_times(times, rate_hz, include_end)
     last = len(times) - 1
-    before = np.clip(np.searchsorted(times, grid, side="right") - 1, 0, last)
+    slack = time_slack(grid)
+    before = np.clip(np.searchsorted(times, grid + slack, side="right") - 1, 0, last)
     after = np.minimum(before + 1, last)
     span = times[after] - times[before]
     moving = (after > before) & (span > 0)
     fraction = np.where(moving, (grid - times[before]) / np.where(moving, span, 1.0), 0.0)
-    nearest = np.where(grid - times[before] <= times[after] - grid, before, after)
+    fraction = np.clip(fraction, 0.0, 1.0)  # a snapped sample sits a hair before its frame
+    nearest = np.where(grid - times[before] <= times[after] - grid + slack, before, after)
 
     def linear(values: np.ndarray) -> np.ndarray:
         return values[before] + fraction[:, None] * (values[after] - values[before])
