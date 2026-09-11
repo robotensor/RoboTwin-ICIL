@@ -12,9 +12,10 @@
   and the training regime: `evaluation tasks seen in training: k/N` from `training_tasks`, held
   out at 0 and `unknown` without a claim. `report RUN_DIR --reference REF_DIR`, repeatable,
   prints each reference's rates in a column beside the run's, overall, by category and by task,
-  named by its adapter or policy, and lists them under `references` in `--json`. A reference of
-  another global seed, suite or task list, expert budget, configuration or camera profile, or
-  one that failed the frozen-policy audit, is refused, naming the field. No new score (#38).
+  named by its adapter or policy, and lists them under `references` in `--json`, each rated over
+  the episodes both runs recorded. A reference of another global seed, suite or task list, expert
+  budget, RoboTwin commit, configuration or camera profile, one sharing no episode with the run,
+  or one that failed the frozen-policy audit, is refused, naming the field. No new score (#38).
 - (feat): policy configuration, seeding, provenance and a frozen-policy audit.
   `eval --policy-arg KEY=VALUE`, repeatable, passes keyword arguments to the policy, each value
   read as YAML; an adapter's many settings go in its own YAML as `config=PATH`. The manifest
