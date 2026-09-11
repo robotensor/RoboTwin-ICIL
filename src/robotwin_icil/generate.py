@@ -87,7 +87,12 @@ def attempt(
 
     try:
         initial = robotwin.fingerprint(task_env)
-        with robotwin.capture(task_env, save_freq) as frames:
+        # Timed from the scene the fingerprint saw: RoboTwin's settle is already behind it, and
+        # the clock is gone again before `close`.
+        with (
+            robotwin.clock(task_env) as ticks,
+            robotwin.capture(task_env, save_freq, ticks) as frames,
+        ):
             task_env.play_once()
         if not task_env.plan_success:
             return Attempt(seed, Rejection.PLAN_FAILED), None, None

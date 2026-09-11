@@ -92,3 +92,21 @@ def test_a_demonstrations_frequency_is_frames_per_second(monkeypatch):
     result, demonstration, _ = generate.attempt(FakeTaskEnv(), 0, {"save_freq": 5}, 5, 0)
     assert result.rejection is None
     assert demonstration.frequency == pytest.approx(50.0)
+
+
+def test_demonstration_frames_carry_simulated_time(monkeypatch):
+    # The fake expert records every `save_freq` physics steps. The clock starts after
+    # setup_demo, so the scene's settle is not part of the demonstration's time.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv()
+    _, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    np.testing.assert_allclose(demonstration.times(), np.arange(len(demonstration)) * 5 / 250)
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+def test_the_clock_is_gone_before_a_failed_expert_is_closed(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(expert_raises_on={0})
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert env.closed == 1 and env.closed_while_clocked == 0
