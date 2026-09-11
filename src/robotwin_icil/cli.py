@@ -74,12 +74,13 @@ def _survey(args: argparse.Namespace) -> int:
         result = survey_task(robotwin.load_task(task.name), task, seeds, config)
         results.append(result)
         print(f"{task.name}: expert solved {result.successes}/{result.seeds}", flush=True)
+        if out is not None:
+            # Rewritten after every task: an interrupted survey keeps what it has measured.
+            out.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps([r.to_json() for r in results], indent=2) + "\n"
+            out.write_text(payload, encoding="utf-8")
     print()
     print(render(results), end="")
-    if out is not None:
-        out.write_text(
-            json.dumps([r.to_json() for r in results], indent=2) + "\n", encoding="utf-8"
-        )
     return 0
 
 
