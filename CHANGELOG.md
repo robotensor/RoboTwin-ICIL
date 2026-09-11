@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- (feat): a physics clock. Demonstration frames are not evenly spaced — every motion primitive
+  adds a one-step gap, a remainder and an exact duplicate where the next one starts — so frame
+  index over `frequency` is not time. `robotwin.clock` counts `scene.step()` through an instance
+  override of SAPIEN's Python `Scene.step`, from after the fingerprint (RoboTwin's settle is not
+  counted) to before `close`, and sees `take_dense_action` and `together_move_to_pose` alike.
+  Frames and observations carry `time_s` in simulated seconds; `Demonstration.times()` returns
+  the frames' times, which never decrease, or for untimed data collapses exact duplicates and
+  spaces the rest at `1 / frequency`; records gain `physics_steps`. All three default, so older
+  demonstrations and runs still load (#35).
 - (feat): camera profiles that keep every seed's scene. `--camera-profile` on `eval` and
   `survey` picks one from `cameras.yml`; `far_side` puts a 45° L515 across the table in
   `front_camera`'s slot, looking back at the robot 38.9° down. Every static camera draws from
