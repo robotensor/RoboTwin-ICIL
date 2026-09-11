@@ -23,8 +23,9 @@ _SEED_BOUND = 2**31 - 1
 # The policy's stream is `default_rng([global_seed, episode, POLICY_STREAM])`, a different entropy
 # sequence from the scene stream `default_rng([global_seed, episode])`. The scene seed is
 # privileged — it rebuilds the scene, target and all — so the policy's seed is never it, nor
-# derived from it, and a policy cannot recover it from its own. Fixed forever ("pol" in ASCII):
-# changing it changes every policy seed of every run.
+# derived from it. Both are functions of the global seed and the episode index, which the policy
+# is not given, so its own seed says nothing about the scene without them. Fixed forever ("pol"
+# in ASCII): changing it changes every policy seed of every run.
 POLICY_STREAM = 0x706F6C
 
 
