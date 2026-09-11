@@ -107,7 +107,8 @@ make_venv() {
 
 install_torch() { uvpip "${TORCH[@]}" --index-url "${TORCH_INDEX}"; }
 
-# The model's extra, and `pure` for pytest, so the env can run its own contract tests.
+# The model's extra, and `pure` for pytest, so the env can run its own contract tests. The
+# installs are editable, so the stage's key includes the checkout they point at.
 BENCHMARK_EXTRAS="${NAME},pure"
 
 install_benchmark() {
@@ -180,8 +181,9 @@ build_bpp() {
     stage robomimic "$(key "${CMAKE[@]}" "${ROBOMIMIC[@]}" "$(file_key "${LOCKS}/constraints.txt")")" \
         bpp_robomimic
     stage model "$(key "${REPO_COMMIT}")" uvpip --no-deps -e "${src}"
-    stage benchmark "$(key "${BENCHMARK_EXTRAS}" "$(file_key "${REPO_ROOT}/pyproject.toml" \
-        "${REPO_ROOT}/policies/pyproject.toml" "${LOCKS}/constraints.txt")")" install_benchmark
+    stage benchmark "$(key "${REPO_ROOT}" "${BENCHMARK_EXTRAS}" "$(file_key \
+        "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
+        "${LOCKS}/constraints.txt")")" install_benchmark
     bpp_backbone
     smoke_common "${SMOKE_IMPORT}"
     log "smoke: the backbone with HF_HUB_OFFLINE=1"
@@ -214,8 +216,9 @@ build_uniskill() {
     stage core "$(file_key "${LOCKS}/requirements.lock" "${LOCKS}/constraints.txt")" \
         uvpip -c "${LOCKS}/constraints.txt" -r "${LOCKS}/requirements.lock"
     stage model "$(key "${POLICY_COMMIT}" "${ISD_COMMIT}")" uniskill_model "${fork}" "${isd}"
-    stage benchmark "$(key "${BENCHMARK_EXTRAS}" "$(file_key "${REPO_ROOT}/pyproject.toml" \
-        "${REPO_ROOT}/policies/pyproject.toml" "${LOCKS}/constraints.txt")")" install_benchmark
+    stage benchmark "$(key "${REPO_ROOT}" "${BENCHMARK_EXTRAS}" "$(file_key \
+        "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
+        "${LOCKS}/constraints.txt")")" install_benchmark
     smoke_common "${SMOKE_IMPORTS[@]}"
 }
 
