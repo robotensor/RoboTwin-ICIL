@@ -47,6 +47,11 @@ uniskill = [
   "h5py==3.15.1",
 ]
 
+[project.scripts]
+# The BPP adapter's own tool: slim the released checkpoint, fit the tracking gains, run the
+# pre-flight gates and BPP's LIBERO sanity rollout. Installed in the `icil-bpp` environment.
+icil-bpp = "icil_policies.bpp.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/icil_policies"]
 
