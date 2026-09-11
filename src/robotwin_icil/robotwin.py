@@ -239,6 +239,31 @@ def observation(env) -> dict[str, Any]:
     }
 
 
+def snapshot(task_name: str, seed: int, config: SceneConfig) -> dict[str, np.ndarray]:
+    """Every camera's rgb in the scene one seed builds, as a policy's first observation carries it.
+
+    The by-eye check for a camera profile (`robotwin-icil cameras`): the scene is built exactly as
+    an episode builds it, observed once, and closed. Nothing here reaches a policy.
+    """
+    args = config.resolve(task_name)
+    task_env = load_task(task_name)
+    try:
+        try:
+            task_env.setup_demo(now_ep_num=0, seed=seed, is_test=True, **args)
+        except unstable_error() as exc:
+            raise RoboTwinError(
+                f"{task_name} seed {seed} does not settle ({exc}); try another seed"
+            ) from exc
+        except Exception as exc:
+            raise RoboTwinError(
+                f"building {task_name} seed {seed} failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        return {name: np.array(image) for name, image in observation(task_env)["images"].items()}
+    finally:
+        close(task_env)
+        free_gpu()
+
+
 def _images(raw: dict[str, Any]) -> dict[str, np.ndarray]:
     images = {}
     for name, camera in raw.get("observation", {}).items():

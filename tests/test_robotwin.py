@@ -127,3 +127,38 @@ def test_overrides_still_have_the_last_word(fake_checkout):
 def test_an_unknown_camera_profile_fails_before_any_scene():
     with pytest.raises(camera_profiles.ProfileError, match="unknown camera profile"):
         robotwin.SceneConfig(camera_profile="nope")
+
+
+@pytest.fixture
+def fake_task(monkeypatch):
+    from fake_robotwin import FakeTaskEnv, FakeUnstable
+
+    envs = []
+
+    def load_task(name):
+        envs.append(FakeTaskEnv(unstable_seeds={7}, setup_raises_on={8}))
+        return envs[-1]
+
+    monkeypatch.setattr(robotwin, "load_task", load_task)
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    monkeypatch.setattr(robotwin, "free_gpu", lambda: None)
+    return envs
+
+
+def test_a_snapshot_is_every_camera_of_one_scene(fake_task):
+    from fake_robotwin import FakeConfig
+
+    images = robotwin.snapshot("click_bell", 3, FakeConfig())
+    assert set(images) == {"head_camera"} and images["head_camera"].shape == (16, 16, 3)
+    assert fake_task[0].setups == [3] and fake_task[0].task_names == ["click_bell"]
+    assert fake_task[0].closed == 1
+
+
+def test_a_snapshot_of_a_scene_that_will_not_build_says_why(fake_task):
+    from fake_robotwin import FakeConfig
+
+    with pytest.raises(robotwin.RoboTwinError, match="seed 7 does not settle"):
+        robotwin.snapshot("click_bell", 7, FakeConfig())
+    with pytest.raises(robotwin.RoboTwinError, match="building click_bell seed 8 failed"):
+        robotwin.snapshot("click_bell", 8, FakeConfig())
+    assert [env.closed for env in fake_task] == [1, 1]

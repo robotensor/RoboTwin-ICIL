@@ -1,8 +1,9 @@
 import json
 
+import numpy as np
 import pytest
 
-from robotwin_icil import camera_profiles, cli, robotwin, runner, survey
+from robotwin_icil import camera_profiles, cli, png, robotwin, runner, survey
 from robotwin_icil.records import RunDir
 from robotwin_icil.robotwin import RoboTwinError
 from test_records import manifest, record
@@ -86,3 +87,30 @@ def test_survey_takes_a_camera_profile(monkeypatch, capsys):
     assert cli.main(["survey", "--task", "click_bell", "--seeds", "1"]) == 0
     assert cli.main(["survey", "--task", "click_bell", "--camera-profile", "far_side"]) == 0
     assert [config.camera_profile for config in seen] == ["stock", "far_side"]
+
+
+def test_cameras_writes_one_png_per_camera(tmp_path, monkeypatch, capsys):
+    far_side = np.full((180, 320, 3), 7, dtype=np.uint8)
+    seen = {}
+
+    def snapshot(task, seed, config):
+        seen.update(task=task, seed=seed, config=config)
+        return {"head_camera": np.zeros((240, 320, 3), dtype=np.uint8), "far_side_camera": far_side}
+
+    monkeypatch.setattr(robotwin, "snapshot", snapshot)
+    out = tmp_path / "cameras"
+    argv = ["cameras", "--profile", "far_side", "--task", "click_bell", "--seed", "3"]
+    assert cli.main([*argv, "--out", str(out)]) == 0
+    assert (seen["task"], seen["seed"], seen["config"].camera_profile) == (
+        "click_bell",
+        3,
+        "far_side",
+    )
+    assert sorted(path.name for path in out.iterdir()) == ["far_side_camera.png", "head_camera.png"]
+    assert (out / "far_side_camera.png").read_bytes() == png.encode(far_side)
+    assert "far_side_camera: 320x180" in capsys.readouterr().out
+
+
+def test_cameras_refuses_a_task_outside_the_table(tmp_path, capsys):
+    assert cli.main(["cameras", "--task", "nope", "--out", str(tmp_path)]) == 1
+    assert "unknown task 'nope'" in capsys.readouterr().err

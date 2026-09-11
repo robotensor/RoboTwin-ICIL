@@ -1,4 +1,4 @@
-"""`robotwin-icil`: run the benchmark, report a run, list the task table.
+"""`robotwin-icil`: run the benchmark, report a run, list the task table, look through the cameras.
 
 `report` and `tasks` never import the simulator, so a finished run directory can be re-reported
 anywhere the package installs.
@@ -95,6 +95,20 @@ def _survey(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cameras(args: argparse.Namespace) -> int:
+    from . import robotwin
+    from .png import write_png
+
+    task = tasks_.table()[args.task]
+    # Resolve before entering the RoboTwin seam, which moves the working directory.
+    out = Path(args.out).resolve()
+    config = robotwin.SceneConfig(task_config=args.task_config, camera_profile=args.camera_profile)
+    for name, image in sorted(robotwin.snapshot(task.name, args.seed, config).items()):
+        path = write_png(out / f"{name}.png", image)
+        print(f"{name}: {image.shape[1]}x{image.shape[0]}  {path}")
+    return 0
+
+
 def _tasks(args: argparse.Namespace) -> int:
     table = tasks_.table()
     suites = {name: set(members) for name, members in table.suites.items() if name != "all"}
@@ -168,6 +182,17 @@ def build_parser() -> argparse.ArgumentParser:
     sur.add_argument("--save-freq", type=int, default=15)
     _add_camera_profile(sur)
     sur.set_defaults(handler=_survey)
+
+    cam = commands.add_parser(
+        "cameras",
+        help="write one PNG per camera of one scene; how a camera profile is checked by eye",
+    )
+    _add_camera_profile(cam, "--profile")
+    cam.add_argument("--task", required=True, help="a RoboTwin task")
+    cam.add_argument("--seed", type=int, default=0, help="the scene seed itself")
+    cam.add_argument("--out", required=True, help="directory for <camera>.png")
+    cam.add_argument("--task-config", default="demo_clean")
+    cam.set_defaults(handler=_cameras)
 
     lst = commands.add_parser("tasks", help="list the task table and suite membership")
     lst.set_defaults(handler=_tasks)
