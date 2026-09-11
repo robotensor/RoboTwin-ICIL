@@ -17,10 +17,7 @@ from typing import Any, ClassVar, Literal
 
 import numpy as np
 
-from .demo import BIMANUAL_QPOS_DIM, Demonstration
-
-# RoboTwin's `take_action(action_type='ee')`: xyz + quaternion + gripper, per arm.
-BIMANUAL_EE_DIM = 16
+from .demo import BIMANUAL_EE_DIM, BIMANUAL_QPOS_DIM, Demonstration
 
 # Given to models that require a language input, so that what is measured is the demonstration
 # and not the prompt. Never the task name or RoboTwin's per-task instruction.

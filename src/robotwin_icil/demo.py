@@ -19,6 +19,10 @@ import numpy as np
 
 # RoboTwin's bimanual `joint_action.vector`: 6 arm joints + 1 gripper, per arm.
 BIMANUAL_QPOS_DIM = 14
+# RoboTwin's `take_action(action_type='ee')`: flange pose (xyz + wxyz quaternion) + gripper, per arm.
+EE_POSE_DIM = 7
+BIMANUAL_EE_DIM = 2 * (EE_POSE_DIM + 1)
+ARMS = ("left", "right")
 
 
 class DemonstrationError(ValueError):
@@ -146,11 +150,66 @@ class Demonstration:
         """
         return np.stack([frame.qpos for frame in self.frames[1:]])
 
+    def endposes(self) -> np.ndarray:
+        """(T, 16) end-effector state over the demonstration, in `take_action('ee')` layout.
+
+        Per arm, left then right: the flange pose `[x, y, z, qw, qx, qy, qz]` in the world frame
+        (the tool centre is 0.12 m further along the pose's own +x axis on aloha-agilex), then
+        the gripper value RoboTwin reports, which is the commanded one, 0 closed to 1 open.
+        """
+        return np.stack([_ee_state(frame) for frame in self.frames])
+
+    def ee_actions(self) -> np.ndarray:
+        """(T-1, 16) end-effector targets, one per transition: the next frame's `endposes()` row.
+
+        The `ee` counterpart of `actions()`. Feeding an arm's own endpose back through
+        `take_action(action_type='ee')` reaches it again, as the expert's `back_to_origin` does,
+        but every call is re-planned, so a replay of these is not the expert's joint trajectory.
+        """
+        return self.endposes()[1:]
+
+    def arms_moved(self, threshold_m: float = 0.02) -> tuple[str, ...]:
+        """The arms, of "left" and "right", whose flange path is longer than `threshold_m`.
+
+        Path length is the sum of the flange's straight-line moves from frame to frame, so it
+        counts a move out and back. Provisional: the 2 cm default is not yet measured against the
+        jitter of an arm the expert holds still.
+        """
+        poses = self.endposes()
+        moved = []
+        for i, arm in enumerate(ARMS):
+            start = i * (EE_POSE_DIM + 1)
+            path = np.linalg.norm(np.diff(poses[:, start : start + 3], axis=0), axis=1).sum()
+            if path > threshold_m:
+                moved.append(arm)
+        return tuple(moved)
+
     def images(self, camera: str) -> np.ndarray:
         """(T, h, w, 3) rgb from one camera."""
         if camera not in self.cameras:
             raise DemonstrationError(f"no camera {camera!r}; have {list(self.cameras)}")
         return np.stack([frame.images[camera] for frame in self.frames])
+
+
+def _ee_state(frame: Frame) -> np.ndarray:
+    """One frame's `endpose` as the 16 numbers `take_action('ee')` reads."""
+    parts = []
+    for arm in ARMS:
+        try:
+            pose, gripper = frame.endpose[f"{arm}_endpose"], frame.endpose[f"{arm}_gripper"]
+        except KeyError as exc:
+            raise DemonstrationError(
+                f"frame {frame.index}: endpose has no {exc.args[0]!r}; "
+                f"it has {sorted(frame.endpose)}"
+            ) from None
+        pose = np.asarray(pose, dtype=np.float64)
+        if pose.shape != (EE_POSE_DIM,):
+            raise DemonstrationError(
+                f"frame {frame.index}: {arm}_endpose has shape {pose.shape}, "
+                f"expected ({EE_POSE_DIM},)"
+            )
+        parts += [pose, [float(gripper)]]
+    return np.concatenate(parts)
 
 
 def _same_frame(a: Frame, b: Frame) -> bool:

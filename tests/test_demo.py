@@ -3,7 +3,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, DemonstrationError, Frame
+from robotwin_icil.demo import (
+    BIMANUAL_EE_DIM,
+    BIMANUAL_QPOS_DIM,
+    Demonstration,
+    DemonstrationError,
+    Frame,
+)
 
 
 def frame(index: int, cameras=("head_camera",), qpos_dim=BIMANUAL_QPOS_DIM) -> Frame:
@@ -147,3 +153,67 @@ def test_a_frame_that_differs_in_anything_is_not_a_duplicate(change):
     frames = (frame(0), frame(1), replace(frame(1), index=2, **change))
     d = Demonstration(frames=frames, frequency=10)
     np.testing.assert_allclose(d.times(), [0.0, 0.1, 0.2])
+
+
+def posed(left_xyz, right_xyz, left_gripper=1.0, right_gripper=1.0) -> dict:
+    """An endpose as RoboTwin's `get_obs()` reports it: lists of xyz + wxyz, and floats."""
+    return {
+        "left_endpose": [*left_xyz, 1.0, 0.0, 0.0, 0.0],
+        "left_gripper": left_gripper,
+        "right_endpose": [*right_xyz, 0.0, 1.0, 0.0, 0.0],
+        "right_gripper": right_gripper,
+    }
+
+
+def ee_demo(endposes) -> Demonstration:
+    return Demonstration(
+        frames=tuple(replace(frame(i), endpose=pose) for i, pose in enumerate(endposes)),
+        frequency=15,
+    )
+
+
+def test_endposes_are_in_take_action_ee_layout():
+    d = ee_demo([posed((0.1, 0.2, 0.3), (0.4, 0.5, 0.6), 0.25, 0.75)] * 2)
+    endposes = d.endposes()
+    assert endposes.shape == (2, BIMANUAL_EE_DIM) == (2, 16)
+    # [left xyz, left wxyz, left gripper, right xyz, right wxyz, right gripper]
+    np.testing.assert_array_equal(
+        endposes[0],
+        [0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0, 0.25, 0.4, 0.5, 0.6, 0.0, 1.0, 0.0, 0.0, 0.75],
+    )
+
+
+def test_ee_actions_are_the_next_endpose():
+    d = ee_demo([posed((0.0, 0.0, z), (0.0, 0.0, -z)) for z in (0.0, 0.1, 0.2, 0.3)])
+    actions = d.ee_actions()
+    assert actions.shape == (3, BIMANUAL_EE_DIM)
+    np.testing.assert_array_equal(actions, d.endposes()[1:])
+    assert actions[0, 2] == pytest.approx(0.1) and actions[-1, 10] == pytest.approx(-0.3)
+
+
+def test_frames_without_an_endpose_have_no_ee_view():
+    with pytest.raises(DemonstrationError, match="endpose has no 'left_endpose'"):
+        demo().endposes()
+
+
+def test_an_endpose_of_the_wrong_width_is_rejected():
+    pose = posed((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+    pose["right_endpose"] = pose["right_endpose"][:3]
+    with pytest.raises(DemonstrationError, match="right_endpose has shape"):
+        ee_demo([pose, pose]).endposes()
+
+
+def test_arms_moved_are_those_whose_flange_travels_past_the_threshold():
+    still = (0.0, 0.0, 0.0)
+    left_moves = ee_demo([posed((0.0, 0.0, z), still) for z in (0.0, 0.01, 0.03)])
+    assert left_moves.arms_moved() == ("left",)
+    assert left_moves.arms_moved(threshold_m=0.05) == ()
+    both = ee_demo([posed(still, still), posed((0.03, 0.0, 0.0), (0.0, 0.03, 0.0))])
+    assert both.arms_moved() == ("left", "right")
+
+
+def test_arms_moved_counts_path_length_not_displacement():
+    # Out 1.5 cm and back: no net displacement, a 3 cm path.
+    still = (0.0, 0.0, 0.0)
+    d = ee_demo([posed(still, still), posed(still, (0.015, 0.0, 0.0)), posed(still, still)])
+    assert d.arms_moved() == ("right",)
