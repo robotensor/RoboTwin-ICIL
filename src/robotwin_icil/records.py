@@ -63,6 +63,9 @@ class EpisodeRecord:
     # Physics steps the rollout ran; 0 when nothing was rolled out, and in records written before
     # the benchmark counted them. `steps` counts `take_action` calls, each of many physics steps.
     physics_steps: int = 0
+    # What the policy's `episode_info()` reported after the rollout; empty when nothing was rolled
+    # out, for policies that report nothing, and in records written before policies could.
+    policy_info: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         status = Status(self.status)

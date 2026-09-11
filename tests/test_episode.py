@@ -1,5 +1,7 @@
 """The Same Scene protocol, end to end, against a fake RoboTwin env."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -14,7 +16,7 @@ from robotwin_icil.policy import (
     ReplayEEPolicy,
     ReplayPolicy,
 )
-from robotwin_icil.records import SAME_SCENE, Status
+from robotwin_icil.records import SAME_SCENE, EpisodeRecord, Status
 
 
 @pytest.fixture(autouse=True)
@@ -232,3 +234,48 @@ def test_observations_carry_the_measured_gripper_joints():
     for observation in policy.observations:
         assert set(observation.gripper_joints) == {"left", "right"}
         assert observation.gripper_joints["left"].shape == (2,)
+
+
+class _Reporting(ReplayPolicy):
+    """Reports what `info` holds after each rollout."""
+
+    name = "reporting"
+
+    def __init__(self, info):
+        super().__init__()
+        self.info = info
+        self.asked = 0
+
+    def episode_info(self):
+        self.asked += 1
+        return self.info
+
+
+def test_what_a_policy_reports_is_recorded_with_its_episode():
+    policy = _Reporting({"active_arm": "left", "chunks": 3, "clipped": (1, 2), "note": None})
+    record = run_episode(spec(), policy, FakeConfig(), task_env=FakeTaskEnv())
+    assert record.status is Status.SCORED and policy.asked == 1
+    # Stored as JSON reads it back: the record round-trips unchanged.
+    expected = {"active_arm": "left", "chunks": 3, "clipped": [1, 2], "note": None}
+    assert record.policy_info == expected
+    assert EpisodeRecord.from_json(json.loads(json.dumps(record.to_json()))) == record
+
+
+def test_a_policy_that_reports_nothing_records_an_empty_mapping():
+    record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv())
+    assert record.policy_info == {}
+
+
+@pytest.mark.parametrize(
+    "info, key",
+    [({"arm": np.int64(1)}, "arm"), ({"ok": 1, "fraction": float("nan")}, "fraction")],
+)
+def test_a_report_that_is_not_json_stops_the_run_naming_the_key(info, key):
+    with pytest.raises(PolicyError, match=f"episode_info\\(\\): '{key}' is not JSON"):
+        run_episode(spec(), _Reporting(info), FakeConfig(), task_env=FakeTaskEnv())
+
+
+def test_a_policy_is_asked_for_a_report_only_after_a_rollout():
+    policy = _Reporting({"chunks": 3})
+    record = run_episode(spec(), policy, FakeConfig(), task_env=FakeTaskEnv(drift=True))
+    assert record.status is Status.INVALID and record.policy_info == {} and policy.asked == 0

@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .generate import Generated, generate, policy_seed, scene_seeds
-from .policy import ICILPolicy, Observation, PolicyError
+from .policy import ICILPolicy, Observation, PolicyError, json_mapping
 from .records import SAME_SCENE, EpisodeRecord, Status
 from .scene import compare, max_error
 from .tasks import Task
@@ -135,6 +135,7 @@ def run_episode(
                 ticks=ticks,
             )
         video_note += _film(video, lambda: _final_frame(video, task_env))
+        info = json_mapping(policy.episode_info(), f"{policy.name}: episode_info()")
         return record(
             Status.SCORED,
             success=success,
@@ -144,6 +145,7 @@ def run_episode(
             scene_max_error=0.0,
             detail=detail + video_note,
             physics_steps=ticks.steps,
+            policy_info=info,
         )
     finally:
         robotwin.close(task_env)

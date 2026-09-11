@@ -18,6 +18,7 @@ from robotwin_icil.policy import (
     PolicyError,
     ReplayEEPolicy,
     ReplayPolicy,
+    json_mapping,
     make_policy,
 )
 
@@ -197,3 +198,32 @@ def test_nothing_privileged_reaches_the_policy():
     # Measured finger positions are proprioception a real robot has; they default for callers
     # that read none.
     assert bare.gripper_joints is None
+
+
+def test_json_mapping_returns_what_json_reads_back():
+    assert json_mapping({"a": (1, 2.5), "b": {"c": None, "d": True}}, "info") == {
+        "a": [1, 2.5],
+        "b": {"c": None, "d": True},
+    }
+    assert json_mapping({}, "info") == {}
+
+
+@pytest.mark.parametrize(
+    "data, message",
+    [
+        ([("a", 1)], "info must be a mapping, not list"),
+        ({1: "a"}, "info: key 1 is not a string"),
+        ({"a": object()}, "info: 'a' is not JSON-serialisable"),
+        ({"a": np.float32(0.5)}, "info: 'a' is not JSON-serialisable"),
+        ({"a": [float("inf")]}, "info: 'a' is not JSON-serialisable"),
+    ],
+)
+def test_json_mapping_refuses_what_a_json_file_cannot_hold(data, message):
+    with pytest.raises(PolicyError, match=message):
+        json_mapping(data, "info")
+
+
+def test_every_hook_has_a_default():
+    policy = ReplayPolicy()
+    policy.seed(7)
+    assert policy.episode_info() == {}

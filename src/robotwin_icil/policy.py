@@ -12,6 +12,8 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -113,6 +115,12 @@ class ICILPolicy:
         of your own seeded here, never from a global RNG.
         """
 
+    def episode_info(self) -> dict[str, Any]:
+        """What this policy reports about the episode it just rolled out, e.g. the arm it drove or
+        how many actions it clipped. Called after every rollout and stored in the episode record's
+        `policy_info`; every value must be JSON-serialisable."""
+        return {}
+
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
 
@@ -178,6 +186,26 @@ class ReplayEEPolicy(ReplayPolicy):
     @staticmethod
     def _played(demonstration: Demonstration) -> np.ndarray:
         return demonstration.ee_actions()
+
+
+def json_mapping(data: Any, what: str) -> dict[str, Any]:
+    """`data` as plain JSON: string keys, JSON values, no NaN or infinity.
+
+    Raises `PolicyError` naming the offending key. What comes back went through JSON once, tuples
+    turned into lists, so a record or manifest reads back equal to what was written.
+    """
+    if not isinstance(data, Mapping):
+        raise PolicyError(f"{what} must be a mapping, not {type(data).__name__}")
+    plain: dict[str, Any] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            raise PolicyError(f"{what}: key {key!r} is not a string")
+        try:
+            text = json.dumps(value, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise PolicyError(f"{what}: {key!r} is not JSON-serialisable: {exc}") from exc
+        plain[key] = json.loads(text)
+    return plain
 
 
 BUILTIN: dict[str, type[ICILPolicy]] = {

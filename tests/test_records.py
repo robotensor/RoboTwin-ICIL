@@ -175,3 +175,15 @@ def test_records_written_before_physics_steps_still_load(tmp_path):
     run.start(manifest())
     run.episodes_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
     assert [r.physics_steps for r in run.records()] == [0]
+
+
+def test_records_written_before_policy_info_still_load(tmp_path):
+    data = record(policy_info={"active_arm": "right"}).to_json()
+    assert EpisodeRecord.from_json(data).policy_info == {"active_arm": "right"}
+    data.pop("policy_info")
+    assert EpisodeRecord.from_json(data).policy_info == {}
+
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    run.episodes_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    assert [r.policy_info for r in run.records()] == [{}]
