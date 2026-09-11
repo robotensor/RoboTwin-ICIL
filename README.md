@@ -156,6 +156,11 @@ src/robotwin_icil/
   png.py                    one PNG per camera, for `robotwin-icil cameras`
   robotwin.py               the only module that imports RoboTwin
   cli.py
+policies/                   robotwin-icil-policies, a separate distribution: model adapters
+  src/icil_policies/common/ their numpy toolkit: rotations, aloha frames, resampling, arm
+                            choice, image path, chunking, kinematics
+  envs/                     lockfiles of the model environments
+scripts/                    install_robotwin.sh (simulator), install_policy_env.sh (models)
 docs/                       installation, policy adapters, the expert survey
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
