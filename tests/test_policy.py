@@ -116,7 +116,8 @@ def test_nothing_privileged_reaches_the_policy():
     privileged = {"task", "task_name", "seed", "scene_seed", "info", "success"}
     assert not privileged & {f.name for f in dataclasses.fields(Observation)}
     assert not privileged & {f.name for f in dataclasses.fields(Demonstration)}
-    assert (
-        Observation(step=0, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM)).instruction
-        == NEUTRAL_INSTRUCTION
-    )
+    bare = Observation(step=0, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM))
+    assert bare.instruction == NEUTRAL_INSTRUCTION
+    # Measured finger positions are proprioception a real robot has; they default for callers
+    # that read none.
+    assert bare.gripper_joints is None

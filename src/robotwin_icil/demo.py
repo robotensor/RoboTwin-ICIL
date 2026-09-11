@@ -39,6 +39,11 @@ class Frame:
 
     `time_s` is simulated seconds since the expert started, counted in physics steps; None in
     frames recorded before the benchmark kept time.
+
+    `gripper_joints` maps "left" and "right" to the measured positions of that arm's gripper
+    joints, in metres (aloha-agilex: the finger joint and its mimic). The gripper value in
+    `qpos` and `endpose` is the command, which reads closed while the fingers rest on an object;
+    these read where the fingers are. None in frames recorded before they were read.
     """
 
     index: int
@@ -46,10 +51,13 @@ class Frame:
     qpos: np.ndarray
     endpose: dict[str, Any]
     time_s: float | None = None
+    gripper_joints: dict[str, np.ndarray] | None = None
 
     def __post_init__(self) -> None:
         if self.time_s is not None and not math.isfinite(self.time_s):
             raise DemonstrationError(f"frame {self.index}: time_s is {self.time_s}")
+        if self.gripper_joints is not None:
+            check_gripper_joints(self.gripper_joints, f"frame {self.index}")
         if self.qpos.shape != (BIMANUAL_QPOS_DIM,):
             raise DemonstrationError(
                 f"frame {self.index}: qpos has shape {self.qpos.shape}, expected ({BIMANUAL_QPOS_DIM},)"
@@ -96,6 +104,9 @@ class Demonstration:
                 )
         if not self.cameras:
             object.__setattr__(self, "cameras", tuple(sorted(first)))
+        measured = [frame.gripper_joints is not None for frame in self.frames]
+        if any(measured) and not all(measured):
+            raise DemonstrationError("some frames have gripper_joints and some do not")
         timed = [frame.time_s is not None for frame in self.frames]
         if any(timed) and not all(timed):
             raise DemonstrationError("some frames have a time_s and some do not")
@@ -191,6 +202,21 @@ class Demonstration:
         return np.stack([frame.images[camera] for frame in self.frames])
 
 
+def check_gripper_joints(gripper_joints: dict[str, np.ndarray], where: str) -> None:
+    """Measured gripper joints are one 1-D array of finite positions per arm, both arms."""
+    if set(gripper_joints) != set(ARMS):
+        raise DemonstrationError(
+            f"{where}: gripper_joints has arms {sorted(gripper_joints)}, expected {list(ARMS)}"
+        )
+    for arm, positions in gripper_joints.items():
+        positions = np.asarray(positions)
+        if positions.ndim != 1 or not np.all(np.isfinite(positions)):
+            raise DemonstrationError(
+                f"{where}: {arm} gripper joints must be a 1-D array of finite positions, "
+                f"got {positions!r}"
+            )
+
+
 def _ee_state(frame: Frame) -> np.ndarray:
     """One frame's `endpose` as the 16 numbers `take_action('ee')` reads."""
     parts = []
@@ -213,10 +239,11 @@ def _ee_state(frame: Frame) -> np.ndarray:
 
 
 def _same_frame(a: Frame, b: Frame) -> bool:
-    """Whether two frames observed the same state: equal qpos, endpose and images."""
+    """Whether two frames observed the same state: equal qpos, endpose, gripper joints, images."""
     return (
         np.array_equal(a.qpos, b.qpos)
         and _equal(a.endpose, b.endpose)
+        and _equal(a.gripper_joints or {}, b.gripper_joints or {})
         and a.images.keys() == b.images.keys()
         and all(np.array_equal(a.images[name], b.images[name]) for name in a.images)
     )

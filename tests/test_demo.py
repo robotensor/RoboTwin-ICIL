@@ -147,10 +147,13 @@ def test_untimed_duplicates_share_a_time():
         {"qpos": np.full(BIMANUAL_QPOS_DIM, 9.0)},
         {"endpose": {"left_gripper": 0.5, "right_gripper": 1.0}},
         {"images": {"head_camera": np.full((4, 4, 3), 9, dtype=np.uint8)}},
+        {"gripper_joints": {"left": np.array([0.01, 0.01]), "right": np.array([0.0, 0.0])}},
     ],
 )
 def test_a_frame_that_differs_in_anything_is_not_a_duplicate(change):
-    frames = (frame(0), frame(1), replace(frame(1), index=2, **change))
+    joints = {"left": np.array([0.02, 0.02]), "right": np.array([0.0, 0.0])}
+    base = [replace(frame(i), gripper_joints=joints) for i in range(2)]
+    frames = (*base, replace(base[1], index=2, **change))
     d = Demonstration(frames=frames, frequency=10)
     np.testing.assert_allclose(d.times(), [0.0, 0.1, 0.2])
 
@@ -217,3 +220,35 @@ def test_arms_moved_counts_path_length_not_displacement():
     still = (0.0, 0.0, 0.0)
     d = ee_demo([posed(still, still), posed(still, (0.015, 0.0, 0.0)), posed(still, still)])
     assert d.arms_moved() == ("right",)
+
+
+GRIPPER_JOINTS = {"left": np.array([0.045, 0.045]), "right": np.array([0.012, 0.012])}
+
+
+def test_frames_carry_measured_gripper_joints():
+    d = Demonstration(
+        frames=tuple(replace(frame(i), gripper_joints=GRIPPER_JOINTS) for i in range(2)),
+        frequency=15,
+    )
+    np.testing.assert_array_equal(d.frames[1].gripper_joints["right"], [0.012, 0.012])
+    assert frame(0).gripper_joints is None  # frames recorded before they were read
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"left": np.array([0.0, 0.0])},
+        {"left": np.array([0.0]), "right": np.array([0.0]), "head": np.array([0.0])},
+        {"left": np.zeros((2, 2)), "right": np.array([0.0])},
+        {"left": np.array([np.nan]), "right": np.array([0.0])},
+    ],
+)
+def test_malformed_gripper_joints_are_rejected(bad):
+    with pytest.raises(DemonstrationError, match="gripper"):
+        replace(frame(0), gripper_joints=bad)
+
+
+def test_gripper_joints_are_all_or_nothing():
+    frames = (replace(frame(0), gripper_joints=GRIPPER_JOINTS), frame(1))
+    with pytest.raises(DemonstrationError, match="some frames have gripper_joints"):
+        Demonstration(frames=frames, frequency=15)

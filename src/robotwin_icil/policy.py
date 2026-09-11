@@ -38,6 +38,8 @@ class Observation:
     Deliberately no task name, scene seed, success condition, object identities or actor handles.
     `time_s` is simulated seconds since the rollout started, counted in physics steps, as a
     frame's `time_s` is since the expert started; None when the caller kept no clock.
+    `gripper_joints` are the measured gripper joint positions per arm, as in a `Frame`; None
+    when the caller read none.
     """
 
     step: int
@@ -46,6 +48,7 @@ class Observation:
     endpose: dict[str, Any] = field(default_factory=dict)
     instruction: str = NEUTRAL_INSTRUCTION
     time_s: float | None = None
+    gripper_joints: dict[str, np.ndarray] | None = None
 
 
 class ICILPolicy:
