@@ -39,6 +39,19 @@ def test_report_reads_a_run_directory_without_a_simulator(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["overall"]["success_rate"] == 0.5
 
 
+def test_report_refuses_a_run_that_failed_the_frozen_policy_audit(tmp_path, capsys):
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    run.append(record(0))
+    run.fail_audit({"policy": "learning", "parameter_checksum": {"start": "a", "end": "b"}})
+
+    for flags in ([], ["--json"]):
+        assert cli.main(["report", str(tmp_path), *flags]) == 1
+        captured = capsys.readouterr()
+        assert "failed the frozen-policy audit" in captured.err
+        assert captured.out == ""
+
+
 def test_report_on_a_non_run_directory_fails_cleanly(tmp_path, capsys):
     assert cli.main(["report", str(tmp_path)]) == 1
     assert "no manifest.json" in capsys.readouterr().err

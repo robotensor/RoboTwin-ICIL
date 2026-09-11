@@ -61,6 +61,8 @@ def _eval(args: argparse.Namespace) -> int:
 
 def _report(args: argparse.Namespace) -> int:
     run_dir = RunDir(Path(args.run_dir))
+    # Scores from a policy whose parameters changed are not scores of a frozen policy.
+    run_dir.check_audit()
     table = tasks_.table()
     built = report_.build(run_dir.records(), table)
     if args.json:
