@@ -131,7 +131,9 @@ robotwin-icil eval --policy <adapter> --policy-arg config=configs/<adapter>.yml 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
 Because Same Scene means the rollout starts from the identical state, it is the harness's own
 upper bound: if it does not succeed, the bug is in the benchmark, not in the model. `replay_ee`
-does the same through RoboTwin's end-effector action path, the ceiling of any `ee` adapter.
+does the same through RoboTwin's end-effector action path, the ceiling of any `ee` adapter, and
+`icil_policies.common.oracles:ResampledQposReplay` replays the demonstration resampled to 20 Hz,
+the ceiling of any model acting in 20 Hz qpos.
 
 ## Layout
 
@@ -158,10 +160,11 @@ src/robotwin_icil/
   cli.py
 policies/                   robotwin-icil-policies, a separate distribution: model adapters
   src/icil_policies/common/ their numpy toolkit: rotations, aloha frames, resampling, arm
-                            choice, image path, chunking, kinematics
+                            choice, image path, chunking, kinematics, the resampled qpos oracle
+  src/icil_policies/uniskill/ UniSkill: skill extractor and skill-conditioned policy
   envs/                     lockfiles of the model environments
 scripts/                    install_robotwin.sh (simulator), install_policy_env.sh (models)
-docs/                       installation, policy adapters, the expert survey
+docs/                       installation, policy adapters, the expert survey; models/ per model
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
 
