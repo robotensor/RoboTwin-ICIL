@@ -195,6 +195,14 @@ if ! "${PY}" -c "import curobo" 2>/dev/null; then
     (
         cd "${CUROBO_DIR}"
         export CUDA_HOME="${ENV_PREFIX}"
+        # conda's CUDA toolkit keeps its headers and libraries under targets/, where the host
+        # compiler does not look; torch's extension builder only adds ${CUDA_HOME}/include, so the
+        # C++ sources that include cuda_runtime.h fail with gcc before nvcc runs.
+        CUDA_TARGET="${ENV_PREFIX}/targets/x86_64-linux"
+        if [[ -d "${CUDA_TARGET}/include" ]]; then
+            export CPATH="${CUDA_TARGET}/include${CPATH:+:${CPATH}}"
+            export LIBRARY_PATH="${CUDA_TARGET}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+        fi
         export CC="${ENV_PREFIX}/bin/x86_64-conda-linux-gnu-gcc"
         export CXX="${ENV_PREFIX}/bin/x86_64-conda-linux-gnu-g++"
         # Set explicitly: torch's arch autodetection misreads some Blackwell cards (curobo#596).
