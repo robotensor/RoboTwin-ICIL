@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- (feat): out-of-process policies. BPP, UniSkill and RoboTwin pin conflicting libraries, so a
+  model runs in its own Python environment behind `python -m robotwin_icil.serve --policy SPEC
+  [--config FILE] [--policy-arg KEY=VALUE] --address PATH|HOST:PORT`, and the built-in `remote`
+  (`RemotePolicy`) drives it from the simulator's process as an ordinary `ICILPolicy`, so the
+  lifecycle and action checks run on both sides; the simulator environment never imports model
+  code. `protocol.py` speaks `multiprocessing.connection` over a Unix socket in a private
+  directory, or TCP for a model on another machine, authenticated with a key (a fresh 32 bytes in
+  a spawned server's environment, never its command line, or `--authkey-file`): a JSON header and
+  raw bool, integer and float arrays, no pickle and no size cap. Demonstrations and observations
+  travel field by field and arrive bit-equal, the demonstration in chunks of about 32 MB.
+  `hello`, `describe`, `environment`, `seed`, `reset`, `demo_begin` / `demo_frames` /
+  `demo_end`, `act`, `info`, `ping` and `shutdown` each have a timeout, 900 s to start and load
+  the model and 120 s otherwise. An error reply, a timeout, or a server that hung up or died
+  stops the server and raises `PolicyError` naming its log, `policy_server.log` in the run
+  directory under `eval`, and quoting its last lines; the run resumes from `episodes.jsonl`.
+  `close()` shuts the server down, and none outlives its client. `describe()` adds `remote:
+  {python, address, protocol_version}` to the served policy's own. `parse_policy_arg` moves to
+  `policy.py`, beside its inverse, `format_policy_arg` (#39).
 - (feat): records and report say what produced a score and read it against reference runs.
   Episode records gain `action_type`, the policy's action path, and `demonstration_arms`, the
   arms the demonstration moved (`arms_moved()`), metadata for analysis that the report never
