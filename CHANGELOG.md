@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- (docs): `docs/plan-bpp-uniskill.md`, the plan for scoring BPP's LIBERO-Gen Combination
+  checkpoint and UniSkill: what each model needs, what RoboTwin offers, and the work items of
+  the BPP and UniSkill milestone (#12).
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
