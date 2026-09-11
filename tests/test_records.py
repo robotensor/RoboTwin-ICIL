@@ -163,3 +163,15 @@ def test_a_manifest_from_before_camera_profiles_still_loads(tmp_path):
     data = manifest(benchmark_config={"task_config": "demo_clean"}).to_json()
     (tmp_path / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
     assert "camera_profile" not in RunDir(tmp_path).manifest().benchmark_config
+
+
+def test_records_written_before_physics_steps_still_load(tmp_path):
+    data = record(physics_steps=812).to_json()
+    assert EpisodeRecord.from_json(data).physics_steps == 812
+    data.pop("physics_steps")
+    assert EpisodeRecord.from_json(data).physics_steps == 0
+
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    run.episodes_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    assert [r.physics_steps for r in run.records()] == [0]

@@ -60,6 +60,9 @@ class EpisodeRecord:
     duration_s: float = 0.0
     # One example detail per rejection reason: why seeds were rejected, not only how often.
     rejection_details: dict[str, str] = field(default_factory=dict)
+    # Physics steps the rollout ran; 0 when nothing was rolled out, and in records written before
+    # the benchmark counted them. `steps` counts `take_action` calls, each of many physics steps.
+    physics_steps: int = 0
 
     def __post_init__(self) -> None:
         status = Status(self.status)
