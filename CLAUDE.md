@@ -72,7 +72,8 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - The policy is frozen. `policy.reset()` before every episode; no `backward()`, optimizer or
   parameter write anywhere in the evaluator. Inference-time state (KV cache, history) is fine.
   A `parameter_checksum` in `describe()` is compared at the end of the run (the frozen-policy
-  audit, also when the run raised); `close()` runs once, in `runner.run`'s `finally`.
+  audit, also when the run raised); a failure leaves `audit.json`, and that run directory then
+  neither resumes nor reports. `close()` runs once, in `runner.run`'s `finally`.
 - No privileged state reaches the policy: scene seed, success condition, target object or
   destination id, `info` from `play_once()`, ground-truth task state, actor handles, planner
   internals. If a model needs language, it gets `"Follow the demonstrated behavior."`.
