@@ -26,6 +26,7 @@ HOLD_TOLERANCE_RAD = 1e-3
 # Tool-centre displacements probed, straight up. A pure translation moves the tool centre, 0.12 m
 # along the flange's own +x axis on aloha-agilex, and the flange by the same vector.
 PROBE_MM = (0.0, 1.0, 5.0, 10.0, 20.0)
+WARM_OBSERVATIONS = 3  # get_obs() calls timed after the first, cold one
 
 
 def _build(task_env, seed):
@@ -107,12 +108,18 @@ def test_probe_what_one_ee_call_costs():
     seed = _stable_seed(task_env)
     assert _build(task_env, seed) is not None
     try:
-        started = time.perf_counter()
-        obs = robotwin.observation(task_env)
-        observed_s = time.perf_counter() - started
+        # The first get_obs() of a scene is its first render (setup only creates the cameras),
+        # so it carries one-time costs; the warm median is the per-call cost a rollout repeats.
+        observed_s = []
+        for _ in range(1 + WARM_OBSERVATIONS):
+            started = time.perf_counter()
+            obs = robotwin.observation(task_env)
+            observed_s.append(time.perf_counter() - started)
+        cold_s, warm_s = observed_s[0], float(np.median(observed_s[1:]))
         print(
-            f"\n{TASK} seed {seed}: one get_obs() with cameras {sorted(obs['images'])} "
-            f"took {observed_s * 1000:.1f} ms"
+            f"\n{TASK} seed {seed}: get_obs() with cameras {sorted(obs['images'])} took "
+            f"{cold_s * 1000:.1f} ms cold, {warm_s * 1000:.1f} ms warm "
+            f"(median of {WARM_OBSERVATIONS})"
         )
 
         # Planning alone, every target from the first state, left arm.
