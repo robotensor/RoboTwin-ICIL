@@ -95,7 +95,17 @@ class UniSkillPolicy(ICILPolicy):
                 f"{self.checkpoint}: conditioned on {policy.skill_dim}-dim skills, the encoder "
                 f"gives {self._extractor.skill_dim}"
             )
-        trained = policy.metadata.get("skills") or {}
+        metadata = policy.metadata
+        if not isinstance(metadata.get("training_tasks"), list) or not metadata.get(
+            "training_regime"
+        ):
+            raise PolicyError(
+                f"{self.checkpoint} carries no model card: a run records the `training_tasks` "
+                "(a list) and `training_regime` of the checkpoint it scored, so a V1 number "
+                "says whether its tasks were held out. Export it with a model card "
+                "(docs/models/uniskill.md)"
+            )
+        trained = metadata.get("skills") or {}
         here = self._extractor.describe()
         for key in SKILL_SETTINGS:
             if key in trained and key in here and trained[key] != here[key]:
@@ -173,8 +183,8 @@ class UniSkillPolicy(ICILPolicy):
             "adapter_version": ADAPTER_VERSION,
             "checkpoint": self.checkpoint,
             "checkpoint_sha256": self.checkpoint_sha256,
-            "training_tasks": metadata.get("training_tasks", "unknown"),
-            "training_regime": metadata.get("training_regime", "unknown"),
+            "training_tasks": metadata["training_tasks"],
+            "training_regime": metadata["training_regime"],
             "camera_profile_required": CAMERA_PROFILE,
             "parameter_checksum": self.parameter_checksum(),
             "k": skills["k"],

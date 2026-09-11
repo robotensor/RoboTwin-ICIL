@@ -226,6 +226,38 @@ def test_a_demonstration_without_the_far_side_camera_is_refused(small):
         policy.set_demonstration(demonstration(cameras={"head_camera": (240, 320)}))
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {},
+        {"training_tasks": ["beat_block_hammer"]},  # no regime
+        {"training_regime": "same-episode skills"},  # no tasks
+        {"training_tasks": "beat_block_hammer", "training_regime": "r"},  # tasks not a list
+    ],
+)
+def test_a_checkpoint_without_a_model_card_is_refused(small, tmp_path, metadata):
+    """describe() must name the training tasks and regime, so a card without them is refused."""
+    baked = model.bake_ema(small["network"], small["ema"])
+    path = tmp_path / "no_card.pth"
+    sha = model.save_checkpoint(
+        path,
+        model.robotwin_config(SMALL),
+        model.default_shapes(IMAGE),
+        14,
+        baked,
+        np.full(14, 0.5),
+        np.linspace(-0.1, 0.1, 14),
+        metadata,
+    )
+    with pytest.raises(PolicyError, match="model card"):
+        UniSkillPolicy(
+            config=small["config"],
+            checkpoint=str(path),
+            checkpoint_sha256=sha,
+            skill_extractor=FakeExtractor(),
+        )
+
+
 def test_skills_from_another_encoder_setting_are_refused(small):
     with pytest.raises(PolicyError, match="k 20"):
         make_policy(small, k=10)
