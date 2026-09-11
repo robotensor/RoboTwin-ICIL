@@ -16,7 +16,7 @@ from typing import Any
 
 from . import camera_profiles
 from .episode import EpisodeSpec, run_episode
-from .policy import ICILPolicy
+from .policy import ICILPolicy, PolicyError, json_mapping
 from .records import (
     SAME_SCENE,
     EpisodeRecord,
@@ -95,7 +95,18 @@ def manifest_for(
             "static_cameras": camera_profiles.static_cameras(args),
         },
         environment=environment(),
+        policy_environment=_policy_environment(policy),
     )
+
+
+def _policy_environment(policy: ICILPolicy) -> dict[str, str]:
+    """The policy's `environment()`, refused unless every value is a string."""
+    what = f"{policy.name}: environment()"
+    reported = json_mapping(policy.environment(), what)
+    for key, value in reported.items():
+        if not isinstance(value, str):
+            raise PolicyError(f"{what}: {key!r} must be a string, not {type(value).__name__}")
+    return reported
 
 
 def run(

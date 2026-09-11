@@ -127,6 +127,12 @@ class ICILPolicy:
         `runner.run` calls it exactly once, when the run ends, however it ends.
         """
 
+    def environment(self) -> dict[str, str]:
+        """The policy's own software environment, as strings: python, torch, CUDA, the GPU, the
+        commits of the model's repositories. Recorded in the run manifest as
+        `policy_environment`; like the benchmark's `environment`, it may differ on resume."""
+        return {}
+
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
 

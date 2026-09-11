@@ -6,7 +6,7 @@ import pytest
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import camera_profiles, robotwin, runner, tasks
 from robotwin_icil.generate import policy_seed
-from robotwin_icil.policy import ReplayPolicy
+from robotwin_icil.policy import PolicyError, ReplayPolicy
 from robotwin_icil.records import RecordError, RunDir
 
 
@@ -248,3 +248,30 @@ def test_the_policy_is_closed_when_the_run_is_refused(tmp_path, fake_sim):
     with pytest.raises(RecordError):
         runner.run(spec(tmp_path, global_seed=4), policy, FakeConfig(), log=quiet)
     assert policy.closed == 1
+
+
+class Provenanced(ReplayPolicy):
+    name = "provenanced"
+
+    def __init__(self, reported):
+        super().__init__()
+        self.reported = reported
+
+    def environment(self):
+        return self.reported
+
+
+def test_the_manifest_records_the_policys_own_environment(tmp_path, fake_sim):
+    reported = {"torch": "2.7.0+cu128", "gpu": "NVIDIA GeForce RTX 5090", "bpp": "0123abc"}
+    runner.run(spec(tmp_path), Provenanced(reported), FakeConfig(), log=quiet)
+    manifest = RunDir(tmp_path / "run").manifest()
+    assert manifest.policy_environment == reported
+    assert "policy_environment" not in manifest.identity()
+    # Another machine, another torch: the run still resumes.
+    runner.run(spec(tmp_path), Provenanced({"torch": "2.8.0"}), FakeConfig(), log=quiet)
+
+
+def test_a_policy_environment_holds_strings(tmp_path, fake_sim):
+    with pytest.raises(PolicyError, match="environment\\(\\): 'cuda' must be a string, not float"):
+        runner.run(spec(tmp_path), Provenanced({"cuda": 12.8}), FakeConfig(), log=quiet)
+    assert not (tmp_path / "run" / "manifest.json").exists()

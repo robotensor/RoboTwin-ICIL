@@ -105,6 +105,9 @@ class RunManifest:
     benchmark_config: dict[str, Any]
     robotwin_config: dict[str, Any]
     environment: dict[str, str] = field(default_factory=dict)
+    # The policy's own `environment()`: its python, torch, CUDA, GPU and model commits. Empty for
+    # policies that report none, and in manifests written before policies could.
+    policy_environment: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
@@ -122,9 +125,12 @@ class RunManifest:
         neither a profile nor `static_cameras`, so they read as `stock`. Under `stock` the static
         cameras are the embodiment's own, implied by `embodiment` and the RoboTwin commit as
         before, so they are recorded for the reader but compared only under another profile.
+        The machine may differ between a run and its resumption, so neither the benchmark's
+        environment nor the policy's is compared.
         """
         data = self.to_json()
         data.pop("environment", None)
+        data.pop("policy_environment", None)
         stock = camera_profiles.get(camera_profiles.STOCK).identity()
         benchmark_config = data["benchmark_config"]
         benchmark_config.setdefault("camera_profile", stock)

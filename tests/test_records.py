@@ -85,6 +85,7 @@ def test_resuming_the_same_run_is_allowed_but_not_a_different_one(tmp_path):
     run.start(
         manifest(environment={"python": "3.10.99"})
     )  # the machine may differ, the run may not
+    run.start(manifest(policy_environment={"torch": "2.7.0", "gpu": "RTX 5090"}))
     with pytest.raises(RecordError):
         run.start(manifest(global_seed=7))
 
@@ -187,3 +188,10 @@ def test_records_written_before_policy_info_still_load(tmp_path):
     run.start(manifest())
     run.episodes_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
     assert [r.policy_info for r in run.records()] == [{}]
+
+
+def test_a_manifest_from_before_policy_environments_still_loads(tmp_path):
+    data = manifest().to_json()
+    data.pop("policy_environment")
+    (tmp_path / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    assert RunDir(tmp_path).manifest().policy_environment == {}
