@@ -66,6 +66,8 @@ def run_episode(
         task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
     )
     describe = policy.describe() if description is None else description
+    # Which arms the expert moved: analysis metadata, never a report slice.
+    arms = generated.demonstration.arms_moved() if generated.ok else None
 
     def record(status: Status, **fields) -> EpisodeRecord:
         return EpisodeRecord(
@@ -81,6 +83,8 @@ def run_episode(
             model=str(describe.get("model", describe["policy"])),
             checkpoint=describe.get("checkpoint"),
             duration_s=round(time.monotonic() - started, 3),
+            action_type=policy.action_type,
+            demonstration_arms=arms,
             **fields,
         )
 

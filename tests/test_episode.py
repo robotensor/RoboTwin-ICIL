@@ -279,3 +279,35 @@ def test_a_policy_is_asked_for_a_report_only_after_a_rollout():
     policy = _Reporting({"chunks": 3})
     record = run_episode(spec(), policy, FakeConfig(), task_env=FakeTaskEnv(drift=True))
     assert record.status is Status.INVALID and record.policy_info == {} and policy.asked == 0
+
+
+def test_a_record_names_its_action_path_and_the_arms_the_demonstration_moved():
+    env = FakeTaskEnv()
+    qpos = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+    ee = run_episode(spec(), ReplayEEPolicy(), FakeConfig(), task_env=FakeTaskEnv())
+    assert (qpos.action_type, ee.action_type) == ("qpos", "ee")
+    # The fake expert drives every joint of both arms towards a random target.
+    assert qpos.demonstration_arms == ee.demonstration_arms == ("left", "right")
+    assert EpisodeRecord.from_json(json.loads(json.dumps(qpos.to_json()))) == qpos
+
+
+def test_the_arms_are_those_arms_moved_reports_and_none_without_a_demonstration():
+    recorded = []
+
+    class _Keeper(ReplayPolicy):
+        def _set_demonstration(self, demonstration):
+            super()._set_demonstration(demonstration)
+            recorded.append(demonstration.arms_moved())
+
+    scored = run_episode(spec(), _Keeper(), FakeConfig(), task_env=FakeTaskEnv())
+    assert scored.demonstration_arms == recorded[0]
+    drifted = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(drift=True))
+    assert drifted.status is Status.INVALID and drifted.demonstration_arms == ("left", "right")
+    rejected = run_episode(
+        spec(attempts=1),
+        ReplayEEPolicy(),
+        FakeConfig(),
+        task_env=FakeTaskEnv(unstable_seeds=set(scene_seeds(0, 0, 1))),
+    )
+    assert rejected.status is Status.REJECTED
+    assert rejected.demonstration_arms is None and rejected.action_type == "ee"
