@@ -84,6 +84,45 @@ trajectory from the very scene the rollout will start in:
 The 14-dim `qpos` is RoboTwin's bimanual joint vector: left arm joints (6), left gripper, right arm
 joints (6), right gripper. Grippers run from 0 (closed) to 1 (open).
 
+## Cameras
+
+Under the default camera profile, `stock`, every frame and every observation carries four rgb
+cameras, keyed by name — `demo.cameras` lists them:
+
+| camera | where | image |
+| --- | --- | --- |
+| `head_camera` | over the robot's shoulders, 53° down; the arms enter from the bottom | 320x240, 37° |
+| `front_camera` | 0.11 m above the table, looking at the wall | 320x240, 37° |
+| `left_camera` | on the left gripper, looking along it | 320x240, 37° |
+| `right_camera` | on the right gripper, looking along it | 320x240, 37° |
+
+A camera profile, `--camera-profile` on `eval` and `survey`, changes which static cameras RoboTwin
+renders. Profiles are data in
+[`src/robotwin_icil/cameras.yml`](../src/robotwin_icil/cameras.yml):
+
+| profile | static cameras | what changes |
+| --- | --- | --- |
+| `stock` | `head_camera`, `front_camera` | nothing: RoboTwin's own cameras |
+| `far_side` | `head_camera`, `far_side_camera` | `far_side_camera` takes `front_camera`'s slot: across the table at (0, 0.36, 1.20), 38.9° down, 320x180 with a 45° vertical field; the arms enter from the top, and image left is the robot's right |
+
+Profiles only **replace** a camera, in its slot. RoboTwin builds every static camera with
+`create_camera`, which draws from numpy's global RNG after the scene seed is set and before any
+object is placed, so a camera more or fewer would move every object of every seed — and the Same
+Scene check could not notice, since both builds of an episode would carry it. A profile that adds
+or removes a camera, touches `head_camera`, toggles `camera.collect_head_camera` or leaves two
+cameras with one name is refused, with no override. Every profile therefore builds the same
+scene from the same seed; only the images differ. The run manifest records the profile and the
+static cameras, and a run directory does not resume under another profile.
+
+A new or changed profile is checked by eye first — one PNG per camera of one scene:
+
+```bash
+robotwin-icil cameras --profile far_side --task click_bell --seed 0 --out runs/cameras
+```
+
+With `--video`, the clips show the profile's `video_camera` (`head_camera` unless the profile
+says otherwise).
+
 ## What the policy never receives
 
 The scene seed; the task name or RoboTwin's task instruction; the success condition; target
