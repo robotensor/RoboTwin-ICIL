@@ -53,7 +53,7 @@ def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attem
     for index, seed in enumerate(seeds):
         started = time.monotonic()
         outcome, demonstration, _ = attempt_fn(
-            task_env, seed, config.resolve(), config.save_freq, index
+            task_env, seed, config.resolve(task.name), config.save_freq, index
         )
         result.seconds += time.monotonic() - started
         result.seeds += 1
