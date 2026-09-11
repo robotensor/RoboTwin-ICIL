@@ -69,7 +69,7 @@ def test_gpu_exhaustion_is_recognised_without_torch():
 @pytest.fixture
 def fake_checkout(tmp_path, monkeypatch):
     """The handful of RoboTwin config files `SceneConfig.resolve` reads, in a scratch checkout."""
-    from test_camera_profiles import STATIC_CAMERA_LIST
+    from test_cameras import STATIC_CAMERA_LIST
 
     config_dir = tmp_path / "env_cfg" / "task_config"
     config_dir.mkdir(parents=True)

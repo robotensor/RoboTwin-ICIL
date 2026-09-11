@@ -121,7 +121,7 @@ class FarSideConfig(FakeConfig):
     camera_profile = "far_side"
 
     def resolve(self, task_name=None):
-        from test_camera_profiles import STATIC_CAMERA_LIST
+        from test_cameras import STATIC_CAMERA_LIST
 
         args = {
             **super().resolve(task_name),
