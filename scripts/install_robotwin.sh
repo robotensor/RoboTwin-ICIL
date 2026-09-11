@@ -12,7 +12,7 @@
 #   blackwell (10.0 and above, e.g. an RTX 5090 at 12.0): torch 2.4.1 ships no kernels for these
 #     GPUs and nvcc 12.1 cannot target them, so torch 2.8.0+cu128 and CUDA 12.8 replace them.
 #
-#   bash scripts/install_robotwin.sh              # env, deps, patches, CuRobo, assets
+#   bash scripts/install_robotwin.sh              # env, deps, patches, rendering, CuRobo, assets
 #   ROBOTWIN_SKIP_ASSETS=1 bash scripts/...       # everything but the multi-GB asset download
 #   ROBOTWIN_ROOT=/path/to/RoboTwin bash ...      # a RoboTwin checkout other than vendor/RoboTwin
 #   ROBOTWIN_GPU_PATH=reference|blackwell bash ...# force a path instead of detecting it
@@ -125,6 +125,45 @@ MPLIB_PLANNER="$("${PY}" -c 'import mplib, pathlib; print(pathlib.Path(mplib.__f
 if grep -q "< 1e-4 or collide or not within_joint_limit" "${MPLIB_PLANNER}"; then
     log "patching mplib planner.py"
     sed -i -E 's/(if np.linalg.norm\(delta_twist\) < 1e-4 )(or collide )(or not within_joint_limit:)/\1\3/g' "${MPLIB_PLANNER}"
+fi
+
+# --- rendering --------------------------------------------------------------
+# SAPIEN renders through NVIDIA's Vulkan driver, which needs three things besides the driver
+# libraries: glvnd's libEGL.so.1, an NVIDIA EGL vendor manifest and a Vulkan ICD manifest.
+# Bare-metal driver installs ship all three. Containers made by the NVIDIA container toolkit
+# often inject only the driver libraries; `import sapien` then fails on a missing
+# /usr/share/glvnd/egl_vendor.d, and Vulkan reports "failed to find a rendering device".
+has_manifest() { local d; for d in "$@"; do compgen -G "${d}/*nvidia*.json" >/dev/null && return 0; done; return 1; }
+if ! ldconfig -p | grep -q 'libEGL\.so\.1 '; then
+    if [[ ${EUID} -eq 0 ]] && command -v apt-get >/dev/null; then
+        log "installing libegl1 (glvnd EGL dispatch)"
+        apt-get install -y -q libegl1 >/dev/null 2>&1 || { apt-get update -q >/dev/null && apt-get install -y -q libegl1 >/dev/null; }
+    else
+        echo "libEGL.so.1 is missing: install your distribution's libegl1 (glvnd) package, then rerun" >&2
+        exit 1
+    fi
+fi
+# System-wide when root, as the driver package would place them; otherwise inside the env, where
+# robotwin_icil points SAPIEN at them (see scripts/robotwin_env.sh for interactive shells).
+if [[ ${EUID} -eq 0 ]]; then MANIFEST_ROOT=/usr/share; else MANIFEST_ROOT="${ENV_PREFIX}/share/robotwin-icil"; fi
+if ! has_manifest /usr/share/vulkan/icd.d /etc/vulkan/icd.d "${ENV_PREFIX}/share/robotwin-icil/vulkan/icd.d"; then
+    log "writing the NVIDIA Vulkan ICD manifest under ${MANIFEST_ROOT}"
+    mkdir -p "${MANIFEST_ROOT}/vulkan/icd.d"
+    printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {"library_path": "libGLX_nvidia.so.0", "api_version": "1.3.0"}\n}\n' \
+        > "${MANIFEST_ROOT}/vulkan/icd.d/nvidia_icd.json"
+fi
+if ! has_manifest /usr/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d "${ENV_PREFIX}/share/robotwin-icil/glvnd/egl_vendor.d"; then
+    log "writing the NVIDIA EGL vendor manifest under ${MANIFEST_ROOT}"
+    mkdir -p "${MANIFEST_ROOT}/glvnd/egl_vendor.d"
+    printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {"library_path": "libEGL_nvidia.so.0"}\n}\n' \
+        > "${MANIFEST_ROOT}/glvnd/egl_vendor.d/10_nvidia.json"
+fi
+log "checking that SAPIEN renders (upstream scripts/test_render.py)"
+# shellcheck source=robotwin_env.sh
+source "${REPO_ROOT}/scripts/robotwin_env.sh"
+if ! (cd "${ROBOTWIN_ROOT}" && "${PY}" scripts/test_render.py 2>&1 | tee /dev/stderr | grep -q "Render Well"); then
+    echo "SAPIEN cannot render on this machine; see 'Rendering' in docs/install.md" >&2
+    exit 1
 fi
 
 # --- CuRobo -----------------------------------------------------------------
