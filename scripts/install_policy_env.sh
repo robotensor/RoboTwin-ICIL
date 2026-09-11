@@ -137,6 +137,16 @@ bpp_libero() {
     "${PY}" -m pip install -q "${LEGACY_BUILD_TOOLS[@]}"
     "${PY}" -m pip install -q "${GYM[@]}"
     uvpip -e "${src}/deps/LIBERO"
+    # LIBERO's `libero` directory has no `__init__.py`, so setuptools' editable install writes a
+    # finder whose MAPPING is empty and `import libero` fails, though the distribution is there.
+    # Put the checkout itself on the path, as an editable install of a plain package would.
+    if ! "${PY}" -c "import libero" 2>/dev/null; then
+        local site
+        site="$("${PY}" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")"
+        printf '%s\n' "${src}/deps/LIBERO" > "${site}/libero_checkout.pth"
+        log "libero: the editable install maps no package; wrote ${site}/libero_checkout.pth"
+        "${PY}" -c "import libero" || die "libero still does not import after the path file"
+    fi
 }
 
 bpp_robomimic() {
