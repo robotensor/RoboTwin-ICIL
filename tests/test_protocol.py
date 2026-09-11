@@ -188,6 +188,15 @@ def test_reserved_field_names_are_refused():
         protocol.encode("act", arrays=[])
 
 
+# A Frame's fields, with its qpos in array frame 0.
+FRAME_FIELDS = {
+    "index": 0,
+    "images": {"$": "dict", "items": []},
+    "qpos": {"$": "array", "index": 0},
+    "endpose": {"$": "dict", "items": []},
+}
+
+
 def raw_message(header, *frames):
     """What a peer sends when it does not go through `protocol.send`."""
     a, b = multiprocessing.Pipe()
@@ -236,6 +245,29 @@ def raw_message(header, *frames):
             },
             (),
             "cannot build a Frame",
+        ),
+        (
+            {
+                "op": "act",
+                "x": {"$": "dataclass", "type": "Frame", "fields": FRAME_FIELDS},
+                "arrays": [{"name": "q", "dtype": "<f8", "shape": [2, 7]}],
+            },
+            (b"\0" * 112,),
+            r"cannot build a Frame: DemonstrationError: frame 0: qpos has shape \(2, 7\)",
+        ),
+        (
+            {
+                "op": "act",
+                "x": {"$": "dataclass", "type": "Frame", "fields": {**FRAME_FIELDS, "qpos": [1]}},
+                "arrays": [],
+            },
+            (),
+            "cannot build a Frame: AttributeError",
+        ),
+        (
+            {"op": "act", "x": {"$": "dict", "items": [[[1], 2]]}, "arrays": []},
+            (),
+            "a dict key must be hashable, not a list",
         ),
     ],
 )

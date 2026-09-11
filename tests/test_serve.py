@@ -1,5 +1,6 @@
 """`python -m robotwin_icil.serve`, driven through its command line and the protocol alone."""
 
+import json
 import os
 import socket
 import subprocess
@@ -13,7 +14,7 @@ import numpy as np
 import pytest
 
 from robotwin_icil import protocol
-from test_protocol import demonstration, observation
+from test_protocol import FRAME_FIELDS, demonstration, observation
 
 TESTS = Path(__file__).resolve().parent
 SRC = TESTS.parent / "src"
@@ -159,6 +160,42 @@ def test_an_operation_that_raises_is_answered_with_an_error_and_serving_goes_on(
         ok(conn, "ping")
     assert served.wait() == 0
     assert "act failed" in served.text()
+
+
+@pytest.mark.parametrize(
+    "header, frames, message",
+    [
+        (
+            {
+                "op": "act",
+                "observation": {"$": "dataclass", "type": "Frame", "fields": FRAME_FIELDS},
+                "arrays": [{"name": "q", "dtype": "<f8", "shape": [2, 7]}],
+            },
+            (b"\0" * 112,),
+            "cannot build a Frame: DemonstrationError",
+        ),
+        (
+            {"op": "info", "x": {"$": "dict", "items": [[[1], 2]]}, "arrays": []},
+            (),
+            "a dict key must be hashable",
+        ),
+    ],
+)
+def test_a_malformed_message_is_answered_with_an_error_and_serving_goes_on(
+    serve, header, frames, message
+):
+    served = serve("--policy", "replay")
+    with served.connect() as conn:
+        assert hello(conn).op == "hello"
+        conn.send_bytes(json.dumps(header).encode())
+        for raw in frames:
+            conn.send_bytes(raw)
+        refused = protocol.receive(conn, timeout=20)
+        assert refused.op == "error" and refused.fields["type"] == "ProtocolError"
+        assert message in refused.fields["message"]
+        ok(conn, "ping")
+        ok(conn, "shutdown")
+    assert served.wait() == 0
 
 
 @pytest.mark.parametrize(

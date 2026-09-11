@@ -276,7 +276,13 @@ def _decode(value: Any, arrays: list[np.ndarray], path: str) -> Any:
             if not (isinstance(pair, list) and len(pair) == 2):
                 raise ProtocolError(f"{path}: a dict item is a [key, value] pair")
             key = _decode(pair[0], arrays, f"{path}.<key>")
-            decoded[key] = _decode(pair[1], arrays, _at(path, key))
+            item = _decode(pair[1], arrays, _at(path, key))
+            try:
+                decoded[key] = item
+            except TypeError:
+                raise ProtocolError(
+                    f"{path}: a dict key must be hashable, not a {type(key).__name__}"
+                ) from None
         return decoded
     if tag == "dataclass":
         cls = DATACLASSES.get(value.get("type"))
@@ -286,8 +292,11 @@ def _decode(value: Any, arrays: list[np.ndarray], path: str) -> Any:
         kwargs = {name: _decode(item, arrays, f"{path}.{name}") for name, item in fields.items()}
         try:
             return cls(**kwargs)
-        except TypeError as exc:
-            raise ProtocolError(f"{path}: cannot build a {cls.__name__}: {exc}") from None
+        except Exception as exc:
+            # Wrong fields, or fields its own checks refuse: the sender's fault either way.
+            raise ProtocolError(
+                f"{path}: cannot build a {cls.__name__}: {type(exc).__name__}: {exc}"
+            ) from None
     raise ProtocolError(f"{path}: unknown tag {tag!r}")
 
 
