@@ -134,8 +134,9 @@ def parse_policy_arg(item: str) -> tuple[str, Any]:
     """One `--policy-arg KEY=VALUE`, or `ValueError` saying why it is not one.
 
     The value is read as YAML, so numbers, booleans and null arrive typed; a quoted value is the
-    string inside the quotes, and anything else stays the string it was. KEY must be a Python
-    identifier, since it becomes a keyword argument.
+    string inside the quotes, and anything else stays the string it was. Scientific notation
+    needs a dot and a signed exponent, as YAML 1.1 has it: `1.0e-4` is a float, `1e-4` the string
+    '1e-4'. KEY must be a Python identifier, since it becomes a keyword argument.
     """
     key, sep, raw = item.partition("=")
     if not sep:

@@ -79,10 +79,11 @@ Each `--policy-arg KEY=VALUE`, repeatable, becomes one keyword argument of the p
 constructor. The value is read with `yaml.safe_load`: numbers, booleans (`true`, `false`, and
 YAML 1.1's `yes`, `no`, `on`, `off`) and `null` or an empty value arrive typed; a value in quotes
 is the string inside them (`"revision='0123'"`, where `revision=0123` would be octal 83);
-anything else, a path, a list or a date, stays the string given. `KEY` must be a Python
-identifier. A malformed item, a non-finite number or a `KEY` given twice is a usage error before
-the simulator loads; an argument the constructor does not take stops the run with a
-`PolicyError`.
+anything else, a path, a list or a date, stays the string given. Scientific notation needs a
+dot and a signed exponent, as YAML 1.1 has it: `lr=1.0e-4` is the float 0.0001, but `lr=1e-4`
+and `lr=1.0e4` stay the strings `1e-4` and `1.0e4`. `KEY` must be a Python identifier. A
+malformed item, a non-finite number or a `KEY` given twice is a usage error before the simulator
+loads; an argument the constructor does not take stops the run with a `PolicyError`.
 
 An adapter with many settings takes one argument, `config=PATH` to a YAML file of its own, and
 reads the rest from there; keep the command line for what changes between runs. The constructor

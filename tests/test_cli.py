@@ -134,6 +134,9 @@ def test_cameras_refuses_a_task_outside_the_table(tmp_path, capsys):
     [
         ("steps=3", ("steps", 3)),
         ("temperature=0.5", ("temperature", 0.5)),
+        ("lr=1.0e-4", ("lr", 0.0001)),
+        ("lr=1e-4", ("lr", "1e-4")),  # YAML 1.1: no dot, no float
+        ("lr=1.0e4", ("lr", "1.0e4")),  # nor without a signed exponent
         ("deterministic=true", ("deterministic", True)),
         ("deterministic=False", ("deterministic", False)),
         ("checkpoint=null", ("checkpoint", None)),
