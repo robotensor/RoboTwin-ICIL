@@ -64,3 +64,28 @@ def observation(endposes_row, qpos=None, step=0) -> Observation:
         qpos=np.zeros(14) if qpos is None else np.asarray(qpos, dtype=np.float64),
         endpose=endpose_dict(np.asarray(endposes_row, dtype=np.float64)),
     )
+
+
+def camera_demonstration(times, camera=CAMERA, shape=(18, 32), qpos=None):
+    """A timed demonstration with one camera whose frame i is a gradient offset by 10 i.
+
+    Every frame differs, and each frame's pixels differ, so crops and resamples are visible.
+    """
+    times = np.asarray(times, dtype=np.float64)
+    count = len(times)
+    qpos = np.zeros((count, 14)) if qpos is None else np.asarray(qpos, dtype=np.float64)
+    rows, cols = np.indices(shape)
+    frames = []
+    for i in range(count):
+        base = (rows + 2 * cols + 10 * i) % 256
+        image = np.stack([base, (base + 85) % 256, (base + 170) % 256], axis=-1)
+        frames.append(
+            Frame(
+                index=i,
+                images={camera: image.astype(np.uint8)},
+                qpos=qpos[i],
+                endpose=endpose_dict(endpose_row()),
+                time_s=float(times[i]),
+            )
+        )
+    return Demonstration(frames=tuple(frames), frequency=250 / 15)
