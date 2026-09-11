@@ -21,6 +21,7 @@ from typing import Any, ClassVar, Literal
 
 import numpy as np
 
+from . import camera_profiles
 from .demo import BIMANUAL_EE_DIM, BIMANUAL_QPOS_DIM, Demonstration
 
 # Given to models that require a language input, so that what is measured is the demonstration
@@ -262,6 +263,14 @@ def check_description(description: Any) -> None:
     for key in ("checkpoint", "camera_profile_required", "parameter_checksum"):
         if description.get(key) is not None and not isinstance(description[key], str):
             raise fail(key, "a string or None")
+    # Checked here, not only against the run's profile, so a misspelt name is refused as one
+    # rather than answered with a `--camera-profile` flag the parser does not accept.
+    required = description.get("camera_profile_required")
+    if required is not None and required not in camera_profiles.names():
+        raise fail(
+            "camera_profile_required",
+            f"a camera profile's name ({', '.join(camera_profiles.names())}) or None",
+        )
     digest = description.get("checkpoint_sha256")
     if digest is not None and not (isinstance(digest, str) and _SHA256.fullmatch(digest)):
         raise fail("checkpoint_sha256", "64 hex digits or None")

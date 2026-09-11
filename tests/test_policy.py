@@ -271,6 +271,7 @@ def test_a_description_may_carry_every_convention_key_and_keys_of_its_own():
         ({"training_tasks": "click_bell"}, "'training_tasks' must be a list of task names"),
         ({"training_tasks": ["click_bell", ""]}, "'training_tasks' must be a list"),
         ({"camera_profile_required": ["far_side"]}, "'camera_profile_required' must be a"),
+        ({"camera_profile_required": "farside"}, "must be a camera profile's name \\(stock, "),
         ({"parameter_checksum": 12}, "'parameter_checksum' must be a string or None"),
         ({"weights": object()}, "'weights' is not JSON-serialisable"),
     ],

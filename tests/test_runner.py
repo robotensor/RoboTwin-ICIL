@@ -304,6 +304,9 @@ def test_a_policy_needing_another_camera_profile_is_refused_up_front(tmp_path, f
 def test_a_description_off_the_convention_refuses_the_run(tmp_path, fake_sim):
     with pytest.raises(PolicyError, match="'checkpoint_sha256' must be 64 hex digits"):
         runner.run(spec(tmp_path), Described(checkpoint_sha256="abc"), FakeConfig(), log=quiet)
+    misspelt = Described(camera_profile_required="farside")
+    with pytest.raises(PolicyError, match="'camera_profile_required' must be a camera profile's"):
+        runner.run(spec(tmp_path), misspelt, FakeConfig(), log=quiet)
     assert fake_sim == []
 
 
