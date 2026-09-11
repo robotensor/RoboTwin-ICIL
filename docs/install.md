@@ -12,11 +12,22 @@ builds in a dedicated conda env. It follows upstream's `scripts/_install.sh` ste
 idempotent per stage, so an interrupted download or build resumes:
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init vendor/RoboTwin
 bash scripts/install_robotwin.sh
 RT=/root/miniforge3/envs/robotwin/bin/python
 PYTHONPATH=src $RT -m pytest -m sim
 ```
+
+The script picks one of two GPU paths from `nvidia-smi`'s compute capability, and the simulator runs
+on either. `ROBOTWIN_GPU_PATH=reference` or `blackwell` overrides the choice.
+
+| Path | GPUs | torch | CUDA toolkit for CuRobo | Host compiler |
+| --- | --- | --- | --- | --- |
+| reference | compute capability below 10.0: Ampere, Ada, Hopper, and the A6000 the V1 numbers come from | 2.4.1+cu121, RoboTwin's pin | 12.1.1 | gcc 12 |
+| blackwell | 10.0 and above; an RTX 5090 is 12.0 | 2.8.0+cu128 | 12.8.1 | gcc 13 |
+
+The reference stack cannot run on Blackwell GPUs at all: torch 2.4.1 ships no kernels for them, its
+extension builder rejects arch 12.0, and nvcc 12.1 cannot target sm_120.
 
 ## What it does, and why
 
@@ -24,11 +35,12 @@ PYTHONPATH=src $RT -m pytest -m sim
 | --- | --- | --- |
 | conda | Miniforge, env `robotwin`, python 3.10 | RoboTwin's native extensions pin python 3.10 and the numpy 1.x ABI. |
 | setuptools | `setuptools==69.5.1` | Upstream's final pin. sapien 3.0.0b1 does `import pkg_resources`, removed in setuptools 81, and conda-forge ships 84 — so it goes first. |
-| deps | `vendor/RoboTwin/scripts/requirements.txt` | RoboTwin's own pins, unmodified. |
+| deps | `vendor/RoboTwin/scripts/requirements.txt`; on the blackwell path torch 2.8.0 and torchvision 0.23.0 from the cu128 index first, then the requirements without their torch lines | RoboTwin's own pins, unmodified on the reference path; on the blackwell path pip must not pull torch 2.4.1 back in. |
 | sapien patch | `urdf_loader.py`: utf-8 reads, `.srdf` suffix | Upstream's edit; the embodiment URDFs need it. |
 | mplib patch | drop `or collide` from the screw-plan failure test | Upstream's edit. The expert's approach motions depend on it; without it the expert fails more often and its demonstrations are no longer RoboTwin's. |
-| CUDA toolchain | `cuda-toolkit` 12.1.1 (`nvidia/label/cuda-12.1.1`) and gcc 12 (conda-forge), inside the env | Only to build CuRobo: nvcc must match torch's cu121, and nvcc 12.1 rejects host compilers newer than gcc 12. |
-| CuRobo | v0.7.8 cloned into `vendor/RoboTwin/envs/curobo`, built for this GPU's compute capability, plus `warp-lang==1.12.0` | Every RoboTwin embodiment plans with CuRobo (`planner: "curobo"`), and `envs/robot/robot.py` imports `CuroboPlanner` at module level — without it no task imports at all. |
+| rendering | `libegl1`, then an NVIDIA Vulkan ICD manifest (`nvidia_icd.json`) and EGL vendor manifest (`10_nvidia.json`) when the system has none; upstream's `scripts/test_render.py` must print "Render Well" | SAPIEN renders through NVIDIA's Vulkan driver, which needs glvnd's `libEGL.so.1` and both manifests. Containers made by the NVIDIA container toolkit often inject only the driver libraries. As root the manifests go where a driver package puts them; otherwise into the env, where `robotwin_icil` points SAPIEN at them. |
+| CUDA toolchain | `cuda-toolkit` from `nvidia/label/cuda-12.1.1` with gcc 12 (reference) or `nvidia/label/cuda-12.8.1` with gcc 13 (blackwell), from conda, inside the env | Only to build CuRobo: nvcc must match torch's CUDA. nvcc 12.1 rejects host compilers newer than gcc 12, and CUDA 12.8 is the first toolkit that targets sm_100 and sm_120. |
+| CuRobo | v0.7.8 cloned into `vendor/RoboTwin/envs/curobo`, built for this GPU's compute capability with `TORCH_CUDA_ARCH_LIST` set explicitly (torch's autodetection misreads some Blackwell cards, curobo#596), plus `warp-lang==1.12.0` | Every RoboTwin embodiment plans with CuRobo (`planner: "curobo"`), and `envs/robot/robot.py` imports `CuroboPlanner` at module level — without it no task imports at all. |
 | assets | `TianxingChen/RoboTwin2.0` on Hugging Face, then upstream's `update_embodiment_config_path.py` | Objects, embodiments and background textures (~15 GB); ignored by RoboTwin's `.gitignore`. |
 
 Deliberately skipped:
@@ -60,15 +72,25 @@ What the script produced on the machine the V1 numbers come from:
   `planner.py` swallows the import error, prints a warning, and leaves the name undefined, so the
   failure surfaces later in `robot.py`. Rerun the script and read the CuRobo build output.
 - **`unsupported GNU version`** during the CuRobo build. nvcc picked up the system gcc; the
-  script points `CC`/`CXX` at the env's gcc 12.
+  script points `CC`/`CXX` at the env's gcc (12 on the reference path, 13 on blackwell).
+- **`no kernel image is available for execution on the device`** or **`Unknown CUDA arch (12.0) or
+  GPU not supported`.** torch 2.4.1 on a Blackwell GPU: the env was built on the reference path.
+  Remove the env and rerun the script, which detects compute capability 10.0 and above, or set
+  `ROBOTWIN_GPU_PATH=blackwell`.
 - **`CUDA out of memory` while building a scene.** Each RoboTwin robot builds two CuRobo motion
   planners on the GPU when its task env is created, a few GiB each. The runner keeps one task env
   alive at a time and releases it before the next task. If the GPU is shared with other jobs and
   still runs out, the run stops with the error rather than recording rejections: free GPU memory,
   then rerun `robotwin-icil eval` with the same arguments, which resumes where it stopped.
-- **`Failed to find Vulkan ICD file`** at import. SAPIEN then ships its own ICD; on the reference
-  machine rendering works regardless (upstream's `scripts/test_render.py` reports "Render Well").
-  If rendering fails, install the NVIDIA Vulkan driver package matching the kernel driver.
+- **`FileNotFoundError: '/usr/share/glvnd/egl_vendor.d'`** at `import sapien`, or **`failed to find a
+  rendering device`** when a scene is built. The machine has the NVIDIA driver libraries but not
+  glvnd's `libEGL.so.1` or the NVIDIA EGL vendor and Vulkan ICD manifests, which is common in
+  containers; the NVIDIA Vulkan driver cannot start without them. Rerun the script: its rendering
+  stage installs `libegl1` (as root, or tells you to) and writes the manifests. Setting
+  `VK_ICD_FILENAMES` alone does not help, because the driver fails to initialise without
+  `libEGL.so.1`. Do not reinstall the driver's GL packages inside a container over the libraries the
+  toolkit mounts. SAPIEN's `Failed to find Vulkan ICD file` warning at import is harmless once
+  `scripts/test_render.py` reports "Render Well".
 - **`ModuleNotFoundError: pkg_resources`.** setuptools is too new; rerun the script, which pins it.
 - **Embodiment `config.yml` or `curobo_left.yml` missing.** The asset stage did not finish; rerun
   the script.
