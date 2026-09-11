@@ -134,7 +134,7 @@ class ReplayPolicy(ICILPolicy):
         self._cursor = 0
 
     def _set_demonstration(self, demonstration: Demonstration) -> None:
-        self._actions = demonstration.actions()
+        self._actions = self._played(demonstration)
         self._cursor = 0
 
     def _act(self, observation: Observation) -> np.ndarray:
@@ -143,6 +143,11 @@ class ReplayPolicy(ICILPolicy):
         index = min(self._cursor, len(self._actions) - 1)
         self._cursor += 1
         return self._actions[index]
+
+    @staticmethod
+    def _played(demonstration: Demonstration) -> np.ndarray:
+        """The demonstration's actions, one row per call, in this policy's `action_type`."""
+        return demonstration.actions()
 
 
 BUILTIN: dict[str, type[ICILPolicy]] = {"dummy": DummyPolicy, "replay": ReplayPolicy}
