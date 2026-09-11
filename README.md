@@ -144,6 +144,9 @@ src/robotwin_icil/
   demo.py                   model-independent demonstration container
   scene.py                  initial-state fingerprint and Same Scene verification
   policy.py                 the policy interface, dummy, replay and replay_ee policies
+  protocol.py               the wire protocol to a policy in another Python environment
+  serve.py                  `python -m robotwin_icil.serve`: one policy behind a socket
+  remote.py                 RemotePolicy, the built-in `remote` client of a policy server
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   runner.py                 episode loop, seed drawing, rejection accounting
