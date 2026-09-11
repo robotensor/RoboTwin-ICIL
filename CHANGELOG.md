@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- (feat): the BPP LIBERO-Gen Combination transfer adapter, `icil_policies.bpp`. The released
+  checkpoint (6.9 GB, sha256 `74e0f841…`) is prompted with the one demonstration and run frozen
+  on aloha-agilex: `icil-bpp slim` writes its inference weights, composed config and normalizer
+  once (967 tensors, 690.5M parameters, no EMA copy in the payload); the model is built from
+  BPP's own Hydra composition with the backbone left pretrained, since the checkpoint's stored
+  config lacks a key the code defaults differently. `conversion` is numpy only, so the
+  simulator's environment runs it without torch: tool-centre proprioception in LIBERO's frame
+  with measured fingers, an arm-centred 180x180 crop projected from the `far_side` profile's own
+  extrinsics, 20 Hz resampling on frame times, gain-divided deltas with onset gripper labels,
+  and BPP's own chunker for the prompt. Execution integrates a virtual tool-centre target,
+  re-anchored only when tracking breaks down, and runs as `ee_step`, `ee_grouped` (4, 4, 3, 1,
+  split at gripper flips) or `qpos_ik`, the mode setting `action_type` per instance; the idle arm
+  holds its first-observation pose. `icil-bpp calibrate` fits the tracking gains on the
+  checkpoint's own LIBERO-Gen data (alpha_p 0.241, R² 0.95; alpha_r 0.204, R² 0.73), and
+  `icil-bpp preflight`'s action-parity gate shows the adapter's action is the model's exactly.
+  `BPPConversionReplay` replays the prompt's own converted actions through the whole chain, the
+  ceiling for any model behind the adapter, and reports the clipped-action and proprio
+  out-of-range fractions per episode. Constants and gate results: `docs/models/bpp.md` (#42).
 - (feat): out-of-process policies. BPP, UniSkill and RoboTwin pin conflicting libraries, so a
   model runs in its own Python environment behind `python -m robotwin_icil.serve --policy SPEC
   [--config FILE] [--policy-arg KEY=VALUE] --address PATH|HOST:PORT`, and the built-in `remote`
