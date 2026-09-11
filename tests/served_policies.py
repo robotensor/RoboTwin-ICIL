@@ -115,6 +115,17 @@ class Unencodable(ReplayPolicy):
         return {"handle": object()}
 
 
+class SlowConstructor(ReplayPolicy):
+    """Takes longer to load than any test waits: a checkpoint that never finishes reading."""
+
+    name = "slow"
+
+    def __init__(self):
+        super().__init__()
+        print("loading the checkpoint", file=sys.stderr, flush=True)
+        time.sleep(3600)
+
+
 class BrokenConstructor(ReplayPolicy):
     name = "broken"
 
