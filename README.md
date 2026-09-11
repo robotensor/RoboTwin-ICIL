@@ -126,6 +126,8 @@ upper bound: if it does not succeed, the bug is in the benchmark, not in the mod
 ```
 src/robotwin_icil/
   tasks.yml tasks.py        task -> skill category table and suites
+  cameras.yml               camera profiles: which static cameras RoboTwin renders
+  camera_profiles.py        the replace-only guard that keeps every seed's scene
   config.py                 benchmark + RoboTwin configuration
   demo.py                   model-independent demonstration container
   scene.py                  initial-state fingerprint and Same Scene verification
@@ -136,6 +138,7 @@ src/robotwin_icil/
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
   survey.py                 the expert's own success rate per task
+  png.py                    one PNG per camera, for `robotwin-icil cameras`
   robotwin.py               the only module that imports RoboTwin
   cli.py
 docs/                       installation, policy adapters, the expert survey
