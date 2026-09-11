@@ -87,6 +87,8 @@ def test_survey_takes_a_camera_profile(monkeypatch, capsys):
     assert cli.main(["survey", "--task", "click_bell", "--seeds", "1"]) == 0
     assert cli.main(["survey", "--task", "click_bell", "--camera-profile", "far_side"]) == 0
     assert [config.camera_profile for config in seen] == ["stock", "far_side"]
+    far_side = camera_profiles.get("far_side").sha256[:12]
+    assert f"camera profile far_side (sha256 {far_side})" in capsys.readouterr().out
 
 
 def test_cameras_writes_one_png_per_camera(tmp_path, monkeypatch, capsys):

@@ -80,6 +80,8 @@ def _survey(args: argparse.Namespace) -> int:
         camera_profile=args.camera_profile,
     )
     seeds = scene_seeds(args.seed, 0, args.seeds)
+    profile = camera_profiles.get(args.camera_profile).identity()
+    print(f"camera profile {profile['name']} (sha256 {profile['sha256'][:12]})", flush=True)
     results = []
     for task in selected:
         result = survey_task(robotwin.load_task(task.name), task, seeds, config)

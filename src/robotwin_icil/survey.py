@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import camera_profiles
 from .generate import attempt
 from .tasks import Task
 
@@ -25,6 +26,10 @@ class TaskSurvey:
     rejections: Counter = field(default_factory=Counter)
     frames: list[int] = field(default_factory=list)
     seconds: float = 0.0
+    # Which cameras the expert ran under, as a manifest records it; entries without it are stock.
+    camera_profile: dict[str, str] = field(
+        default_factory=lambda: camera_profiles.get(camera_profiles.STOCK).identity()
+    )
 
     @property
     def success_rate(self) -> float | None:
@@ -44,12 +49,15 @@ class TaskSurvey:
             "rejections": dict(sorted(self.rejections.items())),
             "mean_demonstration_frames": self.mean_frames,
             "seconds_per_seed": self.seconds / self.seeds if self.seeds else None,
+            "camera_profile": dict(self.camera_profile),
         }
 
 
 def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attempt) -> TaskSurvey:
     """Run the expert once per seed, exactly as an episode's generator would, and tally."""
-    result = TaskSurvey(task=task)
+    result = TaskSurvey(
+        task=task, camera_profile=camera_profiles.get(config.camera_profile).identity()
+    )
     for index, seed in enumerate(seeds):
         started = time.monotonic()
         outcome, demonstration, _ = attempt_fn(
