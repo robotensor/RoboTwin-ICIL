@@ -1,5 +1,6 @@
 """The RoboTwin seam's error reporting, exercised without importing RoboTwin."""
 
+import sys
 import types
 
 import pytest
@@ -95,3 +96,55 @@ def test_no_render_manifests_in_the_env_leaves_the_environment_alone(tmp_path, m
     robotwin.use_env_render_manifests()
     assert "VK_ICD_FILENAMES" not in os.environ
     assert "__EGL_VENDOR_LIBRARY_FILENAMES" not in os.environ
+
+
+def test_oidn_stays_below_compute_capability_10():
+    assert robotwin.denoiser_for((8, 6), None) is None
+    assert robotwin.denoiser_for(None, None) is None
+
+
+def test_oidn_is_turned_off_on_blackwell():
+    assert robotwin.denoiser_for((10, 0), None) == "none"
+    assert robotwin.denoiser_for((12, 0), None) == "none"
+
+
+def test_the_denoiser_override_wins_and_is_checked():
+    assert robotwin.denoiser_for((12, 0), "oidn") is None
+    assert robotwin.denoiser_for((8, 6), "none") == "none"
+    with pytest.raises(robotwin.RoboTwinError, match="must be 'oidn' or 'none'"):
+        robotwin.denoiser_for((12, 0), "optix")
+
+
+def _fake_sapien(monkeypatch):
+    calls = []
+    render = types.ModuleType("sapien.render")
+    render.set_ray_tracing_denoiser = calls.append
+    sapien = types.ModuleType("sapien")
+    sapien.render = render
+    monkeypatch.setitem(sys.modules, "sapien", sapien)
+    monkeypatch.setitem(sys.modules, "sapien.render", render)
+    monkeypatch.delenv("ROBOTWIN_ICIL_DENOISER", raising=False)
+    return render, calls
+
+
+def test_robotwins_oidn_request_becomes_none_on_blackwell(monkeypatch):
+    render, calls = _fake_sapien(monkeypatch)
+    monkeypatch.setattr(robotwin, "_gpu_capability", lambda: (12, 0))
+    robotwin.use_supported_denoiser()
+    robotwin.use_supported_denoiser()  # once per process: no second wrapper
+    render.set_ray_tracing_denoiser("oidn")
+    render.set_ray_tracing_denoiser("optix")
+    assert calls == ["none", "optix"]
+
+
+def test_the_denoiser_is_left_alone_where_oidn_runs(monkeypatch):
+    render, calls = _fake_sapien(monkeypatch)
+    original = render.set_ray_tracing_denoiser
+    monkeypatch.setattr(robotwin, "_gpu_capability", lambda: (8, 6))
+    robotwin.use_supported_denoiser()
+    assert render.set_ray_tracing_denoiser is original
+
+
+def test_no_sapien_leaves_the_denoiser_alone(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sapien", None)
+    robotwin.use_supported_denoiser()
