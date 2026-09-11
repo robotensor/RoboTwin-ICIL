@@ -118,3 +118,10 @@ def test_a_simulator_error_mid_rollout_is_a_failed_rollout():
     )
     assert record.status is Status.SCORED and record.success is False
     assert record.detail.startswith("rollout error")
+
+
+def test_both_scenes_are_built_under_the_tasks_name():
+    # RoboTwin looks the task's step limit up by name; an unnamed scene silently gets 1000 steps.
+    env = FakeTaskEnv()
+    run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+    assert env.task_names == ["place_object_basket", "place_object_basket"]

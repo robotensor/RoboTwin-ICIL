@@ -54,7 +54,9 @@ def run_episode(
     started = time.monotonic()
     task_env = task_env if task_env is not None else robotwin.load_task(spec.task.name)
     seeds = scene_seeds(spec.global_seed, spec.episode, spec.max_expert_attempts)
-    generated = generate(task_env, seeds, config.resolve, config.save_freq, spec.episode)
+    generated = generate(
+        task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
+    )
     describe = policy.describe()
 
     def record(status: Status, **fields) -> EpisodeRecord:
@@ -86,7 +88,10 @@ def run_episode(
     video_note = _film(video, lambda: video.demonstration(demonstration))
     try:
         task_env.setup_demo(
-            now_ep_num=spec.episode, seed=generated.seed, is_test=True, **config.resolve()
+            now_ep_num=spec.episode,
+            seed=generated.seed,
+            is_test=True,
+            **config.resolve(spec.task.name),
         )
     except Exception as exc:
         robotwin.close(task_env)
