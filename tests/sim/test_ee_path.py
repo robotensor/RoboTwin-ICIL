@@ -159,11 +159,12 @@ def test_replay_ee_runs_an_episode_to_a_record():
     policy = _Kept()
     spec = EpisodeSpec(episode=0, task=tasks.table()[TASK], global_seed=42, max_expert_attempts=5)
     record = run_episode(spec, policy, robotwin.SceneConfig())
+    # A rejected or invalid episode never hands the policy a demonstration; its detail says why.
+    assert record.status is Status.SCORED, record.detail
     print(
         f"\nreplay_ee on {TASK}: {record.status.value}, success {record.success}, "
         f"{record.steps}/{record.step_limit} calls, {record.physics_steps} physics steps, "
         f"{record.demonstration_frames} demonstration frames, "
         f"arms moved {policy.demonstration.arms_moved()}, {record.duration_s} s; {record.detail}"
     )
-    assert record.status is Status.SCORED, record.detail
     assert record.steps > 0 and record.physics_steps > 0
