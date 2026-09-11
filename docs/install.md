@@ -91,6 +91,14 @@ What the script produced on the machine the V1 numbers come from:
   `libEGL.so.1`. Do not reinstall the driver's GL packages inside a container over the libraries the
   toolkit mounts. SAPIEN's `Failed to find Vulkan ICD file` warning at import is harmless once
   `scripts/test_render.py` reports "Render Well".
+- **A run stops making progress, its process asleep in `get_obs`.** SAPIEN's OIDN denoiser, which
+  RoboTwin requests, cannot run on Blackwell GPUs: it logs `OIDN Error: unsupported device type:
+  CUDA` and `invalid handle` and leaves each image as rendered, and once another process loads the
+  GPU (a training job, or a second simulator) its failing path hangs the camera read for good.
+  `robotwin_icil` therefore turns the denoiser off at compute capability 10.0 and above, which
+  changes no pixel there (renders compared on the RTX 5090); set `ROBOTWIN_ICIL_DENOISER=oidn` or
+  `none` to override. A stopped `robotwin-icil eval` resumes from `episodes.jsonl`: kill it and
+  rerun the same command.
 - **`ModuleNotFoundError: pkg_resources`.** setuptools is too new; rerun the script, which pins it.
 - **Embodiment `config.yml` or `curobo_left.yml` missing.** The asset stage did not finish; rerun
   the script.

@@ -35,6 +35,9 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Physics steps every `scene.get_timestep()` (1/250 s) and a frame is recorded every `save_freq`
   of those steps, so a demonstration runs at 250/`save_freq` fps. `Demonstration.frequency` is that
   rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
+- RoboTwin renders with SAPIEN's ray tracer and asks for the OIDN denoiser, which cannot run on
+  Blackwell GPUs: it leaves images untouched and, under GPU contention, hangs camera reads.
+  `robotwin.py` turns it off at compute capability 10.0 and above (`ROBOTWIN_ICIL_DENOISER`).
 - Assets load from `./assets/...` relative to the working directory, so `robotwin.py` chdirs into
   `vendor/RoboTwin`. Resolve any path (run dir, checkpoint) to absolute before calling into it.
 
