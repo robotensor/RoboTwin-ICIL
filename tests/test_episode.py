@@ -153,3 +153,40 @@ def test_an_expert_that_raises_is_still_a_rejected_seed():
     record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
     assert record.status is Status.SCORED and record.rejections == {"expert_error": 1}
     assert "target_pose cannot be None" in record.rejection_details["expert_error"]
+
+
+class _Watcher(ReplayPolicy):
+    name = "watcher"
+
+    def _reset(self):
+        super()._reset()
+        self.observations = []
+
+    def _act(self, observation):
+        self.observations.append(observation)
+        return super()._act(observation)
+
+
+def test_the_rollout_is_timed_in_physics_steps():
+    # Each take_action runs four physics steps here; the evaluation scene's settle is not counted.
+    env = FakeTaskEnv(physics_per_action=4)
+    policy = _Watcher()
+    record = run_episode(spec(), policy, FakeConfig(), task_env=env)
+    assert record.status is Status.SCORED and record.success
+    assert record.physics_steps == 4 * record.steps
+    assert [o.time_s for o in policy.observations] == pytest.approx(
+        [4 * k / 250 for k in range(record.steps)]
+    )
+    assert env.closed_while_clocked == 0
+
+
+def test_episodes_without_a_rollout_ran_no_physics_steps():
+    drifted = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(drift=True))
+    rejected = run_episode(
+        spec(attempts=1),
+        ReplayPolicy(),
+        FakeConfig(),
+        task_env=FakeTaskEnv(unstable_seeds=set(scene_seeds(0, 0, 1))),
+    )
+    assert drifted.status is Status.INVALID and rejected.status is Status.REJECTED
+    assert drifted.physics_steps == rejected.physics_steps == 0

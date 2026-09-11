@@ -39,6 +39,8 @@ class Observation:
     """What the policy sees at one control step: the same modalities as a demonstration frame.
 
     Deliberately no task name, scene seed, success condition, object identities or actor handles.
+    `time_s` is simulated seconds since the rollout started, counted in physics steps, as a
+    frame's `time_s` is since the expert started; None when the caller kept no clock.
     """
 
     step: int
@@ -46,6 +48,7 @@ class Observation:
     qpos: np.ndarray
     endpose: dict[str, Any] = field(default_factory=dict)
     instruction: str = NEUTRAL_INSTRUCTION
+    time_s: float | None = None
 
 
 class ICILPolicy:

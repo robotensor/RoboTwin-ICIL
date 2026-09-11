@@ -5,7 +5,7 @@
     setup_demo again with seed S                 (the Same Scene)
     fingerprint again, require == F              (or the episode is invalid, not failed)
     policy.reset(); policy.set_demonstration(D)
-    roll out through take_action until eval_success or the task's step limit
+    roll out through take_action until eval_success or the task's step limit, under a clock
 
 This is `vendor/RoboTwin/scripts/eval_policy_xpolicylab.py:run_one_batch_episode` with the expert
 trajectory kept and handed to the policy instead of thrown away.
@@ -17,6 +17,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -26,6 +27,9 @@ from .records import SAME_SCENE, EpisodeRecord, Status
 from .scene import compare, max_error
 from .tasks import Task
 from .video import EpisodeVideo
+
+if TYPE_CHECKING:
+    from .robotwin import Clock
 
 
 @dataclass(frozen=True)
@@ -117,9 +121,14 @@ def run_episode(
             )
         policy.reset()
         policy.set_demonstration(demonstration)
-        success, detail = rollout(
-            task_env, policy, observe=video.observe if video is not None else None
-        )
+        # Timed from the fingerprinted scene, as the demonstration was; gone before `close`.
+        with robotwin.clock(task_env) as ticks:
+            success, detail = rollout(
+                task_env,
+                policy,
+                observe=video.observe if video is not None else None,
+                ticks=ticks,
+            )
         video_note += _film(video, lambda: _final_frame(video, task_env))
         return record(
             Status.SCORED,
@@ -129,6 +138,7 @@ def run_episode(
             demonstration_frames=len(demonstration),
             scene_max_error=0.0,
             detail=detail + video_note,
+            physics_steps=ticks.steps,
         )
     finally:
         robotwin.close(task_env)
@@ -138,12 +148,13 @@ def rollout(
     task_env,
     policy: ICILPolicy,
     observe: Callable[[dict[str, np.ndarray]], None] | None = None,
+    ticks: Clock | None = None,
 ) -> tuple[bool, str]:
     """Drive the policy until RoboTwin reports success or the task's step limit is reached.
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
     `eval_success`. An exception from the simulator mid-rollout ends the episode as a failure, as
-    upstream's evaluator does.
+    upstream's evaluator does. With a running `clock`, each observation carries its simulated time.
     """
     from . import robotwin
 
@@ -157,6 +168,7 @@ def rollout(
                 images=raw["images"],
                 qpos=raw["qpos"],
                 endpose=raw["endpose"],
+                time_s=ticks.seconds if ticks is not None else None,
             )
             for action in policy.act(observation):
                 task_env.take_action(action, action_type=policy.action_type)
