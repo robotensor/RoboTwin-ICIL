@@ -21,6 +21,7 @@ import copy
 import gc
 import importlib
 import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -58,6 +59,65 @@ def use_env_render_manifests() -> None:
             os.environ.setdefault(variable, str(manifest))
 
 
+def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> str | None:
+    """The ray-tracing denoiser to use where RoboTwin asks for "oidn", or None to keep its request.
+
+    SAPIEN 3.0.0b1's OIDN has no CUDA device for compute capability 10.0 and above (Blackwell): it
+    logs "unsupported device type: CUDA" and leaves every image as rendered, so turning it off there
+    changes no pixel (checked on an RTX 5090). Its failing path also hangs a camera read for good
+    while another process loads the GPU. `ROBOTWIN_ICIL_DENOISER` (`oidn` or `none`) overrides.
+    """
+    if override:
+        if override not in ("oidn", "none"):
+            raise RoboTwinError(
+                f"ROBOTWIN_ICIL_DENOISER must be 'oidn' or 'none', not {override!r}"
+            )
+        return None if override == "oidn" else "none"
+    if capability is not None and capability[0] >= 10:
+        return "none"
+    return None
+
+
+def _gpu_capability() -> tuple[int, int] | None:
+    """The first GPU's compute capability from `nvidia-smi`, without initialising CUDA here."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout
+        major, minor = out.splitlines()[0].strip().split(".")
+        return int(major), int(minor)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def use_supported_denoiser() -> None:
+    """Swap RoboTwin's "oidn" request for a denoiser this GPU can run (see `denoiser_for`).
+
+    RoboTwin sets the denoiser in `setup_scene` through `sapien.render.set_ray_tracing_denoiser`,
+    looked up at call time, so wrapping that function once per process is enough.
+    """
+    try:
+        import sapien.render as render
+    except ImportError:
+        return
+    current = render.set_ray_tracing_denoiser
+    if getattr(current, "robotwin_icil_denoiser", None) is not None:
+        return
+    choice = denoiser_for(_gpu_capability(), os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+    if choice is None:
+        return
+
+    def set_ray_tracing_denoiser(name: str) -> None:
+        current(choice if name == "oidn" else name)
+
+    set_ray_tracing_denoiser.robotwin_icil_denoiser = choice
+    render.set_ray_tracing_denoiser = set_ray_tracing_denoiser
+
+
 def _ensure_importable() -> None:
     """RoboTwin is a checkout, not a package: it imports from, and loads assets relative to, its root.
 
@@ -71,6 +131,7 @@ def _ensure_importable() -> None:
             "`git submodule update --init --recursive`"
         )
     use_env_render_manifests()
+    use_supported_denoiser()
     root = str(ROBOTWIN_ROOT)
     if root not in sys.path:
         sys.path.insert(0, root)
