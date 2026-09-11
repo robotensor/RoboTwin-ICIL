@@ -190,7 +190,8 @@ build_bpp() {
 }
 
 # --- uniskill -----------------------------------------------------------------
-# Not yet built end to end: #43 builds it and fixes these pins (policies/envs/uniskill).
+# Verified on an RTX 5090 on 2026-09-11 (#43, docs/models/uniskill.md): the fork without its
+# simulator submodules, the skill encoder on the path, torch 2.8.0+cu128.
 
 uniskill_model() {
     local fork="$1" isd="$2" site
