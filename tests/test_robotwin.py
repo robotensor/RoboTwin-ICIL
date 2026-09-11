@@ -54,3 +54,12 @@ def test_the_task_class_is_instantiated(importing):
 
     importing(types.SimpleNamespace(place_object_basket=place_object_basket))
     assert isinstance(robotwin.load_task("place_object_basket"), place_object_basket)
+
+
+def test_gpu_exhaustion_is_recognised_without_torch():
+    class OutOfMemoryError(RuntimeError):
+        pass
+
+    assert robotwin.gpu_exhausted(OutOfMemoryError("anything"))
+    assert robotwin.gpu_exhausted(RuntimeError("CUDA out of memory. Tried to allocate 2 MiB"))
+    assert not robotwin.gpu_exhausted(AssertionError("target_pose cannot be None for move action."))
