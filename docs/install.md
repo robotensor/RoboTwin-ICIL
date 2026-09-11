@@ -54,6 +54,65 @@ What the script produced on the machine the V1 numbers come from:
 | CuRobo | v0.7.8, built with nvcc 12.1 and gcc 12 for sm_86; warp-lang 1.12.0 |
 | assets | `background_texture.zip` 10.97 GB, `objects.zip` 3.74 GB, `embodiments.zip` 0.22 GB |
 
+## Model environments
+
+Model adapters (`policies/`) run in environments of their own, never in the simulator env:
+BPP's and UniSkill's stacks conflict with RoboTwin's pins (`huggingface_hub`, `transformers`,
+`diffusers`) and with each other. `scripts/install_policy_env.sh` builds one with
+[uv](https://docs.astral.sh/uv/) from the lockfiles in `policies/envs/<name>/`:
+
+```bash
+bash scripts/install_policy_env.sh bpp        # $ICIL_HOME/envs/icil-bpp
+bash scripts/install_policy_env.sh uniskill   # $ICIL_HOME/envs/icil-uniskill
+```
+
+`ICIL_HOME` defaults to `~/.cache/robotwin-icil`, and model sources are checked out under
+`$ICIL_HOME/src`. uv must be on `PATH` (the verified install used uv 0.12.13, from
+`pip install uv`); it fetches its own python 3.10, so no conda is involved. Like
+`install_robotwin.sh`, the script is idempotent per stage: checkouts and the backbone download
+are skipped when present, and each install stage records a hash of its pins under
+`$ENV/.icil-stages` and is skipped while they are unchanged. Delete the env directory to rebuild
+it from scratch. It never touches the conda `robotwin` env.
+
+| file in `policies/envs/<name>/` | what |
+| --- | --- |
+| `pins.env` | the model repository and commit, submodules, the torch index and pins, and each later stage's own pins |
+| `requirements.lock` | the core dependencies, each one an exact pin |
+| `constraints.txt` | torch, torchvision and numpy, held fixed while later stages install |
+
+### `icil-bpp`
+
+The stages codify the recipe verified on 2026-09-11 on an RTX 5090 (driver 580.173.02, compute
+capability 12.0) in a container:
+
+| Stage | What | Why |
+| --- | --- | --- |
+| source | `real-stanford/behavior_prompting` at `ec29e62`, submodules `deps/LIBERO` and `deps/icrt` | the model code and the LIBERO it imports |
+| env | `uv venv --seed --python 3.10` | python 3.10.21, managed by uv |
+| torch | `torch==2.8.0 torchvision==0.23.0` from the cu128 index | sm_120 kernels, which BPP's default 2.7.1+cu118 lacks; reports CUDA available, capability (12, 0) |
+| core | `requirements.lock`: numpy 1.26.4, hydra-core 1.2.0, dill 0.3.7, timm 1.0.20, diffusers 0.35.1, transformers 4.57.1, huggingface_hub 0.35.3, ... | BPP's own stack |
+| libero | mujoco 3.3.0, robosuite 1.4.0 and bddl 1.0.1 with uv; gym 0.21.0 with pip after `pip==24.0 setuptools==65.5.0 wheel==0.38.4`; `deps/LIBERO` editable | gym 0.21's setup.py fails under current build tools |
+| robomimic | cmake, then the `austinapatel/robomimic` fork (branch `behavior_prompting_fixes`, pinned to `f4357ed`) with `CMAKE_POLICY_VERSION_MINIMUM=3.5`, under `constraints.txt` | BPP's LIBERO runner imports it; its egl-probe dependency needs cmake, and CMake 4 rejects egl-probe's old minimum |
+| model | `behavior_prompting` editable, `--no-deps` | its own requirements would undo the stack above |
+| benchmark | `robotwin-icil` and `policies[bpp]` editable, under `constraints.txt` | the adapter and the core types it converts |
+| backbone | `timm.create_model("vit_base_patch16_clip_224.openai", pretrained=True)` | BPP builds its model with `pretrained=true` (with `false`, its weight init rejects the CLIP ViT's bias-free patch layer) and the checkpoint overwrites the weights, but timm downloads them at construction: 576 MB into `$HF_HOME/hub` once, so servers run with `HF_HUB_OFFLINE=1` |
+| smoke | torch and CUDA, BPP's policy class, the benchmark, the backbone with `HF_HUB_OFFLINE=1` | |
+
+On that environment BPP's own Hydra composition (`libero_policy_dunetp` with
+`task=liberogen_spatial_combination`) built a 518.8M-parameter `DiffusionUnetPolicy`, the
+LIBERO-Gen Combination checkpoint (6.9 GB) loaded with every key matched strictly, and a
+16-step chunk took 0.09 s and 2.2 GB of GPU memory to predict.
+
+### `icil-uniskill`
+
+Not yet built end to end: #43 builds it and fixes its pins, and every pin not yet verified is
+marked in `policies/envs/uniskill/`. It holds the skill encoder (`KimHanjung/UniSkill` at
+`eca49f0`, a script repository put on the env's path), the policy fork
+(`kang-jaehyun/UniSkill-Policy` at `2803ad6`, installed `--no-deps`, with its LIBERO, robosuite
+and robocasa submodules and their `mujoco==3.4.0` override), and torch 2.8.0+cu128,
+transformers 4.57.1 (Depth-Anything-V2 needs at least 4.48) and diffusers 0.35.1 in place of the
+fork's torch 2.0.1, transformers 4.36.2 and diffusers 0.23.0.
+
 ## Troubleshooting
 
 - **`cannot import name 'CuroboPlanner'`.** CuRobo is missing or failed to build. Upstream's
