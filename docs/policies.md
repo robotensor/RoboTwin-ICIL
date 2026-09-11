@@ -109,8 +109,10 @@ Profiles only **replace** a camera, in its slot. RoboTwin builds every static ca
 `create_camera`, which draws from numpy's global RNG after the scene seed is set and before any
 object is placed, so a camera more or fewer would move every object of every seed — and the Same
 Scene check could not notice, since both builds of an episode would carry it. A profile that adds
-or removes a camera, touches `head_camera`, toggles `camera.collect_head_camera` or leaves two
-cameras with one name is refused, with no override. Every profile therefore builds the same
+or removes a camera, touches `head_camera`, toggles `camera.collect_head_camera`, leaves two
+cameras with one name or names a static camera `left_camera` or `right_camera` (the wrist
+cameras' names) is refused, with no override: `SceneConfig.overrides` are held to the same
+guard. Every profile therefore builds the same
 scene from the same seed; only the images differ. The run manifest records the profile and the
 static cameras, and a run directory does not resume under another profile.
 
