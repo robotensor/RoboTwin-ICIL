@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- (feat): records and report say what produced a score and read it against reference runs.
+  Episode records gain `action_type`, the policy's action path, and `demonstration_arms`, the
+  arms the demonstration moved (`arms_moved()`), metadata for analysis that the report never
+  slices by; both default to None, so older runs still load. `environment()` adds the GPU and
+  driver (nvidia-smi, 5 s timeout), torch and its CUDA, CuRobo and SAPIEN, each only when it can
+  be read, since the Blackwell stack can change the expert's plans; it stays out of the run's
+  identity. The report header labels the camera profile, the adapter and its `adapter_version`,
+  and the training regime: `evaluation tasks seen in training: k/N` from `training_tasks`, held
+  out at 0 and `unknown` without a claim. `report RUN_DIR --reference REF_DIR`, repeatable,
+  prints each reference's rates in a column beside the run's, overall, by category and by task,
+  named by its adapter or policy, and lists them under `references` in `--json`. A reference of
+  another global seed, suite or task list, expert budget, configuration or camera profile, or
+  one that failed the frozen-policy audit, is refused, naming the field. No new score (#38).
 - (feat): policy configuration, seeding, provenance and a frozen-policy audit.
   `eval --policy-arg KEY=VALUE`, repeatable, passes keyword arguments to the policy, each value
   read as YAML; an adapter's many settings go in its own YAML as `config=PATH`. The manifest
