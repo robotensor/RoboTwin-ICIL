@@ -54,6 +54,16 @@ def test_seeds_fit_numpy_seed_range():
     assert all(0 <= seed < 2**32 for seed in generate.scene_seeds(7, 0, 1000))
 
 
+def test_the_policy_seed_is_its_own_stream_never_a_scene_seed():
+    seeds = [generate.policy_seed(42, episode) for episode in range(200)]
+    assert seeds == [generate.policy_seed(42, episode) for episode in range(200)]
+    assert len(set(seeds)) == len(seeds) and all(0 <= seed < 2**31 for seed in seeds)
+    # Not the scene seed of its episode, nor any seed its episode may try.
+    for episode, seed in enumerate(seeds):
+        assert seed not in generate.scene_seeds(42, episode, 20)
+    assert generate.policy_seed(42, 0) != generate.policy_seed(43, 0)
+
+
 def test_generate_stops_at_the_first_success():
     attempt_fn, calls = _scripted([Rejection.UNSTABLE, Rejection.PLAN_FAILED, None, None])
     result = generate.generate(None, [10, 11, 12, 13], dict, 15, 0, attempt_fn=attempt_fn)

@@ -6,7 +6,7 @@ import pytest
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import robotwin, tasks
 from robotwin_icil.episode import EpisodeSpec, run_episode
-from robotwin_icil.generate import scene_seeds
+from robotwin_icil.generate import policy_seed, scene_seeds
 from robotwin_icil.policy import (
     DummyPolicy,
     ICILPolicy,
@@ -98,6 +98,9 @@ class _Spy(ReplayPolicy):
         super().__init__()
         self.calls = []
 
+    def seed(self, seed):
+        self.calls.append(("seed", seed))
+
     def reset(self):
         self.calls.append("reset")
         super().reset()
@@ -107,11 +110,27 @@ class _Spy(ReplayPolicy):
         super().set_demonstration(demonstration)
 
 
-def test_each_episode_resets_the_policy_then_gives_it_one_demonstration():
+def test_each_episode_seeds_and_resets_the_policy_then_gives_it_one_demonstration():
     policy = _Spy()
-    run_episode(spec(0), policy, FakeConfig(), task_env=FakeTaskEnv())
-    run_episode(spec(1), policy, FakeConfig(), task_env=FakeTaskEnv())
-    assert policy.calls == ["reset", "demonstration", "reset", "demonstration"]
+    first = run_episode(spec(0), policy, FakeConfig(), task_env=FakeTaskEnv())
+    second = run_episode(spec(1), policy, FakeConfig(), task_env=FakeTaskEnv())
+    seeds = [policy_seed(0, 0), policy_seed(0, 1)]
+    assert policy.calls == [
+        ("seed", seeds[0]),
+        "reset",
+        "demonstration",
+        ("seed", seeds[1]),
+        "reset",
+        "demonstration",
+    ]
+    # Never the scene seed: that one rebuilds the scene, target and all.
+    assert seeds[0] != first.scene_seed and seeds[1] != second.scene_seed
+
+
+def test_a_policy_is_not_seeded_for_a_scene_it_never_sees():
+    policy = _Spy()
+    run_episode(spec(), policy, FakeConfig(), task_env=FakeTaskEnv(drift=True))
+    assert policy.calls == []
 
 
 class _Broken(ICILPolicy):

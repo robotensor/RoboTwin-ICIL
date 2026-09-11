@@ -4,6 +4,7 @@
     close the env                                (never continue from the expert's final state)
     setup_demo again with seed S                 (the Same Scene)
     fingerprint again, require == F              (or the episode is invalid, not failed)
+    policy.seed(s)                               (s from the policy's own stream, never S)
     policy.reset(); policy.set_demonstration(D)
     roll out through take_action until eval_success or the task's step limit, under a clock
 
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .generate import Generated, generate, scene_seeds
+from .generate import Generated, generate, policy_seed, scene_seeds
 from .policy import ICILPolicy, Observation, PolicyError
 from .records import SAME_SCENE, EpisodeRecord, Status
 from .scene import compare, max_error
@@ -122,6 +123,7 @@ def run_episode(
                 detail="scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + video_note,
                 **{**empty, "scene_max_error": max_error(mismatches)},
             )
+        policy.seed(policy_seed(spec.global_seed, spec.episode))
         policy.reset()
         policy.set_demonstration(demonstration)
         # Timed from the fingerprinted scene, as the demonstration was; gone before `close`.

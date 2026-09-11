@@ -20,6 +20,13 @@ from .scene import SceneFingerprint
 # RoboTwin feeds the seed to `np.random.seed`, which takes [0, 2**32).
 _SEED_BOUND = 2**31 - 1
 
+# The policy's stream is `default_rng([global_seed, episode, POLICY_STREAM])`, a different entropy
+# sequence from the scene stream `default_rng([global_seed, episode])`. The scene seed is
+# privileged — it rebuilds the scene, target and all — so the policy's seed is never it, nor
+# derived from it, and a policy cannot recover it from its own. Fixed forever ("pol" in ASCII):
+# changing it changes every policy seed of every run.
+POLICY_STREAM = 0x706F6C
+
 
 class Rejection(str, enum.Enum):
     UNSTABLE = "unstable"
@@ -62,6 +69,13 @@ def scene_seeds(global_seed: int, episode: int, count: int) -> list[int]:
     """
     rng = np.random.default_rng([global_seed, episode])
     return [int(seed) for seed in rng.integers(0, _SEED_BOUND, size=count)]
+
+
+def policy_seed(global_seed: int, episode: int) -> int:
+    """The seed an episode's policy gets through `ICILPolicy.seed`: a function of (global seed,
+    episode index) alone, so it is the same whether or not the run was resumed."""
+    rng = np.random.default_rng([global_seed, episode, POLICY_STREAM])
+    return int(rng.integers(0, _SEED_BOUND))
 
 
 def attempt(

@@ -5,6 +5,7 @@ import pytest
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import camera_profiles, robotwin, runner, tasks
+from robotwin_icil.generate import policy_seed
 from robotwin_icil.policy import ReplayPolicy
 from robotwin_icil.records import RecordError, RunDir
 
@@ -185,3 +186,30 @@ def test_the_policy_is_described_once_per_run_not_per_episode(tmp_path, fake_sim
     records = runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
     assert policy.described == 1
     assert {r.model for r in records} == {"counting"}
+
+
+class Seeded(ReplayPolicy):
+    """Remembers the seeds it is handed, in the order it is handed them."""
+
+    name = "seeded"
+
+    def __init__(self):
+        super().__init__()
+        self.seeds = []
+
+    def seed(self, seed):
+        self.seeds.append(seed)
+
+
+def test_a_policy_seed_does_not_depend_on_resume_order(tmp_path, fake_sim):
+    policy = Seeded()
+    records = runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    # Episodes run task by task: 0 and 2, then 1 and 3.
+    assert policy.seeds == [policy_seed(3, episode) for episode in (0, 2, 1, 3)]
+    assert not set(policy.seeds) & {r.scene_seed for r in records}
+
+    episodes = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
+    (tmp_path / "run" / "episodes.jsonl").write_text("\n".join(episodes[:2]) + "\n")
+    resumed = Seeded()
+    runner.run(spec(tmp_path), resumed, FakeConfig(), log=quiet)
+    assert resumed.seeds == policy.seeds[2:]
