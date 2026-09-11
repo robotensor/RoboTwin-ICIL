@@ -29,14 +29,15 @@ class ChunkExecutor:
     """A history of `n_obs` observations and a queue of `n_action` actions for a chunking model.
 
     `plan(history)` receives the history, a list of `n_obs` observations oldest first, and
-    returns at least `n_action` actions as rows.
+    returns at least `n_action` actions as the rows of a 2-D array; a batch axis, as in (1, Tp,
+    action), is refused rather than guessed away.
     """
 
     def __init__(
         self, plan: Callable[[Sequence[Any]], np.ndarray], n_obs: int, n_action: int
     ) -> None:
         for name, value in (("n_obs", n_obs), ("n_action", n_action)):
-            if not isinstance(value, int) or value < 1:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer, got {value!r}")
         self._plan = plan
         self.n_obs = n_obs
@@ -68,10 +69,10 @@ class ChunkExecutor:
             self._history.append(observation)
         if not self._queue:
             chunk = np.asarray(self._plan(list(self._history)))
-            if chunk.ndim < 2 or len(chunk) < self.n_action:
+            if chunk.ndim != 2 or len(chunk) < self.n_action:
                 raise PolicyError(
                     f"the model returned a chunk of shape {chunk.shape}; expected at least "
-                    f"{self.n_action} actions as rows"
+                    f"{self.n_action} actions as the rows of a 2-D array"
                 )
             self._queue.extend(chunk[: self.n_action])
             self.plans += 1

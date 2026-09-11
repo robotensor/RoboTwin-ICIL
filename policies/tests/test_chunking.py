@@ -55,14 +55,25 @@ def test_reset_forgets_the_episode():
     assert model.histories[-1] == ["b", "b"]
 
 
-@pytest.mark.parametrize("chunk", [np.zeros((3, 2)), np.zeros(16), np.float64(0.0)])
-def test_a_chunk_too_short_or_not_rows_is_a_policy_error(chunk):
-    executor = ChunkExecutor(lambda history: chunk, n_obs=1, n_action=4)
-    with pytest.raises(PolicyError, match="at least 4 actions"):
+@pytest.mark.parametrize(
+    ("chunk", "n_action"),
+    [
+        (np.zeros((3, 2)), 4),
+        (np.zeros(16), 4),
+        (np.float64(0.0), 4),
+        (np.zeros((1, 16, 10)), 4),  # batch-first, as BPP's predict_action returns
+        (np.zeros((1, 16, 10)), 1),  # would otherwise queue the whole chunk as one action
+    ],
+)
+def test_a_chunk_too_short_or_not_rows_is_a_policy_error(chunk, n_action):
+    executor = ChunkExecutor(lambda history: chunk, n_obs=1, n_action=n_action)
+    with pytest.raises(PolicyError, match=f"at least {n_action} actions as the rows of a 2-D"):
         executor.act("o")
 
 
-@pytest.mark.parametrize(("n_obs", "n_action"), [(0, 1), (1, 0), (2.0, 1), (1, "8")])
+@pytest.mark.parametrize(
+    ("n_obs", "n_action"), [(0, 1), (1, 0), (2.0, 1), (1, "8"), (True, 1), (1, True)]
+)
 def test_sizes_must_be_positive_integers(n_obs, n_action):
     with pytest.raises(ValueError, match="positive integer"):
         ChunkExecutor(_Model(), n_obs=n_obs, n_action=n_action)
