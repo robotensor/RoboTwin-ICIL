@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import camera_profiles
 from . import report as report_
 from . import tasks as tasks_
 from .policy import PolicyError, make_policy
@@ -35,8 +36,13 @@ def _eval(args: argparse.Namespace) -> int:
         global_seed=args.seed,
         max_expert_attempts=args.max_expert_attempts,
         video=args.video,
+        video_camera=camera_profiles.get(args.camera_profile).video_camera,
     )
-    config = SceneConfig(task_config=args.task_config, save_freq=args.save_freq)
+    config = SceneConfig(
+        task_config=args.task_config,
+        save_freq=args.save_freq,
+        camera_profile=args.camera_profile,
+    )
     try:
         records = run(spec, make_policy(args.policy), config)
     except RoboTwinError as exc:
@@ -68,7 +74,11 @@ def _survey(args: argparse.Namespace) -> int:
     selected = (table[args.task],) if args.task else table.suite(args.suite)
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     out = Path(args.json).resolve() if args.json else None
-    config = robotwin.SceneConfig(task_config=args.task_config, save_freq=args.save_freq)
+    config = robotwin.SceneConfig(
+        task_config=args.task_config,
+        save_freq=args.save_freq,
+        camera_profile=args.camera_profile,
+    )
     seeds = scene_seeds(args.seed, 0, args.seeds)
     results = []
     for task in selected:
@@ -94,6 +104,16 @@ def _tasks(args: argparse.Namespace) -> int:
             tags = ", ".join(sorted(name for name, names in suites.items() if task.name in names))
             print(f"  {task.name}" + (f"  [{tags}]" if tags else ""))
     return 0
+
+
+def _add_camera_profile(parser: argparse.ArgumentParser, flag: str = "--camera-profile") -> None:
+    parser.add_argument(
+        flag,
+        dest="camera_profile",
+        default=camera_profiles.STOCK,
+        choices=camera_profiles.names(),
+        help="a camera profile from cameras.yml; every profile keeps every seed's scene",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -125,6 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write demonstration.mp4 and evaluation_same_scene.mp4 per episode",
     )
+    _add_camera_profile(run)
     run.set_defaults(handler=_eval)
 
     rep = commands.add_parser("report", help="report a run directory; needs no simulator")
@@ -145,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     sur.add_argument("--json", help="also write the per-task results to this file")
     sur.add_argument("--task-config", default="demo_clean")
     sur.add_argument("--save-freq", type=int, default=15)
+    _add_camera_profile(sur)
     sur.set_defaults(handler=_survey)
 
     lst = commands.add_parser("tasks", help="list the task table and suite membership")
@@ -162,7 +184,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return args.handler(args)
-    except (RecordError, PolicyError, RoboTwinError, tasks_.TaskTableError) as exc:
+    except (
+        RecordError,
+        PolicyError,
+        RoboTwinError,
+        tasks_.TaskTableError,
+        camera_profiles.ProfileError,
+    ) as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1
 

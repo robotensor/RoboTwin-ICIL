@@ -1,7 +1,10 @@
 import json
 
-from robotwin_icil import cli
+import pytest
+
+from robotwin_icil import camera_profiles, cli, robotwin, runner, survey
 from robotwin_icil.records import RunDir
+from robotwin_icil.robotwin import RoboTwinError
 from test_records import manifest, record
 
 
@@ -34,3 +37,52 @@ def test_eval_rejects_bad_arguments_before_touching_the_simulator(tmp_path, caps
     assert cli.main([*base, "--suite", "v1", "--episodes", "0"]) == 2
     assert cli.main([*base, "--suite", "no_such_suite", "--episodes", "1"]) == 1
     assert "unknown suite" in capsys.readouterr().err
+
+
+EVAL = ["eval", "--policy", "replay", "--task", "click_bell", "--episodes", "1"]
+
+
+@pytest.fixture
+def stop_at_run(monkeypatch):
+    """Capture what `eval` would run, then stop before the simulator."""
+    seen = {}
+
+    def run(spec, policy, config):
+        seen.update(spec=spec, config=config)
+        raise RoboTwinError("stopped before the simulator")
+
+    monkeypatch.setattr(runner, "run", run)
+    return seen
+
+
+def test_eval_runs_the_stock_cameras_by_default(tmp_path, stop_at_run):
+    assert cli.main([*EVAL, "--run-dir", str(tmp_path)]) == 1
+    assert stop_at_run["config"].camera_profile == "stock"
+    assert stop_at_run["spec"].video_camera == "head_camera"
+
+
+def test_eval_takes_a_camera_profile(tmp_path, stop_at_run):
+    assert cli.main([*EVAL, "--run-dir", str(tmp_path), "--camera-profile", "far_side"]) == 1
+    assert stop_at_run["config"].camera_profile == "far_side"
+    assert stop_at_run["spec"].video_camera == camera_profiles.get("far_side").video_camera
+
+
+def test_an_unknown_camera_profile_is_a_usage_error(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*EVAL, "--run-dir", str(tmp_path), "--camera-profile", "nope"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'nope'" in capsys.readouterr().err
+
+
+def test_survey_takes_a_camera_profile(monkeypatch, capsys):
+    seen = []
+
+    def survey_task(task_env, task, seeds, config):
+        seen.append(config)
+        return survey.TaskSurvey(task=task)
+
+    monkeypatch.setattr(robotwin, "load_task", lambda name: object())
+    monkeypatch.setattr(survey, "survey_task", survey_task)
+    assert cli.main(["survey", "--task", "click_bell", "--seeds", "1"]) == 0
+    assert cli.main(["survey", "--task", "click_bell", "--camera-profile", "far_side"]) == 0
+    assert [config.camera_profile for config in seen] == ["stock", "far_side"]
