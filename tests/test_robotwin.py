@@ -148,3 +148,10 @@ def test_the_denoiser_is_left_alone_where_oidn_runs(monkeypatch):
 def test_no_sapien_leaves_the_denoiser_alone(monkeypatch):
     monkeypatch.setitem(sys.modules, "sapien", None)
     robotwin.use_supported_denoiser()
+
+
+def test_a_lost_gpu_device_is_recognised():
+    assert robotwin.gpu_lost(RuntimeError("vk::Device::waitForFences: ErrorDeviceLost"))
+    assert robotwin.gpu_lost(RuntimeError("VK_ERROR_DEVICE_LOST"))
+    assert not robotwin.gpu_lost(RuntimeError("simulator exploded"))
+    assert not robotwin.gpu_lost(AssertionError("target_pose cannot be None for move action."))
