@@ -20,8 +20,10 @@ from robotwin_icil.policy import (
     ReplayEEPolicy,
     ReplayPolicy,
     check_description,
+    format_policy_arg,
     json_mapping,
     make_policy,
+    parse_policy_arg,
 )
 
 
@@ -309,3 +311,60 @@ def test_make_policy_passes_keyword_arguments_to_the_class():
 def test_make_policy_refuses_arguments_the_class_does_not_take(spec, kwargs):
     with pytest.raises(PolicyError, match=f"policy {spec!r} does not take these arguments"):
         make_policy(spec, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        True,
+        False,
+        0,
+        -7,
+        10**30,
+        0.5,
+        -1.25,
+        1.0,
+        1e-10,
+        1e16,
+        5e-324,
+        "",
+        "0123",
+        "true",
+        "null",
+        "1e-4",
+        "a=b",
+        "[a, b]",
+        "configs/bpp.yml",
+        'say "hi"',
+        "tab\there",
+        "naïve ☃",
+    ],
+)
+def test_a_formatted_policy_arg_reads_back_as_itself(value):
+    key, parsed = parse_policy_arg(format_policy_arg("key", value))
+    assert key == "key" and parsed == value and type(parsed) is type(value)
+
+
+def test_a_path_or_a_numpy_scalar_is_formatted_as_the_value_it_holds(tmp_path):
+    assert parse_policy_arg(format_policy_arg("config", tmp_path / "bpp.yml")) == (
+        "config",
+        str(tmp_path / "bpp.yml"),
+    )
+    assert parse_policy_arg(format_policy_arg("scale", np.float32(0.5))) == ("scale", 0.5)
+    assert parse_policy_arg(format_policy_arg("steps", np.int64(3))) == ("steps", 3)
+
+
+@pytest.mark.parametrize(
+    "value, message",
+    [
+        ([1, 2], "list values cannot be passed"),
+        ({"a": 1}, "dict values cannot be passed"),
+        (float("nan"), "it reads back as 'nan'"),
+        (float("inf"), "it reads back as 'inf'"),
+        (object(), "object values cannot be passed"),
+    ],
+)
+def test_what_a_policy_arg_cannot_express_is_refused(value, message):
+    with pytest.raises(PolicyError, match=message):
+        format_policy_arg("key", value)

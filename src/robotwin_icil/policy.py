@@ -18,6 +18,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import PurePath
 from typing import Any, ClassVar, Literal
 
 import numpy as np
@@ -350,3 +351,45 @@ def parse_policy_arg(item: str) -> tuple[str, Any]:
     if isinstance(value, str) and raw.strip()[:1] in ("'", '"'):
         return key, value
     return key, raw
+
+
+def format_policy_arg(key: str, value: Any) -> str:
+    """The `KEY=VALUE` that `parse_policy_arg` reads back as `(key, value)`, or `PolicyError`.
+
+    How a policy's keyword arguments reach the command line of a policy server. None, booleans,
+    integers, finite floats and strings go as themselves, a path as its string, a numpy scalar as
+    the Python value it holds; a list, a mapping or anything else `--policy-arg` cannot express
+    is refused rather than turned into something else.
+    """
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, PurePath):
+        value = str(value)
+    if value is None:
+        text = "null"
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    elif isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        # YAML 1.1 reads scientific notation as a float only with a dot in the mantissa.
+        text = repr(value)
+        mantissa, e, exponent = text.partition("e")
+        if e and "." not in mantissa:
+            text = f"{mantissa}.0e{exponent}"
+    elif isinstance(value, str):
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        raise PolicyError(
+            f"{key}: {type(value).__name__} values cannot be passed as a --policy-arg"
+        )
+    item = f"{key}={text}"
+    try:
+        parsed = parse_policy_arg(item)
+    except ValueError as exc:
+        raise PolicyError(f"{key}={value!r} cannot be passed as a --policy-arg: {exc}") from exc
+    if parsed != (key, value) or type(parsed[1]) is not type(value):
+        raise PolicyError(
+            f"{key}={value!r} cannot be passed as a --policy-arg: it reads back as {parsed[1]!r}"
+        )
+    return item
