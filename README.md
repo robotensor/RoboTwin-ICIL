@@ -55,6 +55,36 @@ $$SR_{\text{same-scene}} = \frac{\text{successful policy rollouts}}{\text{valid 
 
 There is no zero-shot score, no ICL gain, no multi-shot setting and no difficulty tiering in V1.
 
+## Status
+
+V1 — the Same Scene 1-Demo protocol — is complete: every V1 issue is closed, and the whole loop
+runs end to end on RoboTwin 2.0.
+
+The replay oracle plays each demonstration's own actions back from the rebuilt scene. It is the
+harness's ceiling — what a perfect imitator scores here — and on the V1 suite it scores **18/18**:
+
+```bash
+robotwin-icil eval --policy replay --suite v1 --episodes 18 --seed 42 --video
+```
+
+| Skill | Task | Replay oracle | Expert success ([survey](docs/survey.md)) |
+| --- | --- | ---: | ---: |
+| Pick and Place | place_a2b_left | 2/2 | 85% |
+| | place_a2b_right | 2/2 | 75% |
+| | place_empty_cup | 2/2 | 90% |
+| | place_container_plate | 2/2 | 75% |
+| Stacking | stack_blocks_two | 2/2 | 100% |
+| | stack_bowls_two | 2/2 | 75% |
+| Press / Push | click_bell | 2/2 | 100% |
+| | click_alarmclock | 2/2 | 80% |
+| | press_stapler | 2/2 | 95% |
+
+Every rebuilt scene matched its demonstration's fingerprint (0 invalid). The expert needed 24
+attempts for 18 demonstrations; its 6 failures were recorded as generation rejections and never
+touched a score. The run took 35 minutes on an RTX A6000 shared with a 40 GiB training job.
+
+Next: a real ICIL policy (#12), and scene-generalization settings beyond Same Scene (#13).
+
 ## Skill categories
 
 RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
