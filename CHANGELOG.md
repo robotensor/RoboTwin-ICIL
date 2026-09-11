@@ -6,10 +6,12 @@
   `survey` picks one from `cameras.yml`; `far_side` puts a 45° L515 across the table in
   `front_camera`'s slot, looking back at the robot 38.9° down. Every static camera draws from
   numpy's RNG before the scene is built, so profiles only replace one: a pure guard refuses a
-  change in the camera count, toggling `collect_head_camera`, touching `head_camera` and
-  duplicate names. The manifest records the profile's sha256 and the static cameras (older
-  manifests read as `stock`), clips film the profile's `video_camera`, and `robotwin-icil
-  cameras` writes one PNG per camera of a scene (#34).
+  change in the camera count, toggling `collect_head_camera`, touching `head_camera`,
+  duplicate names and a static camera named like a wrist camera, and holds
+  `SceneConfig.overrides` to the same check. The manifest records the profile's sha256 and the
+  static cameras (older manifests read as `stock`), survey results name their profile, clips
+  film the profile's `video_camera`, and `robotwin-icil cameras` writes one PNG per camera of a
+  scene (#34).
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
