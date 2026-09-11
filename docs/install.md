@@ -91,6 +91,11 @@ What the script produced on the machine the V1 numbers come from:
   `libEGL.so.1`. Do not reinstall the driver's GL packages inside a container over the libraries the
   toolkit mounts. SAPIEN's `Failed to find Vulkan ICD file` warning at import is harmless once
   `scripts/test_render.py` reports "Render Well".
+- **A run stops making progress, its process asleep in `get_obs`.** Two simulator processes that
+  render on one GPU at the same time can both hang in SAPIEN's camera read: they wait on the GPU
+  forever while it sits idle. Seen once on the RTX 5090, in a container, when a second process
+  started rendering; one process at a time has not hung. Run one simulator process per GPU. A
+  stopped `robotwin-icil eval` resumes from `episodes.jsonl`: kill it and rerun the same command.
 - **`ModuleNotFoundError: pkg_resources`.** setuptools is too new; rerun the script, which pins it.
 - **Embodiment `config.yml` or `curobo_left.yml` missing.** The asset stage did not finish; rerun
   the script.
