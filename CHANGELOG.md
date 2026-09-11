@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
+  suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
   env — and its CuRobo planners — alive at a time; a scene that fails to build, or a GPU that runs
   out of memory, stops the run instead of being recorded as rejected seeds; records and reports
