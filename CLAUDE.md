@@ -55,6 +55,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets.
+- Model environments: `bash scripts/install_policy_env.sh bpp|uniskill` builds `$ICIL_HOME/envs/icil-<name>` (default `~/.cache/robotwin-icil`) with uv from `policies/envs/<name>/`, never touching the simulator env. The `policies/` toolkit: `uv pip install -e . -e "policies[pure]"`, then `pytest policies/tests -m "not sim"`; its sim tests `PYTHONPATH=src:policies/src $RT -m pytest policies/tests -m sim`, from the main checkout.
 - Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
@@ -83,6 +84,11 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   of their own.
 - Demonstrations are model-independent (rgb per camera, endpose, qpos, measured gripper joints,
   frame times, control frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
+- `policies/` is a separate distribution, `robotwin-icil-policies` (package `icil_policies`), that
+  depends on the core: the core never imports it, and nothing in `src/robotwin_icil` names a model
+  (BPP, UniSkill, LIBERO). `icil_policies.common` stays numpy-only so the simulator env can import
+  it. Every adapter module declares `ADAPTER_VERSION` and bumps it whenever its conversion math
+  changes.
 - Reuse RoboTwin's task setup, expert, success check and reset as they are. The benchmark exposes
   that expert as an on-demand demonstration generator; it does not reimplement or fork it. In-memory
   capture is a `_take_picture` override and the physics clock an instance override of
