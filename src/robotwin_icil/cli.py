@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from . import camera_profiles
 from . import report as report_
@@ -37,6 +41,7 @@ def _eval(args: argparse.Namespace) -> int:
         max_expert_attempts=args.max_expert_attempts,
         video=args.video,
         video_camera=camera_profiles.get(args.camera_profile).video_camera,
+        policy_config=args.policy_args,
     )
     config = SceneConfig(
         task_config=args.task_config,
@@ -44,7 +49,7 @@ def _eval(args: argparse.Namespace) -> int:
         camera_profile=args.camera_profile,
     )
     try:
-        records = run(spec, make_policy(args.policy), config)
+        records = run(spec, make_policy(args.policy, **args.policy_args), config)
     except RoboTwinError as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1
@@ -122,6 +127,51 @@ def _tasks(args: argparse.Namespace) -> int:
     return 0
 
 
+_NULLS = ("", "~", "null", "Null", "NULL")
+
+
+def parse_policy_arg(item: str) -> tuple[str, Any]:
+    """One `--policy-arg KEY=VALUE`, or `ValueError` saying why it is not one.
+
+    The value is read as YAML, so numbers, booleans and null arrive typed; a quoted value is the
+    string inside the quotes, and anything else stays the string it was. KEY must be a Python
+    identifier, since it becomes a keyword argument.
+    """
+    key, sep, raw = item.partition("=")
+    if not sep:
+        raise ValueError(f"{item!r} is not KEY=VALUE")
+    if not key.isidentifier():
+        raise ValueError(f"{key!r} is not a Python identifier")
+    try:
+        value = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return key, raw
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{key}={raw}: a number must be finite")
+    if isinstance(value, (bool, int, float)):
+        return key, value
+    if value is None and raw.strip() in _NULLS:
+        return key, None
+    if isinstance(value, str) and raw.strip()[:1] in ("'", '"'):
+        return key, value
+    return key, raw
+
+
+class _PolicyArgs(argparse.Action):
+    """Collects every `--policy-arg KEY=VALUE` into one mapping; a KEY given twice is refused."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            key, value = parse_policy_arg(values)
+        except ValueError as exc:
+            parser.error(f"{option_string}: {exc}")
+        collected = dict(getattr(namespace, self.dest) or {})
+        if key in collected:
+            parser.error(f"{option_string}: {key!r} is given twice")
+        collected[key] = value
+        setattr(namespace, self.dest, collected)
+
+
 def _add_camera_profile(parser: argparse.ArgumentParser, flag: str = "--camera-profile") -> None:
     parser.add_argument(
         flag,
@@ -142,6 +192,15 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("eval", help="run episodes and record them in a run directory")
     run.add_argument(
         "--policy", required=True, help="built-in name (replay, dummy) or module:Class"
+    )
+    run.add_argument(
+        "--policy-arg",
+        dest="policy_args",
+        action=_PolicyArgs,
+        default={},
+        metavar="KEY=VALUE",
+        help="a keyword argument for the policy, its value read as YAML; repeatable "
+        "(an adapter's many settings go in its own YAML: config=PATH)",
     )
     which = run.add_mutually_exclusive_group(required=True)
     which.add_argument("--suite", help="a suite from tasks.yml, e.g. v1")

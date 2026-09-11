@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from robotwin_icil import camera_profiles, cli, png, robotwin, runner, survey
+from robotwin_icil.policy import ReplayPolicy
 from robotwin_icil.records import RunDir
 from robotwin_icil.robotwin import RoboTwinError
 from test_records import manifest, record
@@ -59,7 +60,7 @@ def stop_at_run(monkeypatch):
     seen = {}
 
     def run(spec, policy, config):
-        seen.update(spec=spec, config=config)
+        seen.update(spec=spec, config=config, policy=policy)
         raise RoboTwinError("stopped before the simulator")
 
     monkeypatch.setattr(runner, "run", run)
@@ -126,3 +127,89 @@ def test_cameras_writes_one_png_per_camera(tmp_path, monkeypatch, capsys):
 def test_cameras_refuses_a_task_outside_the_table(tmp_path, capsys):
     assert cli.main(["cameras", "--task", "nope", "--out", str(tmp_path)]) == 1
     assert "unknown task 'nope'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "item, expected",
+    [
+        ("steps=3", ("steps", 3)),
+        ("temperature=0.5", ("temperature", 0.5)),
+        ("deterministic=true", ("deterministic", True)),
+        ("deterministic=False", ("deterministic", False)),
+        ("checkpoint=null", ("checkpoint", None)),
+        ("checkpoint=", ("checkpoint", None)),
+        ("config=configs/bpp.yml", ("config", "configs/bpp.yml")),
+        ("arm=left", ("arm", "left")),
+        ("revision='0123'", ("revision", "0123")),  # quoted: the string, not octal 83
+        ("date=2024-01-01", ("date", "2024-01-01")),
+        ("tags=[a, b]", ("tags", "[a, b]")),
+        ("tag=#1", ("tag", "#1")),
+        ("expr=a=b", ("expr", "a=b")),
+    ],
+)
+def test_a_policy_arg_is_read_as_yaml_and_anything_else_stays_a_string(item, expected):
+    assert cli.parse_policy_arg(item) == expected
+
+
+class Configured(ReplayPolicy):
+    name = "configured"
+
+    def __init__(self, config=None, temperature=1.0, deterministic=False):
+        super().__init__()
+        self.config, self.temperature, self.deterministic = config, temperature, deterministic
+
+
+def test_eval_passes_policy_args_to_the_policy_and_the_run(tmp_path, stop_at_run):
+    argv = [*EVAL, "--run-dir", str(tmp_path), "--policy", "test_cli:Configured"]
+    args = ["config=configs/bpp.yml", "temperature=0.5", "deterministic=true"]
+    assert cli.main([*argv, *(x for arg in args for x in ("--policy-arg", arg))]) == 1
+    policy = stop_at_run["policy"]
+    assert (policy.config, policy.temperature, policy.deterministic) == (
+        "configs/bpp.yml",
+        0.5,
+        True,
+    )
+    assert stop_at_run["spec"].policy_config == {
+        "config": "configs/bpp.yml",
+        "temperature": 0.5,
+        "deterministic": True,
+    }
+
+
+def test_eval_without_policy_args_builds_the_policy_with_none(tmp_path, stop_at_run):
+    assert cli.main([*EVAL, "--run-dir", str(tmp_path)]) == 1
+    assert stop_at_run["spec"].policy_config == {}
+
+
+@pytest.mark.parametrize(
+    "items, message",
+    [
+        (["temperature"], "'temperature' is not KEY=VALUE"),
+        (["=3"], "'' is not a Python identifier"),
+        (["top-k=3"], "'top-k' is not a Python identifier"),
+        (["1st=3"], "'1st' is not a Python identifier"),
+        (["scale=.inf"], "a number must be finite"),
+        (["steps=3", "steps=4"], "'steps' is given twice"),
+    ],
+)
+def test_a_bad_policy_arg_is_a_usage_error_before_the_simulator(
+    tmp_path, stop_at_run, capsys, items, message
+):
+    argv = [
+        *EVAL,
+        "--run-dir",
+        str(tmp_path),
+        *(x for item in items for x in ("--policy-arg", item)),
+    ]
+    with pytest.raises(SystemExit) as exc:
+        cli.main(argv)
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+    assert stop_at_run == {}
+
+
+def test_a_policy_arg_the_policy_does_not_take_fails_cleanly(tmp_path, stop_at_run, capsys):
+    argv = [*EVAL, "--run-dir", str(tmp_path), "--policy-arg", "checkpoint=x.pt"]
+    assert cli.main(argv) == 1
+    assert "policy 'replay' does not take these arguments" in capsys.readouterr().err
+    assert stop_at_run == {}
