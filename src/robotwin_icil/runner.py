@@ -136,11 +136,16 @@ def run(
     """Run (or resume) every episode of `spec`, appending each record as it finishes.
 
     The run owns the policy's end: `policy.close()` is called exactly once, however the run ends.
+    Before that, the frozen-policy audit describes the policy again: when the run finished, and
+    also when it raised, if the policy gave a `parameter_checksum` at the start.
     """
+    description: dict[str, Any] | None = None
+    finished = False
     try:
         # Resolve before entering the RoboTwin seam, which moves the working directory.
         run_dir = RunDir(Path(spec.run_dir).resolve())
-        # Described once: an adapter's description may hash its parameters, which is not free.
+        # Described at the start and the end, not per episode: an adapter's description may hash
+        # its parameters, which is not free.
         description = _described(policy, config)
         run_dir.start(manifest_for(spec, policy, config, description))
         done = run_dir.completed()
@@ -148,9 +153,32 @@ def run(
         if done:
             log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
         _run_pending(spec, policy, config, run_dir, plan, done, description, log)
+        finished = True
         return sorted(run_dir.records(), key=lambda record: record.episode)
     finally:
-        policy.close()
+        try:
+            if description is not None and (
+                finished or description.get("parameter_checksum") is not None
+            ):
+                _audit(policy, description)
+        finally:
+            policy.close()
+
+
+def _audit(policy: ICILPolicy, started: dict[str, Any]) -> None:
+    """The frozen-policy audit: the parameters a run ends with are the ones it started with.
+
+    Only as strong as the adapter's `parameter_checksum`; a policy that gives none is not audited.
+    """
+    ended = policy.describe()
+    check_description(ended)
+    before = started.get("parameter_checksum")
+    after = ended.get("parameter_checksum")
+    if before is not None and after != before:
+        raise PolicyError(
+            f"{policy.name}: parameters changed during the run: the policy must be frozen "
+            f"(parameter_checksum {before!r} at the start, {after!r} at the end)"
+        )
 
 
 def _run_pending(

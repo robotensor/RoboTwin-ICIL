@@ -181,10 +181,10 @@ class Counting(ReplayPolicy):
         return super().describe()
 
 
-def test_the_policy_is_described_once_per_run_not_per_episode(tmp_path, fake_sim):
+def test_the_policy_is_described_at_the_start_and_end_of_a_run_not_per_episode(tmp_path, fake_sim):
     policy = Counting()
     records = runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
-    assert policy.described == 1
+    assert policy.described == 2
     assert {r.model for r in records} == {"counting"}
 
 
@@ -313,3 +313,64 @@ def test_a_description_resumes_as_json_reads_it_back(tmp_path, fake_sim):
     manifest = RunDir(tmp_path / "run").manifest()
     assert manifest.policy["training_tasks"] == ["click_bell", "stack_blocks_two"]
     runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)  # a tuple is not a new run
+
+
+class Learning(ReplayPolicy):
+    """A policy that writes its parameters as it acts: what the frozen-policy audit catches."""
+
+    name = "learning"
+
+    def __init__(self, checksum="0" * 8):
+        super().__init__()
+        self.checksum = checksum
+        self.updates = 0
+        self.closed = 0
+
+    def _act(self, observation):
+        self.updates += 1
+        return super()._act(observation)
+
+    def describe(self):
+        checksum = None if self.checksum is None else f"{self.checksum}-{self.updates}"
+        return {**super().describe(), "parameter_checksum": checksum}
+
+    def close(self):
+        self.closed += 1
+
+
+class Frozen(Learning):
+    name = "frozen"
+
+    def describe(self):
+        return {**ReplayPolicy.describe(self), "parameter_checksum": self.checksum}
+
+
+def test_a_policy_whose_parameters_change_fails_the_audit(tmp_path, fake_sim):
+    policy = Learning()
+    with pytest.raises(PolicyError, match="parameters changed during the run: the policy must be"):
+        runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert policy.closed == 1
+    # What ran is on disk; the error, not the records, says it cannot be trusted.
+    assert len(RunDir(tmp_path / "run").records()) == 4
+
+
+def test_a_frozen_policy_passes_the_audit(tmp_path, fake_sim):
+    records = runner.run(spec(tmp_path), Frozen(), FakeConfig(), log=quiet)
+    assert len(records) == 4
+
+
+def test_the_audit_runs_when_the_run_raises_too(tmp_path, monkeypatch, fake_sim):
+    second = tasks.table().suite("v1")[1].name
+    monkeypatch.setattr(
+        robotwin, "load_task", lambda name: FakeTaskEnv(broken_setup=(name == second))
+    )
+    policy = Learning()
+    with pytest.raises(PolicyError, match="parameters changed") as raised:
+        runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert isinstance(raised.value.__context__, robotwin.RoboTwinError)
+    assert policy.closed == 1
+
+
+def test_a_policy_without_a_checksum_is_not_audited(tmp_path, fake_sim):
+    records = runner.run(spec(tmp_path), Learning(checksum=None), FakeConfig(), log=quiet)
+    assert len(records) == 4
