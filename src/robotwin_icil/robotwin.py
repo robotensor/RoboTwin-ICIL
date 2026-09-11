@@ -41,6 +41,23 @@ class RoboTwinError(RuntimeError):
     """RoboTwin is missing, misconfigured, or refused to build a scene."""
 
 
+def use_env_render_manifests() -> None:
+    """Point SAPIEN at the NVIDIA render manifests `install_robotwin.sh` left in the env, if any.
+
+    Without root the installer cannot put the Vulkan ICD and EGL vendor manifests where the loaders
+    look, so it writes them under the env's `share/robotwin-icil`, where SAPIEN finds them only
+    through these variables. Benchmark commands run the env's interpreter directly, so no
+    activation script sets them. Explicit settings win.
+    """
+    share = Path(sys.prefix) / "share" / "robotwin-icil"
+    for variable, manifest in (
+        ("VK_ICD_FILENAMES", share / "vulkan" / "icd.d" / "nvidia_icd.json"),
+        ("__EGL_VENDOR_LIBRARY_FILENAMES", share / "glvnd" / "egl_vendor.d" / "10_nvidia.json"),
+    ):
+        if manifest.is_file():
+            os.environ.setdefault(variable, str(manifest))
+
+
 def _ensure_importable() -> None:
     """RoboTwin is a checkout, not a package: it imports from, and loads assets relative to, its root.
 
@@ -53,6 +70,7 @@ def _ensure_importable() -> None:
             f"no RoboTwin checkout at {ROBOTWIN_ROOT}; run "
             "`git submodule update --init --recursive`"
         )
+    use_env_render_manifests()
     root = str(ROBOTWIN_ROOT)
     if root not in sys.path:
         sys.path.insert(0, root)

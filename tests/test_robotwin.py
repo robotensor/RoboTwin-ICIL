@@ -63,3 +63,35 @@ def test_gpu_exhaustion_is_recognised_without_torch():
     assert robotwin.gpu_exhausted(OutOfMemoryError("anything"))
     assert robotwin.gpu_exhausted(RuntimeError("CUDA out of memory. Tried to allocate 2 MiB"))
     assert not robotwin.gpu_exhausted(AssertionError("target_pose cannot be None for move action."))
+
+
+def test_render_manifests_left_in_the_env_are_used(tmp_path, monkeypatch):
+    import os
+
+    from robotwin_icil import robotwin
+
+    share = tmp_path / "share" / "robotwin-icil"
+    icd = share / "vulkan" / "icd.d" / "nvidia_icd.json"
+    egl = share / "glvnd" / "egl_vendor.d" / "10_nvidia.json"
+    for manifest in (icd, egl):
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(robotwin.sys, "prefix", str(tmp_path))
+    monkeypatch.delenv("VK_ICD_FILENAMES", raising=False)
+    monkeypatch.setenv("__EGL_VENDOR_LIBRARY_FILENAMES", "/explicit/10_nvidia.json")
+    robotwin.use_env_render_manifests()
+    assert os.environ["VK_ICD_FILENAMES"] == str(icd)
+    assert os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] == "/explicit/10_nvidia.json"
+
+
+def test_no_render_manifests_in_the_env_leaves_the_environment_alone(tmp_path, monkeypatch):
+    import os
+
+    from robotwin_icil import robotwin
+
+    monkeypatch.setattr(robotwin.sys, "prefix", str(tmp_path))
+    monkeypatch.delenv("VK_ICD_FILENAMES", raising=False)
+    monkeypatch.delenv("__EGL_VENDOR_LIBRARY_FILENAMES", raising=False)
+    robotwin.use_env_render_manifests()
+    assert "VK_ICD_FILENAMES" not in os.environ
+    assert "__EGL_VENDOR_LIBRARY_FILENAMES" not in os.environ
