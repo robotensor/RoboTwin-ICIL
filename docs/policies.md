@@ -379,9 +379,13 @@ in site-packages does not bring the simulator environment's libraries with it.
 | `log` | `policy_server.log` in the run directory under `eval`, else a temporary file | where the server's stdout and stderr go, appended; kept after the run |
 | `address` | none | `host:port` of a server already running (or its socket's path), instead of starting one; then give `authkey_file`, and none of `policy`, `python`, `config`, `log` or the policy's own arguments |
 | `authkey_file` | none | the running server's key |
-| `startup_timeout` | 900 | seconds for a started server to listen, and again for its reply to `hello`, which comes once the model has loaded (BPP's checkpoint is 6.9 GB) |
-| `timeout` | 120 | seconds for every other reply |
+| `startup_timeout` | 900 | seconds for a started server to listen, and again for `hello`, whose reply comes once the model has loaded (BPP's checkpoint is 6.9 GB) |
+| `timeout` | 120 | seconds for every other operation |
 | any other | | the served policy's own keyword argument, passed on the server's command line as a `--policy-arg`: None, a boolean, a number, a string or a path, each read back as the value given; anything else is refused |
+
+Each timeout bounds sending the request and, separately, waiting for its reply: a server that
+stops reading, stopped or cut off by the network, would otherwise block a large message forever
+once the socket's buffer is full.
 
 Every one of them is a `--policy-arg`, so the manifest records it in `policy_config` and a run
 does not resume under others; the log path `eval` picks is not recorded. The manifest's policy
@@ -401,12 +405,13 @@ and finiteness checks. `describe()` asks the server each time, so the frozen-pol
 the checksum the model ends the run with. Demonstrations and observations arrive bit for bit,
 every field included.
 
-A policy that raises in the server, a reply that does not come within its timeout, a server
-that hangs up or dies: each stops the server (SIGTERM to its process group, SIGKILL 5 s later)
-and raises `PolicyError` naming the server's log and quoting its last lines. The run stops as for
-any `PolicyError`, and the same command resumes it from `episodes.jsonl`. `close()` asks the
-server to shut down and stops it whatever it answers, so no server outlives a run, however the
-run ends.
+A policy that raises in the server, a request or reply that does not go through within its
+timeout, a server that hangs up or dies: each stops the server (SIGTERM to its process group,
+SIGKILL 5 s later) and raises `PolicyError` naming the server's log and quoting its last lines;
+every later call raises the same, the frozen-policy audit's included. The run stops as for any
+`PolicyError`, and the same command resumes it from `episodes.jsonl`. `close()` asks the server
+to shut down and stops it whatever it answers, so no server outlives a run, however the run
+ends.
 
 ### A model on another machine
 
