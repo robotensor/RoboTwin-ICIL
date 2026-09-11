@@ -1,0 +1,46 @@
+# The BPP LIBERO-Gen Combination transfer adapter (issue #42, plan A2).
+#
+#   robotwin-icil eval --policy remote \
+#       --policy-arg policy=icil_policies.bpp:BPPPolicy \
+#       --policy-arg python=$ICIL_HOME/envs/icil-bpp/bin/python \
+#       --policy-arg config=policies/configs/bpp_liberogen_combination.yaml \
+#       --camera-profile far_side --suite v1 --episodes 90 --seed 42 --run-dir runs/bpp
+#
+# Every constant is documented in docs/models/bpp.md, which says where each number came from.
+# Relative paths are resolved against this file's directory; `~` is expanded.
+
+# `icil-bpp slim` writes this directory from the 6.9 GB release checkpoint, so a server does not
+# load a dill payload at every start. checkpoint_sha256 is of `model.safetensors` inside it and
+# is verified on load; source_sha256 is the release file's own.
+checkpoint: ~/.cache/robotwin-icil/models/bpp/liberogen_spatial_combination
+checkpoint_sha256: ""
+source_checkpoint: austinpatel/liberogen_spatial_combination/liberogen_spatial_combination_behavior_prompting.ckpt@0e4c1fdf496592583acfbde51ce82880006aa0f3
+source_sha256: 74e0f841f3b86f1383adda23dab59fddee8806a4bcb5685ed7f826afb320c097
+
+# Tracking gains, fitted by `icil-bpp calibrate` on the held-out LIBERO-Gen demonstrations
+# (achieved on commanded tool motion, least squares).
+alpha_p: 0.227
+alpha_r: 0.184
+stretch: 1.0
+
+# To be confirmed from renders in #47: the tool-frame correction C (a quarter turn about the
+# flange's y, taking robosuite's +z approach onto aloha's +x), the wrist roll, and the crop.
+tool_correction_axis_angle: [0.0, 1.5707963267948966, 0.0]
+wrist_roll_quarter_turns: 0
+camera_profile: far_side
+crop: 180
+wrist_crop: 240
+workspace_centre_offset_m: [0.0, 0.25, -0.04]
+
+# Execution (plan 3.4), chosen by the conversion oracle on the calibration seed.
+mode: ee_step
+max_position_error_m: 0.01
+max_rotation_error_rad: 0.1
+stall_window: 10
+stall_motion_m: 0.002
+max_prompt_chunks: 50
+
+urdf_path: ""
+notes:
+  libero_base_m: robosuite PandaRobot.base_xpos_offset["table"](1.0) with LIBERO's table offset
+  alphas: icil-bpp calibrate, libero_spatial_selected_combinations_view
