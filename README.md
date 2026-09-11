@@ -122,7 +122,8 @@ robotwin-icil report runs/v1
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
 Because Same Scene means the rollout starts from the identical state, it is the harness's own
-upper bound: if it does not succeed, the bug is in the benchmark, not in the model.
+upper bound: if it does not succeed, the bug is in the benchmark, not in the model. `replay_ee`
+does the same through RoboTwin's end-effector action path, the ceiling of any `ee` adapter.
 
 ## Layout
 
@@ -134,7 +135,7 @@ src/robotwin_icil/
   config.py                 benchmark + RoboTwin configuration
   demo.py                   model-independent demonstration container
   scene.py                  initial-state fingerprint and Same Scene verification
-  policy.py                 the policy interface, dummy and replay policies
+  policy.py                 the policy interface, dummy, replay and replay_ee policies
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   runner.py                 episode loop, seed drawing, rejection accounting
