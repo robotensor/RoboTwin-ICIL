@@ -13,14 +13,14 @@
 # load a dill payload at every start. checkpoint_sha256 is of `model.safetensors` inside it and
 # is verified on load; source_sha256 is the release file's own.
 checkpoint: ~/.cache/robotwin-icil/models/bpp/liberogen_spatial_combination
-checkpoint_sha256: ""
+checkpoint_sha256: 2a0bbeb90502f21d0bb86d29a79ca033a31008853990139bde10eaa208e83039
 source_checkpoint: austinpatel/liberogen_spatial_combination/liberogen_spatial_combination_behavior_prompting.ckpt@0e4c1fdf496592583acfbde51ce82880006aa0f3
 source_sha256: 74e0f841f3b86f1383adda23dab59fddee8806a4bcb5685ed7f826afb320c097
 
 # Tracking gains, fitted by `icil-bpp calibrate` on the held-out LIBERO-Gen demonstrations
 # (achieved on commanded tool motion, least squares).
-alpha_p: 0.227
-alpha_r: 0.184
+alpha_p: 0.241057
+alpha_r: 0.203565
 stretch: 1.0
 
 # To be confirmed from renders in #47: the tool-frame correction C (a quarter turn about the
@@ -34,8 +34,8 @@ workspace_centre_offset_m: [0.0, 0.25, -0.04]
 
 # Execution (plan 3.4), chosen by the conversion oracle on the calibration seed.
 mode: ee_step
-max_position_error_m: 0.01
-max_rotation_error_rad: 0.1
+max_position_error_m: 0.025
+max_rotation_error_rad: 0.25
 stall_window: 10
 stall_motion_m: 0.002
 max_prompt_chunks: 50
@@ -43,4 +43,4 @@ max_prompt_chunks: 50
 urdf_path: ""
 notes:
   libero_base_m: robosuite PandaRobot.base_xpos_offset["table"](1.0) with LIBERO's table offset
-  alphas: icil-bpp calibrate, libero_spatial_selected_combinations_view
+  alphas: icil-bpp calibrate on libero_spatial_selected_combinations_view, 10 files x 10 demos, 19552 steps (position R2 0.951, rotation R2 0.732)

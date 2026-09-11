@@ -52,6 +52,8 @@ def test_a_mode_names_its_action_type():
         ("agentview_type", "webcam", "agentview_type must be one of"),
         ("crop", 400, "does not fit"),
         ("wrist_cameras", ("one",), "must name two"),
+        ("max_position_error_m", 0.001, "must exceed one full-scale commanded step"),
+        ("max_rotation_error_rad", 0.01, "must exceed one full-scale commanded step"),
     ],
 )
 def test_a_setting_that_cannot_run_is_refused(key, value, message):
@@ -78,6 +80,6 @@ def test_a_config_round_trips_through_yaml(tmp_path):
 
 def test_describe_is_json_and_carries_every_constant():
     description = bpp_settings.load().describe()
-    assert description["alpha_p"] == 0.227 and description["action_type"] == "ee"
+    assert description["alpha_p"] > 0 and description["action_type"] == "ee"
     assert description["tool_correction_axis_angle"][1] == pytest.approx(math.pi / 2)
     yaml.safe_dump(description)

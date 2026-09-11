@@ -98,8 +98,8 @@ class Settings:
 
     # Tracking gains (plan 3.4): an OSC delta is a goal offset, and the arm covers `alpha` of it
     # in one 20 Hz step. Fitted by `icil-bpp calibrate` on the checkpoint's own LIBERO-Gen data.
-    alpha_p: float = 0.227
-    alpha_r: float = 0.184
+    alpha_p: float = 0.241057
+    alpha_r: float = 0.203565
     # Prompt speed (plan 3.4): samples per demonstration second are `stretch * 20`.
     stretch: float = 1.0
 
@@ -127,8 +127,13 @@ class Settings:
 
     # Execution (plan 3.4).
     mode: str = "ee_step"
-    max_position_error_m: float = 0.010
-    max_rotation_error_rad: float = 0.10
+    # The virtual target is re-anchored to the measured pose once tracking is this far off. It
+    # must exceed one full-scale commanded step (`alpha_p * 0.05` = 12 mm of tool motion at the
+    # fitted gain), or every call would re-anchor and sub-tolerance motion could never add up,
+    # which is the whole point of the target (plan 3.4). Twice that step, against CuRobo's 5 mm
+    # goal tolerance and the #36 probe, where 1 mm targets already moved the arm.
+    max_position_error_m: float = 0.025
+    max_rotation_error_rad: float = 0.25
     stall_window: int = 10
     stall_motion_m: float = 0.002
     # At most this many prompt chunks, or the demonstration is refused (V1 needs 5-20).
@@ -169,6 +174,14 @@ class Settings:
                     f"bpp config: {name} must be one of {sorted(CAMERA_GEOMETRY)}, "
                     f"got {getattr(self, name)!r}"
                 )
+        step_m = self.alpha_p * OSC_POSITION_SCALE_M
+        step_rad = self.alpha_r * OSC_ROTATION_SCALE_RAD
+        if self.max_position_error_m <= step_m or self.max_rotation_error_rad <= step_rad:
+            raise PolicyError(
+                "bpp config: the re-anchoring bounds must exceed one full-scale commanded step "
+                f"({step_m:.4f} m, {step_rad:.4f} rad at these gains), or the virtual target is "
+                "re-anchored at every call and sub-tolerance motion is lost"
+            )
         width, height, _ = CAMERA_GEOMETRY[self.agentview_type]
         if not 0 < self.crop <= min(width, height):
             raise PolicyError(f"bpp config: crop {self.crop} does not fit a {width}x{height} frame")
