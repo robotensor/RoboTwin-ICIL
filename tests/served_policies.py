@@ -75,6 +75,15 @@ class Crashing(ReplayPolicy):
         return super()._act(observation)
 
 
+class CrashingAudited(Crashing):
+    """Crashes as `Crashing` does, and gives a checksum, so the run audits it after the crash."""
+
+    name = "crashing_audited"
+
+    def describe(self):
+        return {**super().describe(), "parameter_checksum": "abc"}
+
+
 class Hanging(ReplayPolicy):
     """Never answers an action."""
 

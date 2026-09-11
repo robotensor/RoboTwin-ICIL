@@ -153,6 +153,20 @@ def test_a_server_that_crashes_mid_episode_stops_the_run_and_the_run_resumes(tmp
     assert all(record.success for record in records)
 
 
+def test_a_crash_keeps_its_log_in_the_error_the_audit_raises_after_it(tmp_path, fake_sim):
+    # The audit's describe() runs after the crash, and its error is the one the run raises.
+    log = tmp_path / "serve.log"
+    crashing = RemotePolicy(policy="served_policies:CrashingAudited", crash_at=2, log=log)
+    with pytest.raises(PolicyError) as raised:
+        runner.run(spec(tmp_path), crashing, FakeConfig(), log=quiet)
+    message = str(raised.value)
+    assert "stopped after an earlier failure: the policy server hung up during act" in message
+    assert "(it exited with status 3)" in message
+    assert f"policy server log {log}, last lines:" in message and "crashing now" in message
+    assert not running(crashing)
+    assert not (tmp_path / "run" / "audit.json").exists()  # a crash is no audit failure
+
+
 def test_a_server_that_hangs_times_out_and_is_stopped(tmp_path):
     policy = RemotePolicy(policy="served_policies:Hanging", timeout=0.5, log=tmp_path / "serve.log")
     policy.reset()

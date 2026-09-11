@@ -372,14 +372,16 @@ class RemotePolicy(ICILPolicy):
                 server.process.wait(1.0)
         self._failure = what
         self._stop()
-        message = f"{self.name}: {what}"
         if server is not None:
             if server.exited is not None:
-                message += f" (it exited with status {server.exited})"
-            message += f"\npolicy server log {server.log}, last lines:\n{_tail(server.log)}"
+                what += f" (it exited with status {server.exited})"
+            what += f"\npolicy server log {server.log}, last lines:\n{_tail(server.log)}"
         elif isinstance(trace, str):
-            message += f"\npolicy server traceback:\n{trace.rstrip()}"
-        return PolicyError(message)
+            what += f"\npolicy server traceback:\n{trace.rstrip()}"
+        # All of it: a later call raises this again, and its error may be the one shown, as the
+        # frozen-policy audit's describe() is when a run stops on this failure.
+        self._failure = what
+        return PolicyError(f"{self.name}: {what}")
 
     def _stop(self) -> None:
         conn, self._conn = self._conn, None
