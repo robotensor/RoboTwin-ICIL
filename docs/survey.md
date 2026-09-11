@@ -29,6 +29,10 @@ in [install.md](install.md) (RTX A6000, CuRobo 0.7.8). Raw results:
 | click_alarmclock | Press / Push | 80% (16/20) | 88 | 20.8 | missed 2, plan failed 2 |
 | press_stapler | Press / Push | 95% (19/20) | 120 | 25.5 | error 1 |
 
+**Timing caveat.** For most of the survey the GPU was shared with an unrelated training job
+holding about 40 GiB, so the *s / seed* column is inflated by contention. Success rates are not
+affected: each seed's scene and expert are deterministic.
+
 **The rule.** A task stays in `v1` while its expert solves at least 70% of surveyed seeds.
 place_object_basket, at 45%, needs about 2.2 expert runs (~90 s) per scored episode and has the
 longest pick-and-place horizon (one arm places the object, the other lifts the basket); it is out.
