@@ -1,0 +1,124 @@
+[
+  {
+    "task": "place_object_basket",
+    "skill_category": "pick_and_place",
+    "seeds": 20,
+    "successes": 9,
+    "success_rate": 0.45,
+    "rejections": {
+      "expert_failed": 8,
+      "plan_failed": 3
+    },
+    "mean_demonstration_frames": 248.66666666666666,
+    "seconds_per_seed": 40.2510491433437
+  },
+  {
+    "task": "place_a2b_left",
+    "skill_category": "pick_and_place",
+    "seeds": 20,
+    "successes": 17,
+    "success_rate": 0.85,
+    "rejections": {
+      "expert_error": 2,
+      "plan_failed": 1
+    },
+    "mean_demonstration_frames": 148.64705882352942,
+    "seconds_per_seed": 20.87882985738106
+  },
+  {
+    "task": "place_a2b_right",
+    "skill_category": "pick_and_place",
+    "seeds": 20,
+    "successes": 15,
+    "success_rate": 0.75,
+    "rejections": {
+      "expert_error": 2,
+      "plan_failed": 3
+    },
+    "mean_demonstration_frames": 149.46666666666667,
+    "seconds_per_seed": 19.70966800637543
+  },
+  {
+    "task": "place_empty_cup",
+    "skill_category": "pick_and_place",
+    "seeds": 20,
+    "successes": 18,
+    "success_rate": 0.9,
+    "rejections": {
+      "plan_failed": 2
+    },
+    "mean_demonstration_frames": 173.27777777777777,
+    "seconds_per_seed": 24.960747739113867
+  },
+  {
+    "task": "place_container_plate",
+    "skill_category": "pick_and_place",
+    "seeds": 20,
+    "successes": 15,
+    "success_rate": 0.75,
+    "rejections": {
+      "expert_error": 3,
+      "plan_failed": 2
+    },
+    "mean_demonstration_frames": 160.4,
+    "seconds_per_seed": 23.591841482464226
+  },
+  {
+    "task": "stack_blocks_two",
+    "skill_category": "stacking",
+    "seeds": 20,
+    "successes": 20,
+    "success_rate": 1.0,
+    "rejections": {},
+    "mean_demonstration_frames": 316.6,
+    "seconds_per_seed": 89.11737187869149
+  },
+  {
+    "task": "stack_bowls_two",
+    "skill_category": "stacking",
+    "seeds": 20,
+    "successes": 15,
+    "success_rate": 0.75,
+    "rejections": {
+      "expert_failed": 1,
+      "plan_failed": 4
+    },
+    "mean_demonstration_frames": 319.73333333333335,
+    "seconds_per_seed": 65.47127918174957
+  },
+  {
+    "task": "click_bell",
+    "skill_category": "press_push",
+    "seeds": 20,
+    "successes": 20,
+    "success_rate": 1.0,
+    "rejections": {},
+    "mean_demonstration_frames": 78.0,
+    "seconds_per_seed": 18.402592858916613
+  },
+  {
+    "task": "click_alarmclock",
+    "skill_category": "press_push",
+    "seeds": 20,
+    "successes": 16,
+    "success_rate": 0.8,
+    "rejections": {
+      "expert_failed": 2,
+      "plan_failed": 2
+    },
+    "mean_demonstration_frames": 87.75,
+    "seconds_per_seed": 20.79193171837833
+  },
+  {
+    "task": "press_stapler",
+    "skill_category": "press_push",
+    "seeds": 20,
+    "successes": 19,
+    "success_rate": 0.95,
+    "rejections": {
+      "expert_error": 1
+    },
+    "mean_demonstration_frames": 119.57894736842105,
+    "seconds_per_seed": 25.452854513155764
+  }
+]
