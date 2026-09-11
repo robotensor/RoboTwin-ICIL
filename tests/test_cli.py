@@ -9,7 +9,7 @@ def test_tasks_lists_categories_and_suite_membership(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
-    assert "place_object_basket  [v1]" in out
+    assert "click_bell  [v1]" in out
 
 
 def test_report_reads_a_run_directory_without_a_simulator(tmp_path, capsys):
