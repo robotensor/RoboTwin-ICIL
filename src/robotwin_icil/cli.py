@@ -8,17 +8,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
-from typing import Any
-
-import yaml
 
 from . import camera_profiles
 from . import report as report_
 from . import tasks as tasks_
-from .policy import PolicyError, make_policy
+from .policy import PolicyError, make_policy, parse_policy_arg
 from .records import RecordError, RunDir
 from .robotwin import RoboTwinError
 
@@ -137,37 +133,6 @@ def _tasks(args: argparse.Namespace) -> int:
             tags = ", ".join(sorted(name for name, names in suites.items() if task.name in names))
             print(f"  {task.name}" + (f"  [{tags}]" if tags else ""))
     return 0
-
-
-_NULLS = ("", "~", "null", "Null", "NULL")
-
-
-def parse_policy_arg(item: str) -> tuple[str, Any]:
-    """One `--policy-arg KEY=VALUE`, or `ValueError` saying why it is not one.
-
-    The value is read as YAML, so numbers, booleans and null arrive typed; a quoted value is the
-    string inside the quotes, and anything else stays the string it was. Scientific notation
-    needs a dot and a signed exponent, as YAML 1.1 has it: `1.0e-4` is a float, `1e-4` the string
-    '1e-4'. KEY must be a Python identifier, since it becomes a keyword argument.
-    """
-    key, sep, raw = item.partition("=")
-    if not sep:
-        raise ValueError(f"{item!r} is not KEY=VALUE")
-    if not key.isidentifier():
-        raise ValueError(f"{key!r} is not a Python identifier")
-    try:
-        value = yaml.safe_load(raw)
-    except yaml.YAMLError:
-        return key, raw
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(f"{key}={raw}: a number must be finite")
-    if isinstance(value, (bool, int, float)):
-        return key, value
-    if value is None and raw.strip() in _NULLS:
-        return key, None
-    if isinstance(value, str) and raw.strip()[:1] in ("'", '"'):
-        return key, value
-    return key, raw
 
 
 class _PolicyArgs(argparse.Action):
