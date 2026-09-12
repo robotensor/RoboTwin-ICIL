@@ -182,18 +182,31 @@ counts those calls.
 | Prompt chunking equals BPP's own | **passed** — `policies/tests/test_bpp_model_env.py`, BPP's `PromptActionChunker` and `collate_prompts`, shapes `(1, L, 20, 10)` and `(1, L, 3, 224, 224)`, mask all false, last chunk zero-padded |
 | Action encoding equals BPP's dataset | **passed** — against BPP's own `RotationTransformer` on random actions |
 | Gate 2: served actions equal a direct `predict_action` | **passed** — `icil-bpp preflight`, max absolute difference **0.0** |
-| Gate 1: prompt tensors equal `LiberoReplayImageDataset(only_prompt=True)` | **could not run here** (below) |
-| LIBERO sanity rollout (≥ 5 of 10) | **could not run here** (below) |
+| Gate 1: prompt tensors equal `LiberoReplayImageDataset(only_prompt=True)` | **passed** — `icil-bpp preflight --libero-data`, max absolute difference **2.1e-7** (`ee_pos` and both images exactly 0, `ee_ori` 2.1e-7, the actions 1.5e-8) on `pick_up_the_black_bowl_from_table_center_and_place_it_on_the_cookie_box_demo.hdf5` |
+| LIBERO sanity rollout (≥ 5 of 10) | queued behind the shared GPU lock at the time of writing (below) |
 | O3 on the calibration seed, V1 run | **not run**: the RoboTwin simulator is not installed in this worktree (#42 is a pure-adapter issue; the sim test is `policies/tests/sim/test_bpp_execution.py`) |
 
-**Why gate 1 and the LIBERO sanity rollout did not run.** Both need BPP's LIBERO stack inside the
-`icil-bpp` environment: `LiberoReplayImageDataset` imports `libero.libero`, and BPP's
-`libero_util` imports `open3d`. In this environment `open3d` and `future` (which `bddl` needs)
-are absent and the editable `libero` install does not resolve, and issue #42 forbids installing
-anything into `icil-bpp` beyond this branch's own packages. `icil-bpp preflight --libero-data`
-and `icil-bpp libero-sanity` implement both and will run once that environment carries the
-LIBERO stack; until then the encoding and chunking halves of gate 1 are covered by the model-env
-tests above, which use BPP's own chunker and rotation transformer on the same inputs.
+**Running the two LIBERO gates.** Both need BPP's LIBERO stack inside the `icil-bpp`
+environment — `LiberoReplayImageDataset` imports `libero.libero` and BPP's `libero_util` imports
+`open3d` — which the installer now provides (`future`, `open3d`, and LIBERO's checkout on the
+path). They also need `~/.libero/config.yaml` pointing `datasets` at the LIBERO-Gen root and
+`bddl_files` / `init_states` at BPP's own `train_network/env/libero/{bddl_files,init_files}`
+trees, which carry the split; and the adapter registers LIBERO-Gen's splits itself before
+building either the dataset or the runner (`discover_and_register_benchmarks`, which BPP calls
+only from `utils/load_env.py`, never from the dataset or the env runner, so both raised
+`KeyError` on the split without it).
+
+```bash
+icil-bpp --json gate1.json preflight \
+    --config policies/configs/bpp_liberogen_combination.yaml \
+    --libero-data /root/datasets/libero_gen/demonstration_data/libero_spatial_selected_combinations_view/<one>.hdf5 \
+    --cache-dir <a cache outside the repository>
+icil-bpp libero-sanity --config policies/configs/bpp_liberogen_combination.yaml \
+    --dataset <another one>.hdf5 --episodes 10
+```
+
+Gate 1 builds the dataset's zarr cache on the CPU and needs no GPU; gate 2 and the sanity
+rollout load the checkpoint and must run under the machine's shared GPU lock.
 
 ## What a run records
 
