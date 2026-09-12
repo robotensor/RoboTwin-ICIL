@@ -1,0 +1,102 @@
+{
+  "reference_id": "bpp-robotwin-same-scene",
+  "headline": "BPP on the RoboTwin Same Scene benchmark",
+  "not_a_competition_score": "This is not a score in either field. The policy was shown the demonstration's frames, action trajectory and proprioception, and was scored from the identical scene it was shown. The video-only field withholds the actions and proprioception; the sensorimotor field scores from a different initial state. No field allows this combination, and under Same Scene the demonstrated actions are close to the answer - the benchmark's own replay oracle succeeds on this scene by feeding them straight back.",
+  "benchmark": {
+    "name": "robotwin-icil",
+    "repository": "robotensor/robotwin-icil-benchmark",
+    "suite": "v1",
+    "benchmark_commit": "aecb2a9d537aa1e041aa88dadd622f6ee2a1d35c",
+    "robotwin_commit": "96c1feab536306b50c26af200044fcdf126e8904",
+    "camera_profile": "far_side",
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "simulator": "robotwin"
+  },
+  "protocol": {
+    "evaluation_setting": "same_scene",
+    "demonstrations_per_episode": 1,
+    "demonstration_source": "RoboTwin's own scripted expert, generated at evaluation time",
+    "scored_from": "the identical initial scene as the demonstration",
+    "global_seed": 42,
+    "step_limit": 400
+  },
+  "demonstration_shown": {
+    "view": "sensorimotor",
+    "channels": [
+      "video",
+      "actions",
+      "proprio"
+    ],
+    "note": "The adapter converts the demonstration to end-effector poses and gripper commands and feeds them to the policy alongside the frames. That is more than the video-only field shows, which is why this number cannot be read as a video-only result."
+  },
+  "subject": {
+    "label": "BPP (behavior prompting)",
+    "checkpoint": "austinpatel/liberogen_spatial_combination/liberogen_spatial_combination_behavior_prompting.ckpt@0e4c1fdf496592583acfbde51ce82880006aa0f3",
+    "checkpoint_sha256": "74e0f841f3b86f1383adda23dab59fddee8806a4bcb5685ed7f826afb320c097",
+    "parameter_checksum": "42b4945334154f6c1373186f924d4b46a1f8bdfe03256efce47d98eabe3c8075",
+    "adapter": "icil_policies.bpp v1",
+    "action_type": "ee",
+    "admissible_as_an_entrant": false,
+    "why_not_admissible": "It is the sensorimotor field's current genesis policy, and its architecture takes the demonstration's actions as input - which the video-only field has no channel for."
+  },
+  "results": {
+    "scored": 1,
+    "successes": 0,
+    "rows": [
+      {
+        "id": "bpp-0",
+        "task": "place_a2b_left",
+        "category": "pick_and_place",
+        "scored": 1,
+        "successes": 0,
+        "steps": 400,
+        "scene_seed": 191664963
+      }
+    ],
+    "not_run": [
+      "click_alarmclock",
+      "click_bell",
+      "place_a2b_right",
+      "place_container_plate",
+      "place_empty_cup",
+      "press_stapler",
+      "stack_blocks_two",
+      "stack_bowls_two"
+    ]
+  },
+  "ceiling": {
+    "label": "What the harness itself achieves on this scene",
+    "why": "The benchmark's replay oracle feeds the demonstration's own actions straight back into the identical scene. It is not an entrant and not a policy: it is the measurement that says the episode is winnable and the scene reconstructs exactly, so a zero above means the model failed rather than that the task was impossible. It is also why handing a policy those actions under Same Scene measures copying - which is the whole reason the video-only field withholds them. Same task and same scene seed as the row above; the oracle ran under the stock camera profile, so the two runs are not a single table and the benchmark says so itself, below.",
+    "rows": [
+      {
+        "id": "oracle-0",
+        "task": "place_a2b_left",
+        "category": "pick_and_place",
+        "scored": 1,
+        "successes": 1,
+        "steps": 141,
+        "scene_seed": 191664963
+      }
+    ],
+    "differences": [
+      "camera profile (stock (sha256 608537602918), not far_side (sha256 d5f4495d756e))",
+      "robotwin_config.static_cameras"
+    ]
+  },
+  "media": [
+    {
+      "label": "Demonstration \u2014 the expert, shown to the policy",
+      "role": "demonstration",
+      "row": "bpp-0",
+      "source": "../../runs/bpp-v1-smoke/episode_00000/demonstration.mp4",
+      "sha256": "9ff72d9576c5b87e0c56e3afc68b1cb7679cf2f3015d038497c781ad392a361a"
+    },
+    {
+      "label": "Evaluation \u2014 the policy, from the identical scene",
+      "role": "evaluation",
+      "row": "bpp-0",
+      "source": "../../runs/bpp-v1-smoke/episode_00000/evaluation_same_scene.mp4",
+      "sha256": "5b0fe4067dc8f1b98c6e91d856e97f933affb44b74416b658bf2230010c6419e"
+    }
+  ]
+}

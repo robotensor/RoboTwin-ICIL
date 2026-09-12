@@ -4,6 +4,14 @@
 
 ### Competition plugin
 
+- (docs): `docs/results/reference-bpp-robotwin.json` is the document the competition publishes as
+  a **reference measurement** - BPP on this benchmark, signed onto no ladder, because it is a
+  score in neither of the competition's fields. Built from `runs/bpp-v1-smoke` episode 0 and, as
+  the ceiling, `runs/m0-replay-v1` episode 0 on the same task and scene seed, which the replay
+  oracle wins in 141 steps. `report.differences()` between the two is recorded verbatim - the
+  oracle ran under the `stock` camera profile, so the benchmark refuses to print them as one
+  table, and the document says so rather than the comparison being quietly loosened (#70).
+
 - (feat): `competition/` is a third distribution, `robotwin-icil-competition` (package
   `icil_benchmark_robotwin`), that makes this benchmark a plugin of the ICIL competition. It is
   found through the `icilval.benchmarks` entry point group, depends on the core, and never imports
