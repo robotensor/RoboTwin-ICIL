@@ -57,6 +57,29 @@ def test_the_checkpoint_loads_strictly_and_comes_back_frozen():
     assert bpp_model.parameter_checksum(model) == bpp_model.parameter_checksum(model)
 
 
+@pytest.mark.slow
+@needs_checkpoint
+def test_describe_recomputes_the_checksum_the_audit_compares():
+    """The frozen-policy audit is only real if `describe()` reads the weights again (#37)."""
+    from icil_policies.bpp.policy import BPPPolicy
+
+    policy = BPPPolicy(
+        config=str(
+            bpp_settings.Path(__file__).resolve().parents[1]
+            / "configs"
+            / "bpp_liberogen_combination.yaml"
+        ),
+        device="cpu",
+    )
+    before = policy.describe()["parameter_checksum"]
+    assert before == policy.describe()["parameter_checksum"]
+    with torch.no_grad():
+        parameter = next(iter(policy.model.parameters()))
+        parameter.add_(torch.ones_like(parameter))
+    assert policy.describe()["parameter_checksum"] != before
+    policy.close()
+
+
 @needs_checkpoint
 def test_slim_wrote_the_normalizer_the_numpy_oracle_reads():
     import json

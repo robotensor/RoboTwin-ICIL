@@ -224,7 +224,13 @@ class BPPPolicy(ICILPolicy):
             "training_tasks": [],
             "training_domains": ["LIBERO-Gen spatial combinations (LIBERO_Tabletop_Manipulation)"],
             "camera_profile_required": self.settings.camera_profile,
-            "parameter_checksum": self._checksum,
+            # Recomputed, never the cached start value: the runner's frozen-policy audit calls
+            # `describe()` again at the end of a run and compares the two, and a cached constant
+            # would compare equal however the weights had changed. `_checksum` stays only as
+            # what the model loaded with, so a run that has already closed still describes it.
+            "parameter_checksum": (
+                self._checksum if self.model is None else parameter_checksum(self.model)
+            ),
             "config": self.config,
             "settings": self.settings.describe(),
         }
