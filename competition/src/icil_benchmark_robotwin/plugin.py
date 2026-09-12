@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .prompt import CHANNELS
+from .prompt import CHANNELS, channel_of
 from .units import derive_units
 
 #: The competition ABI this plugin speaks. Version 1 is provisional: it was designed against one
@@ -118,6 +118,11 @@ class Benchmark:
 
         Reads the file rather than trusting a manifest: this is what lets anyone holding the
         published prompt confirm what a duel actually ran on.
+
+        Every channel is checked, not only the one this benchmark's default view is scored on.
+        A prompt whose `actions` or `proprio` arrays are missing or ragged is a perfectly good
+        video-only prompt and a broken sensorimotor one, and the file does not say which field
+        will read it.
         """
         import numpy as np
 
@@ -134,6 +139,7 @@ class Benchmark:
                 meta = json.loads(str(z["meta"]))
                 frames = int(z["times"].shape[0]) if "times" in z.files else 0
                 cameras = list(meta.get("cameras", []))
+                rows = {name: int(z[name].shape[0]) for name in z.files if name != "meta"}
         except Exception as exc:  # noqa: BLE001 - a corrupt prompt is a duel-stopping fault
             return {"ok": False, "sha256": "", "problems": [f"unreadable: {exc}"]}
 
@@ -146,6 +152,8 @@ class Benchmark:
             problems.append(f"{frames} frames: a demonstration needs at least two")
         if not cameras:
             problems.append("no cameras recorded")
+        carried = {name: channel_of(name) for name in rows}
+        problems.extend(_channel_problems(carried, rows, frames))
         return {
             "ok": not problems,
             "sha256": prompt_sha256(target),
@@ -153,6 +161,7 @@ class Benchmark:
             "scene_seed": meta.get("scene_seed"),
             "frames": frames,
             "cameras": cameras,
+            "channels": sorted({c for c in carried.values() if c}),
             "problems": problems,
         }
 
@@ -225,6 +234,33 @@ class Benchmark:
             str(extra.pop("view", DEFAULT_VIEW)),
         ]
         return _with_extra(argv, extra)
+
+
+def _channel_problems(
+    carried: Mapping[str, str | None], rows: Mapping[str, int], frames: int
+) -> list[str]:
+    """Whether this file carries what its channel map promises, at the length it promises.
+
+    The orchestrator's view is an allow-list over channels, so an array in none of them is
+    dropped and an absent channel is simply not handed over - both silently. Neither is
+    recoverable once a duel has run on the prompt, so both are caught here.
+    """
+    present = {channel for channel in carried.values() if channel}
+    problems = [
+        f"{name}: in no channel, so no view would hand it to a policy"
+        for name in sorted(n for n, channel in carried.items() if channel is None)
+    ]
+    problems += [
+        f"channel {c!r} carries no array in this prompt" for c in CHANNELS if c not in present
+    ]
+    for name in sorted(rows):
+        # One action per transition; everything else is one row per frame.
+        expected = frames - 1 if carried.get(name) == "actions" else frames
+        if frames >= 2 and rows[name] != expected:
+            problems.append(
+                f"{name} has {rows[name]} rows, expected {expected} for {frames} frames"
+            )
+    return problems
 
 
 def _with_extra(argv: list[str], extra: Mapping[str, Any]) -> list[str]:

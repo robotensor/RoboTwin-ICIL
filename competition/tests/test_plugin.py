@@ -114,7 +114,16 @@ def test_a_view_this_benchmark_does_not_serve_is_refused_by_the_runner_too():
 # ------------------------------------------------------------------ prompts
 
 
-def _write_prompt(path: Path, *, task="click_bell", seed=7, frames=4, cameras=("head_camera",)):
+def _write_prompt(
+    path: Path,
+    *,
+    task="click_bell",
+    seed=7,
+    frames=4,
+    cameras=("head_camera",),
+    drop=(),
+    extra=None,
+):
     arrays = {
         "times": np.linspace(0, 1, frames, dtype=np.float64),
         "qpos": np.zeros((frames, 14), dtype=np.float32),
@@ -123,6 +132,9 @@ def _write_prompt(path: Path, *, task="click_bell", seed=7, frames=4, cameras=("
     }
     for camera in cameras:
         arrays[f"frames_{camera}"] = np.zeros((frames, 4, 4, 3), dtype=np.uint8)
+    for name in drop:
+        arrays.pop(name)
+    arrays.update(extra or {})
     meta = {
         "schema": PROMPT_SCHEMA,
         "task": task,
@@ -146,6 +158,40 @@ def test_a_prompt_verifies_against_the_unit_that_asked_for_it(tmp_path):
     assert verdict["ok"], verdict["problems"]
     assert verdict["sha256"] == prompt_sha256(tmp_path / PROMPT_NAME)
     assert verdict["frames"] == 4 and verdict["cameras"] == ["head_camera"]
+
+
+def test_a_verdict_names_the_channels_the_file_actually_carries(tmp_path):
+    _write_prompt(tmp_path / PROMPT_NAME)
+    verdict = BENCHMARK.verify_prompt(path=str(tmp_path), unit={})
+    assert verdict["channels"] == ["actions", "metadata", "proprio", "video"]
+
+
+def test_a_prompt_missing_a_channel_is_refused_whatever_view_will_read_it(tmp_path):
+    """A file with no `actions` is a perfectly good video-only prompt and a broken sensorimotor
+    one, and nothing in the file says which field will read it. The orchestrator's view drops
+    what it withholds; it cannot conjure what was never written."""
+    _write_prompt(tmp_path / PROMPT_NAME, drop=("actions",))
+    verdict = BENCHMARK.verify_prompt(path=str(tmp_path), unit={})
+    assert not verdict["ok"] and any("actions" in p for p in verdict["problems"])
+    assert "actions" not in verdict["channels"]
+
+
+def test_an_array_that_does_not_line_up_with_the_frames_is_refused(tmp_path):
+    """One action per transition and one row per frame for everything else. A ragged prompt would
+    be read as a shorter demonstration by whichever adapter got there first."""
+    _write_prompt(
+        tmp_path / PROMPT_NAME, drop=("qpos",), extra={"qpos": np.zeros((3, 14), dtype=np.float32)}
+    )
+    verdict = BENCHMARK.verify_prompt(path=str(tmp_path), unit={})
+    assert not verdict["ok"] and any("qpos has 3 rows" in p for p in verdict["problems"])
+
+
+def test_an_array_in_no_channel_is_refused_rather_than_silently_dropped(tmp_path):
+    """The orchestrator's allow-list drops an unclaimed array, so a policy never sees it. That is
+    the safe failure, and it is still a failure: the writer meant to hand it over."""
+    _write_prompt(tmp_path / PROMPT_NAME, extra={"torques": np.zeros((4, 14), dtype=np.float32)})
+    verdict = BENCHMARK.verify_prompt(path=str(tmp_path), unit={})
+    assert not verdict["ok"] and any("torques" in p for p in verdict["problems"])
 
 
 def test_a_prompt_for_another_task_or_scene_is_refused(tmp_path):
