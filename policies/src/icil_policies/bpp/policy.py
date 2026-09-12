@@ -33,6 +33,7 @@ run.
 from __future__ import annotations
 
 import platform
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,10 @@ from .settings import (
     load,
 )
 
+# The proprioception keys whose normalized range is reported per episode (plan 3.6): `ee_ori` is
+# a rot6d the normalizer leaves alone, so only these two can fall outside [-1, 1].
+PROPRIO_RANGE_KEYS = ("ee_pos", "gripper_states")
+
 
 class BPPPolicy(ICILPolicy):
     """The BPP LIBERO-Gen Combination checkpoint behind the RoboTwin conversion of `conversion`."""
@@ -86,6 +91,7 @@ class BPPPolicy(ICILPolicy):
             self.settings.checkpoint, device, self.settings.checkpoint_sha256 or None
         )
         self._checksum = parameter_checksum(self.model)
+        self._normalizer = self._normalizer_params()
         self._chunker = _chunker(self.model)
         self._arm_model = (
             AlohaArm(self.settings.urdf_path, "left")
@@ -111,7 +117,7 @@ class BPPPolicy(ICILPolicy):
         self._execution: Execution | None = None
         self._executor: ChunkExecutor | None = None
         self._out_of_range: dict[str, float] = {}
-        self._observed: list[np.ndarray] = []
+        self._observed: list[dict[str, np.ndarray]] = []
         if getattr(self, "model", None) is not None:
             self.model.reset(action_exec_horizon=EXEC_ACTION_HORIZON)
 
@@ -141,7 +147,10 @@ class BPPPolicy(ICILPolicy):
 
         assert self._choice is not None
         states = [observation_state(obs, self.settings, self._choice.arm) for obs in history]
-        self._observed.extend(state["ee_pos"] for state in states[-1:])
+        # The proprioception the model actually conditioned on, kept (without the images) for
+        # the rollout's own out-of-range fraction: it is the arm leaving LIBERO's training range
+        # mid-episode that the prompt's fraction cannot see (plan 3.6).
+        self._observed.append({key: states[-1][key] for key in PROPRIO_RANGE_KEYS})
         batch = {
             key: torch.from_numpy(
                 np.stack([state[key] for state in states]).astype(np.float32)[None]
@@ -196,19 +205,38 @@ class BPPPolicy(ICILPolicy):
             "metadata": {"mask": prompt["metadata"]["mask"].to(self.device)},
         }
 
-    def _proprio_out_of_range(self, state: dict[str, np.ndarray]) -> dict[str, float]:
-        """How much of the prompt's proprioception the checkpoint's normalizer puts outside [-1, 1]."""
+    def _normalizer_params(self) -> dict[str, dict[str, np.ndarray]]:
+        """The checkpoint's scale and offset per proprioception key, as numpy.
+
+        Read once, in `__init__`: `close()` drops the model, and an episode's record is written
+        after it in a server that is shutting down.
+        """
         params = self.model.normalizer.params_dict
-        fractions = {}
-        for key in ("ee_pos", "gripper_states"):
-            if key not in params:
-                continue
-            numbers = {
+        return {
+            key: {
                 "scale": params[key]["scale"].detach().cpu().numpy(),
                 "offset": params[key]["offset"].detach().cpu().numpy(),
             }
-            fractions[key] = round(out_of_range_fraction(state[key], numbers), 6)
-        return fractions
+            for key in PROPRIO_RANGE_KEYS
+            if key in params
+        }
+
+    def _proprio_out_of_range(self, state: Mapping[str, np.ndarray]) -> dict[str, float]:
+        """How much of this proprioception the checkpoint's normalizer puts outside [-1, 1]."""
+        return {
+            key: round(out_of_range_fraction(state[key], numbers), 6)
+            for key, numbers in self._normalizer.items()
+            if key in state
+        }
+
+    def _rollout_out_of_range(self) -> dict[str, float]:
+        """The same fraction over the observations the model was actually conditioned on."""
+        if not self._observed:
+            return {}
+        stacked = {
+            key: np.stack([state[key] for state in self._observed]) for key in self._observed[0]
+        }
+        return self._proprio_out_of_range(stacked)
 
     # ---------------------------------------------------------------------------- the record
 
@@ -245,6 +273,7 @@ class BPPPolicy(ICILPolicy):
             "prompt_rate_hz": self._prompt.rate_hz,
             "clipped_action_fraction": round(self._prompt.clipped, 6),
             "proprio_out_of_range": self._out_of_range,
+            "proprio_out_of_range_rollout": self._rollout_out_of_range(),
             "plans": self._executor.plans if self._executor is not None else 0,
             **self._execution.info(),
         }
