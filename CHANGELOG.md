@@ -18,7 +18,9 @@
   `qpos_ik`, the mode setting `action_type` per instance; the idle arm
   holds its first-observation pose. `icil-bpp calibrate` fits the tracking gains on the
   checkpoint's own LIBERO-Gen data (alpha_p 0.241, R² 0.95; alpha_r 0.204, R² 0.73), and
-  `icil-bpp preflight`'s action-parity gate shows the adapter's action is the model's exactly.
+  `icil-bpp preflight` passes both gates: the prompt this adapter builds equals BPP's own
+  `LiberoReplayImageDataset(only_prompt=True)` within 2.1e-7, and the adapter's action is the
+  model's exactly.
   `BPPConversionReplay` replays the prompt's own converted actions through the whole chain, the
   ceiling for any model behind the adapter, and reports the clipped-action and proprio
   out-of-range fractions per episode. Constants and gate results: `docs/models/bpp.md` (#42).
