@@ -69,7 +69,9 @@ class Benchmark:
             "prompt_name": PROMPT_NAME,
             # Which array carries which channel, so the orchestrator's demonstration view can
             # allow or drop them as a unit. Only the benchmark knows what its arrays mean; the
-            # decision about what a policy may see stays the orchestrator's.
+            # decision about what a policy may see stays the orchestrator's. Two spellings are
+            # the orchestrator's: an entry ending in `*` is a prefix, and `metadata` is the
+            # channel every view keeps.
             "demo_channels": {k: list(v) for k, v in CHANNELS.items()},
             "commits": _commits(),
         }

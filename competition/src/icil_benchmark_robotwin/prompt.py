@@ -14,14 +14,20 @@ The arrays are grouped by channel so the orchestrator's view can allow or drop t
 
 | channel | arrays |
 | --- | --- |
-| `video` | `frames_<camera>`, one `(T, h, w, 3)` uint8 block per camera |
+| `video` | `frames_*`, one `(T, h, w, 3)` uint8 block per camera |
 | `proprio` | `qpos` `(T, 14)`, `endpose` `(T, 16)` |
 | `actions` | `actions` `(T-1, 14)` |
+| `metadata` | `times` `(T,)` |
 
-`times`, `frequency` and `meta` are metadata, not a channel: they say when each frame was taken,
-never what the robot did. The scene seed and the initial-state fingerprint travel in `meta` so
-Same Scene can be re-verified against a published artifact - they are privileged, and a policy
-never sees `meta`.
+The spellings are the orchestrator's, not ours: an entry ending in `*` is a prefix, which is how a
+family the orchestrator cannot enumerate - it does not know this benchmark's camera list - stays
+inside an allow-list. `metadata` is the channel every view keeps, and frame times are the case it
+exists for: they say when a frame was taken, never what the robot did, so no field's modality list
+would ever claim them and a view that dropped them would leave the demonstration untimed.
+
+`meta` is in no channel. The scene seed and the initial-state fingerprint travel in it so Same
+Scene can be re-verified against a published artifact - they are privileged, and a policy never
+sees `meta`.
 """
 
 from __future__ import annotations
@@ -38,15 +44,24 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 PROMPT_SCHEMA = 1
 
-#: channel -> the arrays that carry it. The orchestrator is told this through the spec; it is
+#: An entry ending in this is a **prefix**, matching every array whose name starts with the rest
+#: of it. The orchestrator's allow-list cannot enumerate one array per camera, because it does not
+#: know a benchmark's camera list, so `frames_*` is how that family is declared without opening
+#: the list up.
+PREFIX_MARK = "*"
+
+#: The channel holding arrays every view keeps. Not a modality: no field asks for it, and none
+#: may drop it.
+METADATA_CHANNEL = "metadata"
+
+#: channel -> the arrays that carry it. The orchestrator is told this through `info()`; it is
 #: repeated here so a prompt can be checked on its own.
 CHANNELS = {
-    "video": ("frames_",),  # a prefix: one array per camera
+    "video": (f"frames_{PREFIX_MARK}",),
     "proprio": ("qpos", "endpose"),
     "actions": ("actions",),
+    METADATA_CHANNEL: ("times",),
 }
-
-METADATA_ARRAYS = ("times",)
 
 
 def dump(
@@ -102,12 +117,17 @@ def prompt_sha256(path: str | Path) -> str:
 
 
 def channel_of(name: str) -> str | None:
-    """Which channel an array belongs to, or None for metadata."""
-    if name in METADATA_ARRAYS or name == "meta":
+    """Which channel an array belongs to, or None for one no channel claims.
+
+    `meta` is the only member of the file that is deliberately in none: it is a JSON string rather
+    than an array, and it is privileged. Anything else landing here is an oversight, and
+    `verify_prompt` reports it rather than letting a view silently drop it.
+    """
+    if name == "meta":
         return None
     for channel, members in CHANNELS.items():
         for member in members:
-            if member.endswith("_") and name.startswith(member):
+            if member.endswith(PREFIX_MARK) and name.startswith(member[: -len(PREFIX_MARK)]):
                 return channel
             if name == member:
                 return channel

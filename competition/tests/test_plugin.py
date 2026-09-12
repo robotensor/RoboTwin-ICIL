@@ -151,13 +151,14 @@ def test_the_digest_is_the_bytes_so_a_third_party_can_recompute_it(tmp_path):
     assert prompt_sha256(a) != prompt_sha256(tmp_path / "c.npz")
 
 
-def test_every_array_belongs_to_a_channel_or_is_metadata():
+def test_only_meta_belongs_to_no_channel():
     """The orchestrator's view allows or drops whole channels, so an array in none of them would
-    never reach a policy - which is correct, but must be deliberate rather than an oversight."""
+    never reach a policy - which is correct for `meta`, and an oversight for anything else."""
     assert channel_of("frames_head_camera") == "video"
     assert channel_of("qpos") == "proprio" and channel_of("endpose") == "proprio"
     assert channel_of("actions") == "actions"
-    assert channel_of("times") is None and channel_of("meta") is None
+    assert channel_of("times") == "metadata"
+    assert channel_of("meta") is None
 
 
 # ------------------------------------------------------------------ results
@@ -188,8 +189,25 @@ def test_the_plugin_says_which_array_carries_which_channel():
     channels = BENCHMARK.info()["demo_channels"]
     assert channels["actions"] == ["actions"]
     assert set(channels["proprio"]) == {"qpos", "endpose"}
-    assert channels["video"] == ["frames_"]
+    assert channels["video"] == ["frames_*"]
     # Every channel the prompt writer knows about is published; a new one cannot be forgotten.
     from icil_benchmark_robotwin.prompt import CHANNELS
 
     assert set(channels) == set(CHANNELS)
+
+
+def test_the_channel_map_is_spelled_the_way_the_orchestrator_reads_it():
+    """Both spellings here are the orchestrator's, and getting either wrong fails silently: its
+    view is an allow-list, so an entry that matches nothing hands the policy nothing.
+
+    - a prefix ends in `*`, because the orchestrator cannot enumerate this benchmark's cameras;
+    - `times` sits in `metadata`, the channel every view keeps, because no field's modality list
+      claims frame timestamps and a view that dropped them would leave the demonstration untimed.
+    """
+    channels = BENCHMARK.info()["demo_channels"]
+    assert channels["video"] == ["frames_*"]
+    assert channels["metadata"] == ["times"]
+    # The prefix matches what `dump` writes, whatever cameras a scene config turns on.
+    prefix = channels["video"][0].removesuffix("*")
+    for camera in ("head_camera", "left_camera", "right_camera", "front_camera"):
+        assert f"frames_{camera}".startswith(prefix)
