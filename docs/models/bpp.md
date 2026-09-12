@@ -182,8 +182,8 @@ counts those calls.
 | Prompt chunking equals BPP's own | **passed** — `policies/tests/test_bpp_model_env.py`, BPP's `PromptActionChunker` and `collate_prompts`, shapes `(1, L, 20, 10)` and `(1, L, 3, 224, 224)`, mask all false, last chunk zero-padded |
 | Action encoding equals BPP's dataset | **passed** — against BPP's own `RotationTransformer` on random actions |
 | Gate 2: served actions equal a direct `predict_action` | **passed** — `icil-bpp preflight`, max absolute difference **0.0** |
-| Gate 1: prompt tensors equal `LiberoReplayImageDataset(only_prompt=True)` | **passed** — `icil-bpp preflight --libero-data`, max absolute difference **2.1e-7** (`ee_pos` and both images exactly 0, `ee_ori` 2.1e-7, the actions 1.5e-8) on `pick_up_the_black_bowl_from_table_center_and_place_it_on_the_cookie_box_demo.hdf5` |
-| LIBERO sanity rollout (≥ 5 of 10) | queued behind the shared GPU lock at the time of writing (below) |
+| Gate 1: prompt tensors equal `LiberoReplayImageDataset(only_prompt=True)` | **passed** — `icil-bpp preflight --libero-data`, max absolute difference **2.1e-7** (`ee_pos`, `gripper_states` and both images exactly 0, `ee_ori` 2.1e-7, the actions 1.5e-8) on `pick_up_the_black_bowl_from_table_center_and_place_it_on_the_cookie_box_demo.hdf5`, and 2.4e-7 on `pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_ramekin_demo.hdf5` |
+| LIBERO sanity rollout (≥ 5 of 10) | **not run here** — nothing blocks it any more (the command is below and its `hdf5_to_task` lookup is fixed), but the machine's shared GPU lock was held by a simulator run for the whole session, and this rollout is the one step that needs both the GPU and a long occupancy |
 | O3 on the calibration seed, V1 run | **not run**: the RoboTwin simulator is not installed in this worktree (#42 is a pure-adapter issue; the sim test is `policies/tests/sim/test_bpp_execution.py`) |
 
 **Running the two LIBERO gates.** Both need BPP's LIBERO stack inside the `icil-bpp`
