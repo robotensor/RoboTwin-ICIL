@@ -5,7 +5,8 @@
 - (feat): the BPP LIBERO-Gen Combination transfer adapter, `icil_policies.bpp`. The released
   checkpoint (6.9 GB, sha256 `74e0f841…`) is prompted with the one demonstration and run frozen
   on aloha-agilex: `icil-bpp slim` writes its inference weights, composed config and normalizer
-  once (967 tensors, 690.5M parameters, no EMA copy in the payload); the model is built from
+  once (967 tensors, 690.5M state-dict elements including buffers, for a model of 518.8M
+  parameters; no EMA copy in the payload); the model is built from
   BPP's own Hydra composition with the backbone left pretrained, since the checkpoint's stored
   config lacks a key the code defaults differently. `conversion` is numpy only, so the
   simulator's environment runs it without torch: tool-centre proprioception in LIBERO's frame
@@ -13,7 +14,8 @@
   extrinsics, 20 Hz resampling on frame times, gain-divided deltas with onset gripper labels,
   and BPP's own chunker for the prompt. Execution integrates a virtual tool-centre target,
   re-anchored only when tracking breaks down, and runs as `ee_step`, `ee_grouped` (4, 4, 3, 1,
-  split at gripper flips) or `qpos_ik`, the mode setting `action_type` per instance; the idle arm
+  split at gripper flips and where a group's rotation would outgrow what one action encodes) or
+  `qpos_ik`, the mode setting `action_type` per instance; the idle arm
   holds its first-observation pose. `icil-bpp calibrate` fits the tracking gains on the
   checkpoint's own LIBERO-Gen data (alpha_p 0.241, R² 0.95; alpha_r 0.204, R² 0.73), and
   `icil-bpp preflight`'s action-parity gate shows the adapter's action is the model's exactly.

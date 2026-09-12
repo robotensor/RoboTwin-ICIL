@@ -45,7 +45,7 @@ bounds are chosen on it, never on a seed whose score is published.
 | Hugging Face | `austinpatel/liberogen_spatial_combination/liberogen_spatial_combination_behavior_prompting.ckpt` |
 | revision | `0e4c1fdf496592583acfbde51ce82880006aa0f3`, 6,915,257,998 B |
 | sha256 | `74e0f841f3b86f1383adda23dab59fddee8806a4bcb5685ed7f826afb320c097` (the Hub's LFS oid) |
-| slimmed | 967 tensors, 690,455,718 parameters and buffers, 2.76 GB |
+| slimmed | 967 tensors, 690,455,718 state-dict elements (parameters, buffers and the normalizer), 2.76 GB |
 | slimmed sha256 | `2a0bbeb90502f21d0bb86d29a79ca033a31008853990139bde10eaa208e83039` |
 
 **The model is built from the repository's own Hydra composition**, not from the config stored in
@@ -153,7 +153,7 @@ told to move and did not.
 | mode | `action_type` | calls per chunk of 12 |
 | --- | --- | --- |
 | `ee_step` (default) | `ee` | 12 |
-| `ee_grouped` | `ee` | 4, 4, 3, 1, split again wherever the gripper command flips |
+| `ee_grouped` | `ee` | 4, 4, 3, 1, split again wherever the gripper command flips, and wherever a group's composed rotation would outgrow what one action encodes (`pi * alpha_r * 0.5` = 0.32 rad, past which the re-encoding wraps and the group would turn the other way) |
 | `qpos_ik` | `qpos` | 12, through the aloha kinematics in `icil_policies.common` |
 
 The mode sets `action_type` **per instance**, and `remote` carries it from the server to the
@@ -169,13 +169,16 @@ execution chain — same resampling, gains, labels, virtual target, mode and idl
 network. **Its V1 fraction is the ceiling for any model behind this adapter**, and the gap to
 `replay` and `replay_ee` is the structural loss of driving one aloha arm with LIBERO-frame 20 Hz
 deltas. It also reports the RoboTwin-side numbers `calibrate` cannot: the clipped-action fraction
-and the proprio out-of-range fraction, per episode, without exporting anything.
+and the proprio out-of-range fraction, per episode, without exporting anything. Past the end of
+the prompt it holds: no motion, and the gripper the prompt's last action commanded, so a task
+that ends in a release is not re-grasped by the conversion itself. `actions_held_past_the_end`
+counts those calls.
 
 ## Gates
 
 | gate | state |
 | --- | --- |
-| Model builds and loads strictly | **passed** — 690.5M parameters, every key matched, `pretrained=true`, repo composition |
+| Model builds and loads strictly | **passed** — 518.8M parameters in 967 tensors (690.5M state-dict elements), every key matched, `pretrained=true`, repo composition |
 | Prompt chunking equals BPP's own | **passed** — `policies/tests/test_bpp_model_env.py`, BPP's `PromptActionChunker` and `collate_prompts`, shapes `(1, L, 20, 10)` and `(1, L, 3, 224, 224)`, mask all false, last chunk zero-padded |
 | Action encoding equals BPP's dataset | **passed** — against BPP's own `RotationTransformer` on random actions |
 | Gate 2: served actions equal a direct `predict_action` | **passed** — `icil-bpp preflight`, max absolute difference **0.0** |
@@ -201,8 +204,9 @@ LIBERO-Gen spatial combinations, and every constant above under `settings`.
 
 `episode_info()` adds, per episode: the active arm and why it was chosen, the demonstration's arm
 set, the prompt's chunks, steps and rate, the clipped-action fraction, the proprio out-of-range
-fraction per key, the number of plans and calls, re-anchors by cause, stall events and
-unreachable IK targets.
+fraction per key — for the prompt and, as `proprio_out_of_range_rollout`, for the observations
+the model was actually conditioned on — the number of plans and calls, re-anchors by cause, stall
+events and unreachable IK targets.
 
 ## Sampling and the frozen policy
 
@@ -211,5 +215,10 @@ process's global RNG. `seed()` therefore seeds that global RNG per episode, whic
 out of process** — RoboTwin reseeds torch's global RNG with the *scene* seed whenever it builds a
 scene, so an in-process adapter drawing from it would sample as a function of privileged state.
 In the model server nothing else touches torch's RNG and the seed comes from the policy's own
-stream. The model is loaded in eval mode with gradients off, and nothing in the adapter writes a
-parameter.
+stream. `BPPPolicy.__init__` refuses outright where SAPIEN is importable, naming `remote`, so
+that "only out of process" is enforced and not merely documented (`allow_in_process=True` is for
+a caller that has checked, such as BPP's own LIBERO runner).
+
+The model is loaded in eval mode with gradients off, nothing in the adapter writes a parameter,
+and `describe()` recomputes the `parameter_checksum` every time it is called — a cached value
+would have made the audit compare a constant with itself.
