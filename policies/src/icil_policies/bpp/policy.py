@@ -23,7 +23,8 @@ exactly as that runner's wrapper pads it.
 That is safe only out of process, which is how this adapter runs: RoboTwin reseeds torch's
 global RNG with the *scene* seed whenever it builds a scene, so an in-process adapter drawing
 from the global RNG would sample as a function of privileged state. In the model server nothing
-else touches torch's RNG, and the seed comes from the policy's own stream.
+else touches torch's RNG, and the seed comes from the policy's own stream. Nothing enforced
+that, so `__init__` now refuses outright where SAPIEN is importable (`refuse_in_process`).
 
 The policy is frozen: the model is loaded in eval mode with gradients off, nothing here writes a
 parameter, and `describe()` carries a `parameter_checksum` the runner audits at both ends of a
@@ -77,8 +78,16 @@ class BPPPolicy(ICILPolicy):
 
     name = "bpp"
 
-    def __init__(self, config: str | None = None, device: str = "cuda", **overrides: Any) -> None:
+    def __init__(
+        self,
+        config: str | None = None,
+        device: str = "cuda",
+        allow_in_process: bool = False,
+        **overrides: Any,
+    ) -> None:
         super().__init__()
+        if not allow_in_process:
+            refuse_in_process()
         self.settings: Settings = load(config, **overrides)
         # Per instance, not per class: the execution mode decides whether this adapter drives
         # `take_action('ee')` or `take_action('qpos')` (plan 3.4). `remote` carries it over.
@@ -305,6 +314,34 @@ class BPPPolicy(ICILPolicy):
         self._executor = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+
+def refuse_in_process() -> None:
+    """Refuse to construct this policy in a process that can also run the simulator.
+
+    `seed()` seeds the process's *global* torch RNG, which is where BPP's diffusion noise comes
+    from, and RoboTwin calls `torch.manual_seed(scene_seed)` on every build: in one process the
+    noise would become a function of the scene seed, the privileged state CLAUDE.md keeps out of
+    a policy. The supported path is `remote`/`serve`, where the model has a process of its own
+    and no simulator in it. `allow_in_process=True` is for a caller that has checked (BPP's own
+    LIBERO runner, say, which is not RoboTwin).
+    """
+    import importlib.util
+    import sys
+
+    present = "sapien" in sys.modules
+    if not present:
+        try:
+            present = importlib.util.find_spec("sapien") is not None
+        except (ImportError, ValueError):  # pragma: no cover - a broken sapien install
+            present = True
+    if present:
+        raise PolicyError(
+            "bpp: SAPIEN is importable here, so this may be the simulator's process, where "
+            "seeding torch's global RNG would make the diffusion noise a function of the scene "
+            "seed. Run the model behind `--policy remote --policy-arg python=.../icil-bpp/bin/"
+            "python`, or pass allow_in_process=True if there is no simulator in this process"
+        )
 
 
 def _chunker(model: Any) -> Any:

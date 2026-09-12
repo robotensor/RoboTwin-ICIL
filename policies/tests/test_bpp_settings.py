@@ -83,3 +83,15 @@ def test_describe_is_json_and_carries_every_constant():
     assert description["alpha_p"] > 0 and description["action_type"] == "ee"
     assert description["tool_correction_axis_angle"][1] == pytest.approx(math.pi / 2)
     yaml.safe_dump(description)
+
+
+def test_the_model_policy_refuses_the_simulators_own_process(monkeypatch):
+    """`seed()` seeds torch's global RNG, which RoboTwin reseeds with the scene seed."""
+    import sys
+    import types
+
+    from icil_policies.bpp.policy import BPPPolicy
+
+    monkeypatch.setitem(sys.modules, "sapien", types.ModuleType("sapien"))
+    with pytest.raises(PolicyError, match="remote"):
+        BPPPolicy(config=str(CONFIG / "bpp_liberogen_combination.yaml"))
