@@ -183,7 +183,7 @@ counts those calls.
 | Action encoding equals BPP's dataset | **passed** — against BPP's own `RotationTransformer` on random actions |
 | Gate 2: served actions equal a direct `predict_action` | **passed** — `icil-bpp preflight`, max absolute difference **0.0** |
 | Gate 1: prompt tensors equal `LiberoReplayImageDataset(only_prompt=True)` | **passed** — `icil-bpp preflight --libero-data`, max absolute difference **2.1e-7** (`ee_pos`, `gripper_states` and both images exactly 0, `ee_ori` 2.1e-7, the actions 1.5e-8) on `pick_up_the_black_bowl_from_table_center_and_place_it_on_the_cookie_box_demo.hdf5`, and 2.4e-7 on `pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_ramekin_demo.hdf5` |
-| LIBERO sanity rollout (≥ 5 of 10) | **not run here** — nothing blocks it any more (the command is below and its `hdf5_to_task` lookup is fixed), but the machine's shared GPU lock was held by a simulator run for the whole session, and this rollout is the one step that needs both the GPU and a long occupancy |
+| LIBERO sanity rollout (≥ 5 of 10) | **passed** — 6 of 10 on the unseen `pick_up_the_black_bowl_in_the_top_drawer_of_the_wooden_cabinet_and_place_it_on_the_plate`, `icil-bpp libero-sanity --episodes 10` on an RTX 5090; the paper reports about 71% |
 | O3 on the calibration seed, V1 run | **not run**: the RoboTwin simulator is not installed in this worktree (#42 is a pure-adapter issue; the sim test is `policies/tests/sim/test_bpp_execution.py`) |
 
 **Running the two LIBERO gates.** Both need BPP's LIBERO stack inside the `icil-bpp`
@@ -206,7 +206,10 @@ icil-bpp libero-sanity --config policies/configs/bpp_liberogen_combination.yaml 
 ```
 
 Gate 1 builds the dataset's zarr cache on the CPU and needs no GPU; gate 2 and the sanity
-rollout load the checkpoint and must run under the machine's shared GPU lock.
+rollout load the checkpoint and must run under the machine's shared GPU lock. The rollout logs
+through wandb (`WANDB_MODE=offline` is enough), renders with `MUJOCO_GL=egl`, and writes one
+video into `<--out>/media`, which `icil-bpp` creates: BPP's runner names a visualisation from
+the first environment's video whatever you ask of it.
 
 ## What a run records
 
