@@ -79,8 +79,10 @@ def test_the_crop_follows_the_arm_and_clamps_inside_the_frame():
     assert right < 160 < left
     from icil_policies.common.images import crop_start
 
-    assert crop_start(left, SETTINGS.crop, 320) == 140
-    assert crop_start(right, SETTINGS.crop, 320) == 0
+    # The columns follow the profile's own projection: far_side stands where a third-person
+    # training view does, so a change of pose moves them.
+    assert crop_start(left, SETTINGS.crop, 320) == 121
+    assert crop_start(right, SETTINGS.crop, 320) == 18
 
 
 def test_a_pinned_crop_column_wins_over_the_projection():
