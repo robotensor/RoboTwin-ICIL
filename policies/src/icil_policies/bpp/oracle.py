@@ -39,10 +39,13 @@ from .conversion import (
 from .conversion import aggregate as aggregate_actions
 from .settings import ACTION_DIM, EXEC_ACTION_HORIZON, Settings, load
 
-# What a step past the end of the prompt commands: no motion, the last gripper value held. The
-# demonstration ended where the expert succeeded, so holding there is the right thing to do.
+# What a step past the end of the prompt commands: no motion, and the gripper the prompt's last
+# action commanded (`hold_past_the_end`). The demonstration ended where the expert succeeded, so
+# holding there is the right thing to do — including holding a release open, which a constant
+# gripper entry of 0 would instead close (`decode_action` closes on any value >= 0).
 HOLD = np.zeros(ACTION_DIM)
 HOLD[3:9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]  # rot6d of the identity
+HOLD[9] = -1.0  # open, for the demonstration that has no action to hold at all
 
 
 class BPPConversionReplay(ICILPolicy):
@@ -115,11 +118,24 @@ def _next_calls(actions: np.ndarray, cursor: int, settings: Settings) -> list[np
     """The actions of one `exec_action_horizon` chunk, grouped as the mode executes them."""
     chunk = actions[cursor : cursor + EXEC_ACTION_HORIZON]
     if len(chunk) == 0:
-        return [HOLD.copy()]
+        return [hold_past_the_end(actions)]
     return [
         aggregate_actions(chunk[start:stop], settings)
         for start, stop in group_bounds(chunk, settings.mode, settings)
     ]
+
+
+def hold_past_the_end(actions: np.ndarray) -> np.ndarray:
+    """The action a step past the prompt takes: no motion, the last commanded gripper held.
+
+    The gripper matters: a task that ends in a release wants the fingers to stay open, and a
+    task that ends holding wants them shut. Taking it from the prompt's own last action keeps
+    the oracle's ceiling free of an artifact the conversion invented.
+    """
+    hold = HOLD.copy()
+    if len(actions):
+        hold[9] = float(np.asarray(actions)[-1, 9])
+    return hold
 
 
 def _arm_model(settings: Settings) -> AlohaArm | None:

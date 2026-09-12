@@ -49,11 +49,19 @@ def test_it_replays_the_prompt_through_the_execution_chain():
     np.testing.assert_allclose(actions[:, 8:15], np.tile(idle, (5, 1)), atol=1e-12)
 
 
-def test_past_the_end_it_holds_where_the_expert_succeeded():
-    demo = demonstration(steps=4)
+@pytest.mark.parametrize(
+    ("grippers", "held"),
+    [(np.ones(4), 1.0), (np.r_[np.ones(2), np.zeros(2)], 0.0)],
+    ids=["ends open", "ends closed"],
+)
+def test_past_the_end_it_holds_where_the_expert_succeeded(grippers, held):
+    # The whole held row, not only the position: a demonstration that ends in a release must not
+    # have its gripper commanded shut again once the prompt runs out.
+    demo = demonstration(steps=4, grippers=grippers)
     policy = BPPConversionReplay()
     actions = np.concatenate(_episode(policy, demo, steps=8))
-    np.testing.assert_allclose(np.diff(actions[4:, :3], axis=0), 0.0, atol=1e-12)
+    np.testing.assert_allclose(np.diff(actions[4:, :7], axis=0), 0.0, atol=1e-12)
+    np.testing.assert_allclose(actions[4:, 7], held, atol=1e-12)
 
 
 def test_it_reports_what_the_episode_cost():
