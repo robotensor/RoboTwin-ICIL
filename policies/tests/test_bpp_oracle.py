@@ -60,8 +60,10 @@ def test_past_the_end_it_holds_where_the_expert_succeeded(grippers, held):
     demo = demonstration(steps=4, grippers=grippers)
     policy = BPPConversionReplay()
     actions = np.concatenate(_episode(policy, demo, steps=8))
-    np.testing.assert_allclose(np.diff(actions[4:, :7], axis=0), 0.0, atol=1e-12)
-    np.testing.assert_allclose(actions[4:, 7], held, atol=1e-12)
+    # Four frames are three prompt actions, so calls 3 to 7 are the five held ones.
+    np.testing.assert_allclose(np.diff(actions[3:, :7], axis=0), 0.0, atol=1e-12)
+    np.testing.assert_allclose(actions[3:, 7], held, atol=1e-12)
+    assert policy.episode_info()["actions_held_past_the_end"] == 5
 
 
 def test_it_reports_what_the_episode_cost():

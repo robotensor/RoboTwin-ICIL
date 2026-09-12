@@ -81,6 +81,10 @@ class BPPConversionReplay(ICILPolicy):
     def _act(self, observation: Observation) -> np.ndarray:
         assert self._prompt is not None and self._execution is not None
         if not self._queue:
+            # Past the end every refill returns the one hold action, so counting refills here
+            # counts calls: how much of the episode ran past the demonstration.
+            if self._cursor >= len(self._prompt.actions):
+                self._held += 1
             self._queue = _next_calls(self._prompt.actions, self._cursor, self.settings)
             self._cursor += EXEC_ACTION_HORIZON
         action = self._queue.pop(0)
