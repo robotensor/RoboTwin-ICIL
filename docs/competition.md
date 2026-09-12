@@ -52,10 +52,18 @@ unit:
 | channel | arrays |
 | --- | --- |
 | `video` | `frames_<camera>` |
-| `proprio` | `qpos`, `endpose` |
+| `proprio` | `qpos`, `endpose`, `gripper_joints` |
 | `actions` | `actions` |
 
 `times`, `frequency` and `meta` are metadata, not a channel.
+
+`gripper_joints` is the **measured** position of each arm's fingers, `(T, 2, J)` in metres, left
+arm then right. The gripper value inside `qpos` and `endpose` is RoboTwin's *command*, which reads
+closed while the fingers rest on an object; a model trained on where the fingers actually are —
+LIBERO's `gripper_states`, which is what the BPP adapter converts from — cannot run on a prompt
+that carries only the command. A prompt written before this array, or from a demonstration
+recorded before the benchmark read the measurement, simply does not have it and rebuilds without
+one; the schema does not move for an array a reader may find absent.
 
 **Redaction is the orchestrator's job, not this benchmark's.** It withholds the channels its field
 withholds, over arrays like these. Keeping that decision there is what makes it hold for every
@@ -86,11 +94,41 @@ robotwin-icil-competition verify --prompt <dir> --task click_bell --scene-seed 7
 Those need no simulator. `materialize` and `run-unit` do, and are run by the orchestrator rather
 than by hand.
 
-## What is not wired yet
+## Running a model that cannot share the simulator's process
 
 `run-unit --policy-address` is how a competition keeps the entrant's weights out of the simulator:
 the model runs in the competition's container behind a policy server, the simulator runs outside
-it, and the two meet over an address the orchestrator hands both sides. That needs
-`robotwin_icil.serve` and `RemotePolicy`, which are built on another branch and not on `main`.
-Rather than duplicate them here, `--policy-address` says exactly what it needs; `--policy
-module:Class` is the in-process path and works today.
+it, and the two meet over an address the orchestrator hands both sides.
+
+It is not a convenience. A model stack usually pins libraries RoboTwin also pins, and the BPP
+adapter refuses outright to be constructed where `sapien` is importable — seeding torch's global
+RNG in the simulator's process would make its diffusion noise a function of the scene seed, which
+is privileged. Out of process is the only way such a model runs at all.
+
+The orchestrator serves the policy:
+
+```bash
+/opt/envs/model/bin/python -m robotwin_icil.serve \
+    --policy icil_policies.bpp:BPPPolicy --config configs/bpp.yml \
+    --address 127.0.0.1:9001 --authkey-file /run/duel/authkey
+```
+
+and hands this side the same address and key:
+
+```bash
+robotwin-icil-competition run-unit --task click_bell --scene-seed 7 \
+    --prompt /prompt/u0/prompt.npz --out /work/u0 \
+    --policy-address 127.0.0.1:9001 --authkey-file /run/duel/authkey
+```
+
+`plugin.run_command` builds that argv; `authkey_file` travels through the same `**extra`
+pass-through as any other option. The address is a `host:port` or the path of a Unix socket on a
+shared mount. On this side it becomes the core's `RemotePolicy`, which is an `ICILPolicy` itself,
+so the lifecycle and action checks run here as well as in the server. Every remote failure — an
+error reply, a timeout, a server that hung up or died — is a `PolicyError` carrying the tail of
+the server's log, and it stops the server: no server outlives its client. A `PolicyError` here
+makes the unit `void`, not a loss, because a model that could not be reached is a harness fault.
+
+`--policy module:Class` is the in-process path, for a policy whose dependencies do not conflict
+with the simulator's. The two are alternatives, and giving both is refused: a unit runs one
+policy, and the record has to say which.
