@@ -295,6 +295,10 @@ def _libero_sanity(args: argparse.Namespace) -> dict[str, Any]:
     settings = load(args.config)
     model = load_model(settings.checkpoint, args.device, settings.checkpoint_sha256 or None)
     out_dir = args.out or tempfile.mkdtemp(prefix="icil-bpp-sanity-")
+    # BPP's video wrapper writes into <out>/media and its visualiser into <out>/vis, and
+    # neither creates the directory.
+    for sub in ("media", "vis"):
+        os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
     runner = LiberoImageRunner(
         dataset_path=args.dataset,
         output_dir=out_dir,
