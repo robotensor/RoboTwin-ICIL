@@ -57,6 +57,18 @@ class Echo(ReplayPolicy):
         }
 
 
+class EEReplay(ReplayPolicy):
+    """Replays the demonstration's end-effector targets, so a served policy has an action type
+    that is not the default. `RemotePolicy` takes its own from the server it connected to."""
+
+    name = "ee_replay"
+    action_type = "ee"
+
+    def _set_demonstration(self, demonstration):
+        self._actions = demonstration.ee_actions()
+        self._cursor = 0
+
+
 class Crashing(ReplayPolicy):
     """Replays, then dies without a word on its `crash_at`-th action, as a segfault would."""
 
