@@ -121,3 +121,13 @@ def test_nothing_privileged_reaches_the_policy():
     # Measured finger positions are proprioception a real robot has; they default for callers
     # that read none.
     assert bare.gripper_joints is None
+
+
+def test_every_hook_has_a_default():
+    """A policy overrides only the hooks it needs, so the served path can call all of them on a
+    built-in that never heard of a server."""
+    policy = ReplayPolicy()
+    policy.seed(7)
+    assert policy.episode_info() == {}
+    assert policy.environment() == {}
+    policy.close()

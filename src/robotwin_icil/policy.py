@@ -103,6 +103,35 @@ class ICILPolicy:
         """What the run manifest records about this policy: its name, model and checkpoint."""
         return {"policy": self.name, "action_type": self.action_type}
 
+    # Optional hooks. Each has a no-op default, so a policy overrides only those it needs.
+
+    def seed(self, seed: int) -> None:
+        """Seed this episode's sampling. Called before every `reset()`, never with the scene seed.
+
+        The seed comes from the policy's own stream, a function of the run's global seed and the
+        episode index, so an episode samples the same way whether or not the run was resumed.
+        RoboTwin seeds torch's global RNG whenever it builds a scene: draw noise from a generator
+        of your own seeded here, never from a global RNG.
+        """
+
+    def episode_info(self) -> dict[str, Any]:
+        """What this policy reports about the episode it just rolled out, e.g. the arm it drove or
+        how many actions it clipped. Called after every rollout and stored in the episode record's
+        `policy_info`; every value must be JSON-serialisable."""
+        return {}
+
+    def close(self) -> None:
+        """Release what the policy holds: a model on the GPU, a connection to a model server.
+
+        Called exactly once, when the run ends, however it ends.
+        """
+
+    def environment(self) -> dict[str, str]:
+        """The policy's own software environment, as strings: python, torch, CUDA, the GPU, the
+        commits of the model's repositories. Recorded beside the run; like the benchmark's own
+        environment, it may differ on resume."""
+        return {}
+
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
 
