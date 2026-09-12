@@ -24,6 +24,26 @@
   and trains nothing; a competition built on this benchmark may materialise and publish what it
   runs, and that lives in `competition/`. A test checks neither the core nor the plugin imports a
   network client, rather than trusting the rule.
+- (feat): `run-unit --policy-address` runs a unit against a policy the orchestrator is serving,
+  instead of saying it cannot. That is the only way a model whose pins conflict with RoboTwin's
+  runs at all - the BPP adapter refuses to be built where `sapien` is importable, because seeding
+  torch's global RNG in the simulator's process would make its noise a function of the scene seed.
+  The transport comes from the branch that built it: `protocol.py`, `serve.py` and `remote.py`,
+  with the wire protocol unchanged - `send_bytes`/`recv_bytes`, a JSON header and raw bool,
+  integer and float arrays, never a pickle - plus the `ICILPolicy` hooks the served path calls
+  (`seed`, `episode_info`, `close`, `environment`), `parse_policy_arg`/`format_policy_arg`, and
+  `Frame`/`Demonstration`'s `time_s`, `times()`, `gripper_joints`, `endposes()` and
+  `ee_actions()`, which `competition/prompt.py` already called. A run closes its policy exactly
+  once, so no policy server outlives its client. `--policy-address` and `--policy` are
+  alternatives: a unit runs one policy, and the record has to say which (#74).
+- (feat): a prompt carries the **measured** gripper joints, one `(T, 2, J)` array in the `proprio`
+  channel. RoboTwin's gripper value in `qpos` and `endpose` is the command, which reads closed
+  while the fingers rest on an object; where the fingers are is proprioception, and it is what a
+  model trained on LIBERO's `gripper_states` reads. Without it every prompt round-tripped to
+  `gripper_joints=None` and the BPP adapter refused to build a prompt from any of them. A prompt
+  written before the array does not have it and rebuilds without one, so the schema does not move
+  (#74).
+- (fix): the `competition` CI job installs pytest, which it ran without installing (#74).
 ## Unreleased
 
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
