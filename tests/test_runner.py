@@ -112,3 +112,38 @@ def test_a_broken_simulator_stops_the_run_and_keeps_what_was_recorded(
         runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     # The first task's episodes are on disk, so rerunning the same command resumes from there.
     assert [r.episode for r in RunDir(tmp_path / "run").records()] == [0, 2]
+
+
+class Closing(ReplayPolicy):
+    """Counts `close()` calls: a model server or a GPU model must be released exactly once."""
+
+    name = "closing"
+
+    def __init__(self):
+        super().__init__()
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+
+def test_the_run_closes_the_policy_once(tmp_path, fake_sim):
+    policy = Closing()
+    runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert policy.closed == 1
+
+
+def test_the_policy_is_closed_once_when_an_episode_raises(tmp_path, monkeypatch, fake_sim):
+    monkeypatch.setattr(robotwin, "load_task", lambda name: FakeTaskEnv(broken_setup=True))
+    policy = Closing()
+    with pytest.raises(robotwin.RoboTwinError):
+        runner.run(spec(tmp_path), policy, FakeConfig(), log=quiet)
+    assert policy.closed == 1
+
+
+def test_the_policy_is_closed_when_the_run_is_refused(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    policy = Closing()
+    with pytest.raises(RecordError):
+        runner.run(spec(tmp_path, global_seed=4), policy, FakeConfig(), log=quiet)
+    assert policy.closed == 1
