@@ -135,7 +135,7 @@ def _demonstration(doc: dict[str, Any]):
     """
     import numpy as np
 
-    from robotwin_icil.demo import Demonstration, Frame
+    from robotwin_icil.demo import ARMS, Demonstration, Frame
 
     meta = doc["meta"]
     cameras = tuple(meta["cameras"])
@@ -143,12 +143,20 @@ def _demonstration(doc: dict[str, Any]):
     qpos = np.asarray(doc["qpos"], dtype=np.float64)
     endpose = np.asarray(doc["endpose"], dtype=np.float64)
     images = {camera: np.asarray(doc[f"frames_{camera}"]) for camera in cameras}
+    # Measured finger positions, left arm then right. A prompt written before they were carried
+    # has none, and rebuilds without them rather than failing.
+    measured = doc.get("gripper_joints")
+    fingers = None if measured is None else np.asarray(measured, dtype=np.float64)
     frames = tuple(
         Frame(
             index=i,
             images={camera: images[camera][i] for camera in cameras},
             qpos=qpos[i],
             endpose=_endpose(endpose[i]),
+            time_s=float(times[i]),
+            gripper_joints=None
+            if fingers is None
+            else {arm: fingers[i][a] for a, arm in enumerate(ARMS)},
         )
         for i in range(len(times))
     )

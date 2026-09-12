@@ -187,7 +187,7 @@ def test_the_plugin_says_which_array_carries_which_channel():
     decision - this is just the map it needs to apply one."""
     channels = BENCHMARK.info()["demo_channels"]
     assert channels["actions"] == ["actions"]
-    assert set(channels["proprio"]) == {"qpos", "endpose"}
+    assert set(channels["proprio"]) == {"qpos", "endpose", "gripper_joints"}
     assert channels["video"] == ["frames_"]
     # Every channel the prompt writer knows about is published; a new one cannot be forgotten.
     from icil_benchmark_robotwin.prompt import CHANNELS
