@@ -139,6 +139,8 @@ src/robotwin_icil/
   robotwin.py               the only module that imports RoboTwin
   cli.py
 docs/                       installation, policy adapters, the expert survey
+competition/                robotwin-icil-competition, a third distribution: this benchmark as a
+                            plugin of the ICIL competition (docs/competition.md)
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
 

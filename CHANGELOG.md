@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Competition plugin
+
+- (feat): `competition/` is a third distribution, `robotwin-icil-competition` (package
+  `icil_benchmark_robotwin`), that makes this benchmark a plugin of the ICIL competition. It is
+  found through the `icilval.benchmarks` entry point group, depends on the core, and never imports
+  `icilval` - a benchmark that stands on its own cannot depend on the competition that scores it.
+- (feat): the plugin splits in two. `info`, `catalogue`, `derive_units`, `verify_prompt` and
+  `read_result` run with no simulator, no assets and no GPU, because the validator host, CI and a
+  third party all need them; everything that does need a simulator is returned as an argv, so the
+  orchestrator never imports SAPIEN and the simulator side can run in another image or on another
+  host. A test asserts the argv the plugin builds is the argv the CLI parses.
+- (feat): a unit here is a task and a scene seed, derived from a sha256 counter rather than
+  numpy's RNG so a third party holding the published record can reproduce it. A prompt is written
+  in the array convention the orchestrator already reads, grouped by channel - no new file format,
+  and no change to `Demonstration`: what a policy may see of a demonstration stays the
+  orchestrator's decision, which is what makes it hold for every benchmark.
+- (feat): only the `video_only` view is offered. Same Scene makes the sensorimotor view
+  degenerate, since replaying the demonstration's own actions solves the episode.
+- (docs): `docs/competition.md`, and the CLAUDE.md amendment - the evaluator still uses no dataset
+  and trains nothing; a competition built on this benchmark may materialise and publish what it
+  runs, and that lives in `competition/`. A test checks neither the core nor the plugin imports a
+  network client, rather than trusting the rule.
+## Unreleased
+
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin
