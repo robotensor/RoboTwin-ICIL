@@ -5,11 +5,12 @@ runs here, outside it. The two meet over an address the orchestrator hands both 
 untrusted container never gets SAPIEN, CuRobo or the asset tree - and the simulator never gets the
 entrant's code.
 
-That out-of-process path needs a policy server in the benchmark core (`robotwin_icil.serve` and
-`RemotePolicy`), which is built on another branch and not on `main`. Rather than duplicate it here
-or pretend, `--policy-address` says exactly what it needs and what to install; `--policy`, an
-importable `module:Class`, is the in-process path and works today. Wiring the served path is
-tracked as its own issue.
+`--policy-address` is that meeting point: the orchestrator serves the entrant's policy behind
+`python -m robotwin_icil.serve` in its own environment, and this side reaches it with the core's
+own `RemotePolicy`, over a Unix socket or TCP, authenticated with the key in `--authkey-file`.
+The benchmark's lifecycle checks then run on both sides of the socket. `--policy`, an importable
+`module:Class`, is the in-process path, for a policy whose dependencies do not conflict with the
+simulator's; the two are alternatives and giving both is refused.
 
 Same Scene is checked against the **published prompt**, not against something rebuilt alongside it:
 the prompt carries the seed it was recorded at and a digest of that scene, so a rollout that drifts
@@ -105,20 +106,24 @@ def run_unit(
 def _policy(address: str | None, spec: str | None, authkey_file: str | None):
     """The policy this unit runs: one the orchestrator is serving, or one imported in process.
 
-    A served policy is how a competition keeps the entrant's code out of the simulator. It needs
-    `robotwin_icil.remote`, which lives on the branch that builds the policy server; until that
-    reaches `main`, this says so rather than failing somewhere less legible.
+    A served policy is how a competition keeps the entrant's code out of the simulator, and the
+    only way to run a model whose pins conflict with RoboTwin's. `RemotePolicy` is an
+    `ICILPolicy` itself, so what rolls out here is checked the same either way.
     """
     from robotwin_icil.policy import make_policy
 
+    if address and spec:
+        raise RuntimeError(
+            f"--policy-address {address} and --policy {spec} are alternatives; a unit runs one "
+            f"policy, and the record has to say which"
+        )
     if address:
         try:
             from robotwin_icil.remote import RemotePolicy
-        except ImportError as exc:
+        except ImportError as exc:  # pragma: no cover - an old benchmark core
             raise RuntimeError(
-                "--policy-address needs the benchmark's policy server (robotwin_icil.remote), "
-                "which is not in this checkout. Use --policy module:Class to run in process, or "
-                "install a benchmark revision that has it."
+                "--policy-address needs the benchmark's policy server (robotwin_icil.remote); "
+                "this robotwin-icil is too old for it"
             ) from exc
         return RemotePolicy(address=address, authkey_file=authkey_file)
     if not spec:

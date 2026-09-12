@@ -1,22 +1,36 @@
-"""The run path, without the simulator: what a demonstration still carries when it is rebuilt.
+"""The run path, without the simulator: the policy seam and the prompt round trip.
 
 `run_unit` itself builds a RoboTwin scene, so it is exercised against the real simulator
-separately. What is checked here is everything on the way in, because that is where a duel
+separately. What is checked here is everything on the way in - which policy a unit runs, and what
+a `Demonstration` rebuilt from a published prompt still carries - because that is where a duel
 silently turns into `void` rather than a verdict.
 """
 
 from __future__ import annotations
 
+import os
+import socket
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
 from icil_benchmark_robotwin import BENCHMARK
+from icil_benchmark_robotwin.cli import build_parser
 from icil_benchmark_robotwin.plugin import PROMPT_NAME
 from icil_benchmark_robotwin.prompt import CHANNELS, channel_of, dump, load
-from icil_benchmark_robotwin.run import _demonstration
+from icil_benchmark_robotwin.run import _demonstration, _policy
+from icil_benchmark_robotwin.units import derive_units
 
 from robotwin_icil.demo import ARMS, Demonstration, Frame
+from robotwin_icil.policy import PolicyError
+from robotwin_icil.remote import RemotePolicy
+
+KEY = "0" * 64
+UNIT = derive_units(seed_material="duel-1", count=1, suite="v1")[0].as_dict()
+
 
 # ---------------------------------------------------------------- demonstrations and prompts
 
@@ -93,3 +107,104 @@ def test_a_prompt_with_the_measurement_still_verifies(tmp_path):
     written(tmp_path)
     verdict = BENCHMARK.verify_prompt(path=str(tmp_path), unit={"task": "click_bell"})
     assert verdict["ok"], verdict["problems"]
+
+
+# ---------------------------------------------------------------- which policy a unit runs
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def served(tmp_path):
+    """A policy server the "orchestrator" already runs, as `--policy-address` assumes."""
+    address = f"127.0.0.1:{free_port()}"
+    authkey = tmp_path / "authkey"
+    authkey.write_text(KEY + "\n")
+    log = tmp_path / "serve.log"
+    with log.open("w") as handle:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "robotwin_icil.serve", "--policy", "replay"]
+            + ["--address", address, "--authkey-file", str(authkey)],
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            env={**os.environ},
+        )
+    deadline = time.monotonic() + 30
+    while "listening on" not in log.read_text():
+        assert process.poll() is None, log.read_text()
+        assert time.monotonic() < deadline, "the policy server never listened"
+        time.sleep(0.02)
+    try:
+        yield address, str(authkey)
+    finally:
+        process.terminate()
+        process.wait(10)
+
+
+def test_a_policy_address_reaches_a_policy_the_orchestrator_is_serving(served, tmp_path):
+    """The whole reason the plugin exists: the entrant's weights run in their own environment,
+    behind their own server, and the simulator never imports them."""
+    address, authkey = served
+    policy = _policy(address, None, authkey)
+    try:
+        assert isinstance(policy, RemotePolicy)
+        assert policy.describe()["policy"] == "replay"
+        assert policy.action_type == "qpos"
+        # It is an ICILPolicy here too, so a unit is checked on both sides of the socket.
+        policy.seed(3)
+        policy.reset()
+        policy.set_demonstration(_demonstration(written(tmp_path)))
+        actions = policy.act(_observation())
+        assert actions.shape == (1, 14)
+    finally:
+        policy.close()
+
+
+def _observation():
+    from robotwin_icil.policy import Observation
+
+    return Observation(
+        step=0, images={"head_camera": np.zeros((4, 4, 3), np.uint8)}, qpos=np.zeros(14)
+    )
+
+
+def test_a_served_policy_needs_the_key_the_orchestrator_handed_both_sides(served, tmp_path):
+    address, _ = served
+    wrong = tmp_path / "guessed"
+    wrong.write_text("guessed")
+    with pytest.raises(PolicyError, match="refused the key|cannot connect"):
+        _policy(address, None, str(wrong))
+    with pytest.raises(PolicyError, match="address= needs authkey_file="):
+        _policy(address, None, None)
+
+
+def test_an_importable_policy_still_runs_in_this_process():
+    policy = _policy(None, "replay", None)
+    assert policy.describe() == {"policy": "replay", "action_type": "qpos"}
+    policy.close()
+
+
+def test_a_unit_runs_one_policy_and_the_record_says_which():
+    with pytest.raises(RuntimeError, match="are alternatives"):
+        _policy("/work/p.sock", "replay", None)
+    with pytest.raises(RuntimeError, match="one of --policy-address or --policy is required"):
+        _policy(None, None, None)
+
+
+def test_the_key_file_reaches_the_cli_the_plugin_names():
+    """A server on TCP needs its key, and the orchestrator passes it through `**extra`."""
+    argv = BENCHMARK.run_command(
+        unit=UNIT,
+        prompt="/prompt/u0/prompt.npz",
+        out_dir="/work/u0",
+        policy_address="127.0.0.1:9000",
+        authkey_file="/work/authkey",
+    )
+    args = build_parser().parse_args([str(a) for a in argv[1:]])
+    assert args.policy_address == "127.0.0.1:9000"
+    assert args.authkey_file == "/work/authkey"
+    assert args.policy is None
