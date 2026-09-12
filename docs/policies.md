@@ -323,6 +323,10 @@ unchanged; the episode ends as soon as RoboTwin latches success or the task's st
 
 Actions of the wrong width or containing non-finite values raise `PolicyError`.
 
+`action_type` is a plain attribute, not a `ClassVar`: a class sets it once, as above, and an
+adapter whose action path follows its configuration — BPP's execution mode, `remote`'s served
+policy — assigns it on the instance, in `__init__`, before the runner reads it.
+
 ### The `ee` path
 
 An `ee` action is `[left pose (7), left gripper, right pose (7), right gripper]`, the layout of
