@@ -12,6 +12,7 @@ episode.
 
 from __future__ import annotations
 
+import tempfile
 import argparse
 import glob
 import json
@@ -293,16 +294,19 @@ def _libero_sanity(args: argparse.Namespace) -> dict[str, Any]:
     _register_libero_benchmarks()
     settings = load(args.config)
     model = load_model(settings.checkpoint, args.device, settings.checkpoint_sha256 or None)
+    out_dir = args.out or tempfile.mkdtemp(prefix="icil-bpp-sanity-")
     runner = LiberoImageRunner(
         dataset_path=args.dataset,
-        output_dir=args.out,
+        output_dir=out_dir,
         shape_meta=compose_config().shape_meta,
         cache_dir=args.cache_dir,
         n_envs=args.episodes,
         n_train=0,
         n_train_vis=0,
         n_test=args.episodes,
-        n_test_vis=0,
+        # BPP's runner names a visualisation from the first env's video whatever you ask of it,
+        # so it must record one; with none it dies on a missing path after the episodes have run.
+        n_test_vis=1,
         is_seen=False,
     )
     result = runner.run(model)
