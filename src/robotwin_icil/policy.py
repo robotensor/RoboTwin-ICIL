@@ -59,7 +59,10 @@ class ICILPolicy:
     """
 
     name: ClassVar[str] = "icil"
-    action_type: ClassVar[ActionType] = "qpos"
+    # Not a ClassVar: a policy whose action path depends on how it was configured sets this per
+    # instance (`remote` takes it from the server it connected to), and one class per action
+    # type would be a class per configuration.
+    action_type: ActionType = "qpos"
 
     def __init__(self) -> None:
         self._demonstration: Demonstration | None = None
