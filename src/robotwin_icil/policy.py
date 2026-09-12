@@ -12,10 +12,14 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+import json
+import math
 from dataclasses import dataclass, field
+from pathlib import PurePath
 from typing import Any, ClassVar, Literal
 
 import numpy as np
+import yaml
 
 from .demo import BIMANUAL_EE_DIM, BIMANUAL_QPOS_DIM, Demonstration
 
@@ -195,3 +199,76 @@ def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     if not (isinstance(cls, type) and issubclass(cls, ICILPolicy)):
         raise PolicyError(f"{spec!r} is not an ICILPolicy subclass")
     return cls(**kwargs)
+
+
+_NULLS = ("", "~", "null", "Null", "NULL")
+
+
+def parse_policy_arg(item: str) -> tuple[str, Any]:
+    """One `--policy-arg KEY=VALUE`, or `ValueError` saying why it is not one.
+
+    The value is read as YAML, so numbers, booleans and null arrive typed; a quoted value is the
+    string inside the quotes, and anything else stays the string it was. Scientific notation
+    needs a dot and a signed exponent, as YAML 1.1 has it: `1.0e-4` is a float, `1e-4` the string
+    '1e-4'. KEY must be a Python identifier, since it becomes a keyword argument.
+    """
+    key, sep, raw = item.partition("=")
+    if not sep:
+        raise ValueError(f"{item!r} is not KEY=VALUE")
+    if not key.isidentifier():
+        raise ValueError(f"{key!r} is not a Python identifier")
+    try:
+        value = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return key, raw
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{key}={raw}: a number must be finite")
+    if isinstance(value, (bool, int, float)):
+        return key, value
+    if value is None and raw.strip() in _NULLS:
+        return key, None
+    if isinstance(value, str) and raw.strip()[:1] in ("'", '"'):
+        return key, value
+    return key, raw
+
+
+def format_policy_arg(key: str, value: Any) -> str:
+    """The `KEY=VALUE` that `parse_policy_arg` reads back as `(key, value)`, or `PolicyError`.
+
+    How a policy's keyword arguments reach the command line of a policy server. None, booleans,
+    integers, finite floats and strings go as themselves, a path as its string, a numpy scalar as
+    the Python value it holds; a list, a mapping or anything else `--policy-arg` cannot express
+    is refused rather than turned into something else.
+    """
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, PurePath):
+        value = str(value)
+    if value is None:
+        text = "null"
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    elif isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        # YAML 1.1 reads scientific notation as a float only with a dot in the mantissa.
+        text = repr(value)
+        mantissa, e, exponent = text.partition("e")
+        if e and "." not in mantissa:
+            text = f"{mantissa}.0e{exponent}"
+    elif isinstance(value, str):
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        raise PolicyError(
+            f"{key}: {type(value).__name__} values cannot be passed as a --policy-arg"
+        )
+    item = f"{key}={text}"
+    try:
+        parsed = parse_policy_arg(item)
+    except ValueError as exc:
+        raise PolicyError(f"{key}={value!r} cannot be passed as a --policy-arg: {exc}") from exc
+    if parsed != (key, value) or type(parsed[1]) is not type(value):
+        raise PolicyError(
+            f"{key}={value!r} cannot be passed as a --policy-arg: it reads back as {parsed[1]!r}"
+        )
+    return item
