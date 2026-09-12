@@ -175,10 +175,18 @@ def _prompt_parity(args: argparse.Namespace) -> dict[str, Any]:
         LiberoReplayImageDataset,
         _receding_rgb_numpy_thwc_to_float_chw,
     )
+    from behavior_prompting.train_network.utils.libero_util import (
+        discover_and_register_benchmarks,
+    )
 
     from .model import compose_config
     from .prompt_parity import adapter_prompt_from_hdf5
 
+    # The dataset resolves a demonstration's task through `hdf5_to_task`, which looks its split
+    # up in LIBERO's benchmark dict (`train_network/utils/libero_util.py:128`). LIBERO-Gen's
+    # splits are not in it until this runs, one benchmark class per directory under LIBERO's
+    # datasets root; BPP's own `utils/load_env.py:20` calls it at import, its dataset never does.
+    discover_and_register_benchmarks()
     shape_meta = compose_config().shape_meta
     name = Path(args.libero_data).stem
     dataset = LiberoReplayImageDataset(
