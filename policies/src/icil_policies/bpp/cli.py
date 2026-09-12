@@ -42,7 +42,9 @@ def _slim(args: argparse.Namespace) -> dict[str, Any]:
     settings = load(args.config) if args.config else load()
     info = slim(args.source, args.out, args.sha256 or settings.source_sha256 or None)
     print(f"wrote {args.out}")
-    print(f"  state dict: {info['state_dict_keys']} keys, {info['state_dict_tensors']} tensors")
+    print(
+        f"  state dict: {info['state_dict_keys']} tensors, {info['state_dict_elements']} elements"
+    )
     print(f"  sha256:     {info['state_dict_sha256']}")
     print(f"  payload held state_dicts {info['state_dicts_in_payload']} (EMA: {info['ema']})")
     return info

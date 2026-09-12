@@ -158,8 +158,10 @@ def slim(source: str | Path, out_dir: str | Path, expected_sha256: str | None = 
         "source": str(source),
         "source_sha256": digest,
         "state_dict_sha256": written,
+        # Keys are tensors; `state_dict_elements` counts the numbers inside them, buffers and
+        # the normalizer included, which is larger than the model's parameter count.
         "state_dict_keys": len(state_dict),
-        "state_dict_tensors": int(sum(v.numel() for v in state_dict.values())),
+        "state_dict_elements": int(sum(v.numel() for v in state_dict.values())),
         "state_dicts_in_payload": sorted(states),
         "ema": False,
         "config_name": CONFIG_NAME,
