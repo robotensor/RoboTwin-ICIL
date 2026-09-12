@@ -156,6 +156,27 @@ def test_a_server_that_crashes_mid_episode_stops_the_run_and_the_run_resumes(tmp
     assert all(record.success for record in records)
 
 
+def test_a_later_call_still_names_the_log_of_the_server_that_died(tmp_path):
+    """The failure that stopped the server is what every later call raises, log and all.
+
+    Whoever holds the policy after a rollout failed - an adapter, a describe() at the end of a
+    run - gets the reason the server is gone rather than a bare "after close()".
+    """
+    log = tmp_path / "serve.log"
+    crashing = RemotePolicy(policy="served_policies:Crashing", crash_at=1, log=log)
+    crashing.reset()
+    crashing.set_demonstration(demonstration())
+    with pytest.raises(PolicyError, match="the policy server hung up during act"):
+        crashing.act(observation())
+    with pytest.raises(PolicyError) as raised:
+        crashing.describe()
+    message = str(raised.value)
+    assert "stopped after an earlier failure: the policy server hung up during act" in message
+    assert "(it exited with status 3)" in message
+    assert f"policy server log {log}, last lines:" in message and "crashing now" in message
+    assert not running(crashing)
+
+
 def test_a_server_that_hangs_times_out_and_is_stopped(tmp_path):
     policy = RemotePolicy(policy="served_policies:Hanging", timeout=0.5, log=tmp_path / "serve.log")
     policy.reset()
