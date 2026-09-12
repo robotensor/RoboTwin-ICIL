@@ -74,7 +74,8 @@ def test_describe_recomputes_the_checksum_the_audit_compares():
     before = policy.describe()["parameter_checksum"]
     assert before == policy.describe()["parameter_checksum"]
     with torch.no_grad():
-        parameter = next(iter(policy.model.parameters()))
+        # Not the first parameter: BPP's modules lead with an empty `_dummy_variable`.
+        parameter = next(p for p in policy.model.parameters() if p.numel())
         parameter.add_(torch.ones_like(parameter))
     assert policy.describe()["parameter_checksum"] != before
     policy.close()
