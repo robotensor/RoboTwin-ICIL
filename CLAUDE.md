@@ -4,9 +4,13 @@ Python 3.10, package `robotwin_icil` under `src/`. A separate benchmark that use
 simulation, tasks, scene generation, the expert, execution and success checking. Every episode
 generates its own demonstration at evaluation time: pick a task and scene seed, run RoboTwin's
 existing expert until one demonstration succeeds, recreate that exact scene, hand the frozen policy
-that one demonstration, roll out, score with RoboTwin's own `check_success()`. No dataset, no
-training, no train/eval split. The only V1 score is Same Scene 1-Demo Success Rate, reported
-overall, by skill category and by task. Follows the conventions in `../CLAUDE.md`.
+that one demonstration, roll out, score with RoboTwin's own `check_success()`. The only V1 score
+is Same Scene 1-Demo Success Rate, reported overall, by skill category and by task. Follows the
+conventions in `../CLAUDE.md`.
+
+`competition/` is a separate distribution, `robotwin-icil-competition` (package
+`icil_benchmark_robotwin`), that makes this benchmark a plugin of the ICIL competition. It depends
+on the core and never imports `icilval`; the core never imports it. See `docs/competition.md`.
 
 ## RoboTwin, as it actually works
 
@@ -70,6 +74,14 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
 - Skill categories are data: `tasks.yml` maps every upstream task exactly once and a test fails when
   `vendor/RoboTwin/envs/` and the table disagree. Suites are named there too; V1 is `v1`.
+- The evaluator uses no dataset and trains nothing: every episode of `robotwin-icil eval` gets its
+  demonstration from RoboTwin's own expert, generated at evaluation time, and the policy is frozen.
+  A competition built on this benchmark may materialise and publish what it runs - that is the
+  competition's business, and it lives in `competition/`, never in `src/robotwin_icil`.
+- `competition/` is the plugin, not a second benchmark: it adds no protocol, no demonstration type
+  and no file format of its own. What a policy may see of a demonstration is the orchestrator's
+  decision, applied over the arrays a prompt carries, so it holds for every benchmark and survives
+  this one changing underneath it.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
@@ -91,4 +103,5 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - One branch per issue (`issue-N-short-slug`) off `main`; one PR per issue with `Closes #N`, tests
   and a CHANGELOG entry. Rebase, do not merge `main` into the branch.
 - Reports and evaluation results are plain files in the repository or run directory, not hosted
-  artifacts.
+  artifacts. Nothing in `src/robotwin_icil` or `competition/` uploads anything, fetches anything or
+  needs a network, and a test checks that rather than trusting it.

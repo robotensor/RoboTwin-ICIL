@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "robotwin-icil-competition"
+version = "0.1.0.dev0"
+description = "RoboTwin ICIL as a pluggable benchmark of the ICIL competition"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = ["robotwin-icil", "numpy>=1.24,<2"]
+
+# Deliberately NOT a dependency on `icilval`: a benchmark that stands on its own cannot depend on
+# the competition that scores it. The ABI is duck-typed and carries `api_version`.
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff==0.16.7"]
+
+[project.entry-points."icilval.benchmarks"]
+robotwin = "icil_benchmark_robotwin.plugin"
+
+[project.scripts]
+robotwin-icil-competition = "icil_benchmark_robotwin.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/icil_benchmark_robotwin"]

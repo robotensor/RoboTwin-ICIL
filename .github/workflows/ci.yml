@@ -23,3 +23,18 @@ jobs:
         with: { python-version: "${{ matrix.python }}" }
       - run: pip install -e ".[dev]"
       - run: pytest -q -m "not sim"
+  competition:
+    # `competition/` is a separate distribution: the plugin the ICIL competition discovers. CI
+    # installs it with the core and nothing else, which is also the constraint it has to meet —
+    # the orchestrator host has no SAPIEN, no assets and no GPU.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install -e . -e ./competition ruff==0.16.7
+      - run: ruff check competition && ruff format --check competition
+      - run: pytest -q -m "not sim" competition/tests
