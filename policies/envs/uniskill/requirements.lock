@@ -1,15 +1,16 @@
 # The icil-uniskill environment's dependencies (`scripts/install_policy_env.sh uniskill`, stage
-# "core"), installed after torch. NOT YET VERIFIED together: #43 builds the env and fixes pins.
+# "core"), installed after torch. Verified together on 2026-09-11 (#43), with the contract test
+# policies/tests/test_uniskill_env.py.
 #
 # Versions come from UniSkill-Policy's uv.lock at 2803ad6 unless marked; "plan A3" marks the
 # pins the plan replaces (the fork pins torch 2.0.1, diffusers 0.23.0, transformers 4.36.2 and
 # huggingface-hub < 0.25, none of which runs on sm_120 or loads Depth-Anything-V2).
 numpy==1.26.4  # the fork's lock has 1.23.3; 1.26.4 is what torch 2.8.0 was verified with (icil-bpp)
-transformers==4.57.1  # plan A3: >= 4.48 for Depth-Anything-V2; 4.57.1 as in icil-bpp; unverified here
-diffusers==0.35.1  # plan A3: a current diffusers; unverified that EMAModel still takes the fork's model_cls
+transformers==4.57.1  # plan A3: >= 4.48 for Depth-Anything-V2; 4.57.1 as in icil-bpp
+diffusers==0.35.1  # plan A3: a current diffusers; its EMAModel still takes the fork's model_cls
 huggingface_hub==0.35.3  # plan A3: transformers 4.57 needs >= 0.34; the fork's < 0.25 is dropped
-accelerate==1.10.1  # the skill encoder's training code; as in icil-bpp, unverified here
-safetensors==0.6.2  # Depth-Anything-V2's weights; as in icil-bpp, unverified here
+accelerate==1.10.1  # the skill encoder's training code; as in icil-bpp
+safetensors==0.6.2  # Depth-Anything-V2's weights; as in icil-bpp
 einops==0.8.1
 h5py==3.15.1
 psutil==7.1.3

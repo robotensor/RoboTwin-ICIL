@@ -465,9 +465,17 @@ harness's own upper bound, so it tells you what a perfect imitator scores on you
 An `ee` adapter should also run `--policy replay_ee`, which plays `demo.ee_actions()` back through
 `take_action('ee')` in order and holds the last. It is the ceiling of the `ee` path for any
 model: where it scores below `replay`, the loss is in the path — planning, CuRobo's goal
-tolerance, 31 physics steps a call — and no `ee` adapter will do better. Then run
-your adapter with `--video` and compare `demonstration.mp4` with `evaluation_same_scene.mp4` in a
-few episode directories before trusting any number.
+tolerance, 31 physics steps a call — and no `ee` adapter will do better.
+
+A model that acts in resampled qpos, one next-step target per 20 Hz step (BPP-RoboTwin,
+UniSkill), should also run `--policy icil_policies.common.oracles:ResampledQposReplay`, which
+replays the demonstration resampled to 20 Hz on its frame times through `take_action('qpos')`.
+It is the ceiling of that conversion: where it scores below `replay`, the loss is in the
+resampling — fewer targets, interpolated joints, held gripper commands. It is numpy only and
+runs in the simulator env.
+
+Then run your adapter with `--video` and compare `demonstration.mp4` with
+`evaluation_same_scene.mp4` in a few episode directories before trusting any number.
 
 Report your run with the oracles beside it:
 
@@ -519,6 +527,17 @@ the stall window) are marked provisional.
 | `chunking` | `ChunkExecutor`: a history of `To` observations padded by repetition at the start, a queue of `Ta` actions, one per `act()` |
 | `virtual_target` | `VirtualTarget`: an end-effector target that keeps sub-tolerance deltas and re-anchors on the measured pose past a bound or after a failed plan; `StallDetector` |
 | `kinematics` | forward and inverse kinematics from a URDF, and `AlohaArm`: RoboTwin's endpose of an arm's six joints and back, for a `qpos_ik` execution mode only |
+| `oracles` | `resampled_qpos_actions`: the 20 Hz qpos target convention, one action per resampled step, the next step's qpos, the last held; `ResampledQposReplay`, which replays it |
+
+### Adapters
+
+| package | model | environment | guide |
+| --- | --- | --- | --- |
+| `icil_policies.uniskill` | UniSkill: the frozen skill encoder (`SkillExtractor`) and a skill-conditioned diffusion policy (`UniSkillPolicy`, 14-dim qpos); needs a checkpoint trained on RoboTwin exports, since the released one is gone | `icil-uniskill` | [models/uniskill.md](models/uniskill.md) |
+
+An adapter's torch code runs only in its model environment, but its conversion math stays numpy
+(`icil_policies.uniskill.conversion`), so CI tests it and a training export and the evaluator
+share it.
 
 ### `ADAPTER_VERSION`
 

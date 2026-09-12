@@ -107,8 +107,12 @@ make_venv() {
 
 install_torch() { uvpip "${TORCH[@]}" --index-url "${TORCH_INDEX}"; }
 
+# The model's extra, and `pure` for pytest, so the env can run its own contract tests. The
+# installs are editable, so the stage's key includes the checkout they point at.
+BENCHMARK_EXTRAS="${NAME},pure"
+
 install_benchmark() {
-    uvpip -c "${LOCKS}/constraints.txt" -e "${REPO_ROOT}" -e "${REPO_ROOT}/policies[${NAME}]"
+    uvpip -c "${LOCKS}/constraints.txt" -e "${REPO_ROOT}" -e "${REPO_ROOT}/policies[${BENCHMARK_EXTRAS}]"
 }
 
 smoke_common() {
@@ -177,8 +181,9 @@ build_bpp() {
     stage robomimic "$(key "${CMAKE[@]}" "${ROBOMIMIC[@]}" "$(file_key "${LOCKS}/constraints.txt")")" \
         bpp_robomimic
     stage model "$(key "${REPO_COMMIT}")" uvpip --no-deps -e "${src}"
-    stage benchmark "$(file_key "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
-        "${LOCKS}/constraints.txt")" install_benchmark
+    stage benchmark "$(key "${REPO_ROOT}" "${BENCHMARK_EXTRAS}" "$(file_key \
+        "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
+        "${LOCKS}/constraints.txt")")" install_benchmark
     bpp_backbone
     smoke_common "${SMOKE_IMPORT}"
     log "smoke: the backbone with HF_HUB_OFFLINE=1"
@@ -187,13 +192,8 @@ build_bpp() {
 }
 
 # --- uniskill -----------------------------------------------------------------
-# Not yet built end to end: #43 builds it and fixes these pins (policies/envs/uniskill).
-
-uniskill_simulators() {
-    local fork="$1"
-    uvpip -c "${LOCKS}/constraints.txt" --override "${LOCKS}/overrides.txt" \
-        -e "${fork}/robosuite" -e "${fork}/robocasa" -e "${fork}/LIBERO"
-}
+# Verified on an RTX 5090 on 2026-09-11 (#43, docs/models/uniskill.md): the fork without its
+# simulator submodules, the skill encoder on the path, torch 2.8.0+cu128.
 
 uniskill_model() {
     local fork="$1" isd="$2" site
@@ -208,18 +208,17 @@ uniskill_model() {
 build_uniskill() {
     local isd="${SRC_ROOT}/${ISD_DIR}" fork="${SRC_ROOT}/${POLICY_DIR}"
     checkout "${isd}" "${ISD_URL}" "${ISD_COMMIT}"
-    checkout "${fork}" "${POLICY_URL}" "${POLICY_COMMIT}" "${POLICY_SUBMODULES[@]}"
-    # The fork's own install_env.sh adds this missing package marker.
-    [[ -f "${fork}/LIBERO/libero/__init__.py" ]] || touch "${fork}/LIBERO/libero/__init__.py"
+    # Not its LIBERO, robosuite and robocasa submodules: only the fork's LIBERO training and
+    # evaluation scripts import them, never the adapter, and robocasa pins numpy 1.23.3.
+    checkout "${fork}" "${POLICY_URL}" "${POLICY_COMMIT}"
     make_venv
     stage torch "$(key "${TORCH_INDEX}" "${TORCH[@]}")" install_torch
     stage core "$(file_key "${LOCKS}/requirements.lock" "${LOCKS}/constraints.txt")" \
         uvpip -c "${LOCKS}/constraints.txt" -r "${LOCKS}/requirements.lock"
-    stage simulators "$(key "${POLICY_COMMIT}" "$(file_key "${LOCKS}/constraints.txt" "${LOCKS}/overrides.txt")")" \
-        uniskill_simulators "${fork}"
     stage model "$(key "${POLICY_COMMIT}" "${ISD_COMMIT}")" uniskill_model "${fork}" "${isd}"
-    stage benchmark "$(file_key "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
-        "${LOCKS}/constraints.txt")" install_benchmark
+    stage benchmark "$(key "${REPO_ROOT}" "${BENCHMARK_EXTRAS}" "$(file_key \
+        "${REPO_ROOT}/pyproject.toml" "${REPO_ROOT}/policies/pyproject.toml" \
+        "${LOCKS}/constraints.txt")")" install_benchmark
     smoke_common "${SMOKE_IMPORTS[@]}"
 }
 

@@ -72,6 +72,24 @@
   leaves `audit.json`, after which the run directory neither resumes nor reports. The policy is
   described at the start and end of a run instead of per episode. New fields default, so older
   runs still load and resume (#37).
+- (feat): the UniSkill adapter, `icil_policies.uniskill`. UniSkill's released policy checkpoint
+  is gone (404), so it pairs the frozen skill encoder (`idm.pth` with Depth-Anything-V2-Small,
+  both sha256-checked) with the robomimic fork's `DiffusionPolicyUNet`, to be trained on
+  RoboTwin exports elsewhere; without a checkpoint it refuses to construct and says why.
+  `SkillExtractor` gives one skill row per 20 Hz step (k = 20, the future frame clamped at the
+  end, as the released skills are laid out) from `far_side_camera`'s centred square, upright,
+  preprocessed as the encoder was trained, with seeded augmentation variants whose recipe is an
+  ASSUMPTION. `UniSkillPolicy` returns one 14-dim qpos target per call and re-plans every 8
+  with the skill row of the actions executed so far, held past the end; its diffusion noise
+  comes from its own generator, and the EMA weights are baked into an exported checkpoint, so
+  the evaluator holds no optimizer and writes no parameter. `ResampledQposReplay` in
+  `icil_policies.common.oracles` replays the demonstration resampled to 20 Hz, the ceiling of
+  any 20 Hz qpos model. `icil-uniskill` now builds, without the fork's simulator submodules,
+  and has a contract test; `docs/models/uniskill.md` gives every constant's source, the
+  assumptions and deviations, and a draft upstream issue for the dead link.
+  `scripts/install_policy_env.sh` now installs the `pure` extra, so every model env,
+  `icil-bpp` too, gets pytest for its contract tests, and keys its benchmark stage on the
+  checkout path and the extras, so an env built before this reinstalls that stage once (#43).
 - (feat): `policies/`, the adapters' own distribution `robotwin-icil-policies`, with a numpy
   toolkit and model environments. `icil_policies.common` holds what BPP's and UniSkill's
   adapters share: wxyz quaternions, axis-angle and rot6d (the first two rows); aloha's arm

@@ -1,0 +1,39 @@
+# The UniSkill adapter's configuration (icil_policies.uniskill.config). Pass a file of your own as
+# `config=PATH`: its keys override these. docs/models/uniskill.md gives each constant's source.
+
+# The exported policy checkpoint (EMA weights baked in). None is released: UniSkill's own policy
+# checkpoint is gone, and a RoboTwin-trained one comes from outside this package.
+checkpoint: null
+checkpoint_sha256: null
+device: cuda
+seed: 0  # the diffusion noise generator's seed until the runner calls seed()
+
+# The frozen skill encoder. Relative paths are under $ICIL_HOME/models (default
+# ~/.cache/robotwin-icil/models).
+skills:
+  isd: uniskill/idm.pth  # HanjungKim/UniSkill UniSkill_final_weight/idm.pth, rev b8d6cba
+  isd_sha256: 50db59970ea8c523165da669967f94d03a13618d193c1d70c0d6415cc630f8ba
+  depth: depth-anything-v2-small  # depth-anything/Depth-Anything-V2-Small-hf, rev 5426e4f
+  depth_sha256: 3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70  # model.safetensors
+  camera: far_side_camera
+  crop: 180  # centred square: LIBERO's 45 degree field from far_side_camera's 320x180
+  rate_hz: 20.0
+  k: 20  # steps: 1.0 s at 20 Hz
+  resolution: 224  # dynamics/idm.py idm_resolution
+  batch_size: 32
+  # dynamics/idm.py IDM(...) as extract_skill.py builds it for idm.pth
+  num_layers: 8
+  num_heads: 4
+  hidden_dim: 256
+  skill_dim: 64
+  out_dim: 768
+
+# Skill variants aug_0..4 for training data. ASSUMPTION: the paper and the code do not say how the
+# released ones were made.
+augmentation:
+  variants: 5
+  seed: 0
+  brightness: 0.2
+  contrast: 0.2
+  saturation: 0.2
+  crop_scale: [0.9, 1.0]
