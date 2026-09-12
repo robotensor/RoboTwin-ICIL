@@ -22,6 +22,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .prompt import CHANNELS
 from .units import derive_units
 
 #: The competition ABI this plugin speaks. Version 1 is provisional: it was designed against one
@@ -66,6 +67,10 @@ class Benchmark:
             "action_space": "bimanual_qpos_14",
             "embodiment": "aloha-agilex",
             "prompt_name": PROMPT_NAME,
+            # Which array carries which channel, so the orchestrator's demonstration view can
+            # allow or drop them as a unit. Only the benchmark knows what its arrays mean; the
+            # decision about what a policy may see stays the orchestrator's.
+            "demo_channels": {k: list(v) for k, v in CHANNELS.items()},
             "commits": _commits(),
         }
 

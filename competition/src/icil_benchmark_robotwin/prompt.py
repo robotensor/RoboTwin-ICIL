@@ -41,7 +41,7 @@ PROMPT_SCHEMA = 1
 #: channel -> the arrays that carry it. The orchestrator is told this through the spec; it is
 #: repeated here so a prompt can be checked on its own.
 CHANNELS = {
-    "video": ("frames_",),  # prefix: one array per camera
+    "video": ("frames_",),  # a prefix: one array per camera
     "proprio": ("qpos", "endpose"),
     "actions": ("actions",),
 }

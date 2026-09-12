@@ -179,3 +179,17 @@ def test_a_missing_result_is_void_rather_than_a_loss(tmp_path):
     """The subprocess died; that is the harness's fault, not the model's."""
     result = BENCHMARK.read_result(out_dir=str(tmp_path))
     assert result["void"] is True and result["success"] is None and result["error"]
+
+
+def test_the_plugin_says_which_array_carries_which_channel():
+    """The orchestrator's demonstration view allows or drops whole channels, and only the
+    benchmark knows what its arrays mean. What a policy may *see* stays the orchestrator's
+    decision - this is just the map it needs to apply one."""
+    channels = BENCHMARK.info()["demo_channels"]
+    assert channels["actions"] == ["actions"]
+    assert set(channels["proprio"]) == {"qpos", "endpose"}
+    assert channels["video"] == ["frames_"]
+    # Every channel the prompt writer knows about is published; a new one cannot be forgotten.
+    from icil_benchmark_robotwin.prompt import CHANNELS
+
+    assert set(channels) == set(CHANNELS)
