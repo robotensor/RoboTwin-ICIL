@@ -36,10 +36,26 @@ BENCHMARK_ID = "robotwin"
 #: identical scene it was recorded in.
 PROTOCOL = "same_scene_1demo"
 
-#: The demonstration views this benchmark can serve. Same Scene makes the sensorimotor view
-#: degenerate - replaying the demonstration's own actions solves the episode - so it is not
-#: offered, and a field asking for it is refused rather than quietly scored.
-VIEWS = ("video_only",)
+#: The demonstration views this benchmark serves. `video_only` shows a policy the demonstration's
+#: frames; `sensorimotor` shows it the frames, the action trajectory and the proprioception -
+#: everything the prompt carries. Both are served because the competition has a field for each and
+#: this is the benchmark plugged into both.
+#:
+#: Say plainly what the second one measures here. Under Same Scene the sensorimotor view is
+#: **degenerate by construction**: the rollout starts in the very scene the demonstration was
+#: recorded in, so replaying the demonstration's own actions solves the episode - the benchmark's
+#: own replay oracle does exactly that and scores 18/18 on the V1 suite. Serving the view is not a
+#: claim that a score under it measures in-context imitation. It is the competition's field, and
+#: the competition - not this benchmark - owns the decision to score it; what the benchmark owes
+#: is to serve both views the same way and to be honest about the difference between them.
+#:
+#: A view outside this tuple is still refused rather than quietly scored.
+VIEWS = ("video_only", "sensorimotor")
+
+#: The view a unit runs under when the orchestrator names none. Named rather than taken as
+#: `VIEWS[0]`, so it is a decision and not an accident of ordering: video-only is the view Same
+#: Scene measures something by.
+DEFAULT_VIEW = "video_only"
 
 #: The prompt file one materialized unit produces.
 PROMPT_NAME = "prompt.npz"
@@ -206,7 +222,7 @@ class Benchmark:
             "--policy-address",
             str(policy_address),
             "--view",
-            str(extra.pop("view", VIEWS[0])),
+            str(extra.pop("view", DEFAULT_VIEW)),
         ]
         return _with_extra(argv, extra)
 

@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from icil_benchmark_robotwin import BENCHMARK, BENCHMARK_API_VERSION
-from icil_benchmark_robotwin.plugin import PROMPT_NAME, VIEWS
+from icil_benchmark_robotwin.plugin import DEFAULT_VIEW, PROMPT_NAME, VIEWS
 from icil_benchmark_robotwin.prompt import PROMPT_SCHEMA, channel_of, prompt_sha256
 from icil_benchmark_robotwin.units import derive_units
 
@@ -25,11 +25,20 @@ def test_the_plugin_names_itself_and_its_abi():
     assert info["protocol"] == "same_scene_1demo"
 
 
-def test_it_offers_only_the_view_that_is_meaningful_here():
-    """Same Scene makes the sensorimotor view degenerate - replaying the demonstration's own
-    actions solves the episode - so this benchmark does not offer it."""
-    assert VIEWS == ("video_only",)
-    assert "sensorimotor" not in BENCHMARK.info()["views"]
+def test_it_serves_both_of_the_competitions_views():
+    """The competition has a sensorimotor field and a video-only one, and this is the benchmark
+    plugged into both, so refusing either leaves that field with nothing to run on."""
+    assert set(VIEWS) == {"video_only", "sensorimotor"}
+    assert BENCHMARK.info()["views"] == list(VIEWS)
+
+
+def test_the_default_view_is_the_one_same_scene_measures_something_by():
+    """Under Same Scene the sensorimotor view is degenerate by construction - the rollout starts
+    in the scene the demonstration was recorded in, so replaying the demonstration's own actions
+    solves the episode. It is served because the competition asks for it; it is not what a unit
+    falls back to when no field named a view."""
+    assert DEFAULT_VIEW == "video_only"
+    assert DEFAULT_VIEW in VIEWS
 
 
 def test_the_catalogue_is_the_menu_not_the_meal():
@@ -80,6 +89,26 @@ def test_an_empty_or_unknown_suite_is_refused():
 
     with pytest.raises(TaskTableError, match="unknown suite"):
         derive_units(seed_material="x", count=1, suite="no-such-suite")
+
+
+def test_a_view_this_benchmark_does_not_serve_is_refused_by_the_runner_too():
+    """The CLI's `choices` refuse an unknown view, but `run_unit` writes the view into the result
+    as a claim about what the policy was shown, so it refuses one itself rather than trusting its
+    caller. Void, not raised: a duel needs a verdict, and this is a harness fault.
+
+    It also runs before the simulator is imported, which is what lets this test exist at all."""
+    from icil_benchmark_robotwin.run import run_unit
+
+    result = run_unit(
+        task="click_bell",
+        scene_seed=7,
+        prompt=Path("/nonexistent/prompt.npz"),
+        out_dir=Path("/nonexistent"),
+        policy_spec="does.not:Matter",
+        view="telepathy",
+    )
+    assert result["void"] and result["success"] is None
+    assert "telepathy" in result["error"]
 
 
 # ------------------------------------------------------------------ prompts

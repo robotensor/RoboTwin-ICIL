@@ -11,6 +11,11 @@ or pretend, `--policy-address` says exactly what it needs and what to install; `
 importable `module:Class`, is the in-process path and works today. Wiring the served path is
 tracked as its own issue.
 
+Both competition views are served, and the difference between them is not here: the orchestrator
+withholds what its field withholds before this is called, so `--view` is recorded rather than
+applied. What it records is a claim about what the policy was shown, so a view this benchmark does
+not serve is refused rather than written into a result.
+
 Same Scene is checked against the **published prompt**, not against something rebuilt alongside it:
 the prompt carries the seed it was recorded at and a digest of that scene, so a rollout that drifts
 is caught against the artifact a third party can also check.
@@ -21,6 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .plugin import DEFAULT_VIEW, VIEWS
 from .prompt import load
 
 
@@ -33,7 +39,7 @@ def run_unit(
     policy_address: str | None = None,
     policy_spec: str | None = None,
     authkey_file: str | None = None,
-    view: str = "video_only",
+    view: str = DEFAULT_VIEW,
     task_config: str = "demo_clean",
     record_video: bool = True,
 ) -> dict[str, Any]:
@@ -42,7 +48,14 @@ def run_unit(
     Never raises for a scene or model failure: a duel needs a verdict for every unit, and a fault
     that is the harness's rather than the model's comes back as `void` so it can be excluded from
     the score instead of counted as a loss.
+
+    `view` is recorded, not applied: the orchestrator has already withheld what its field withholds
+    by the time this runs. Recording it is still a claim about what the policy was shown, so a view
+    this benchmark does not serve is refused here and not only at the CLI's `choices`.
     """
+    if view not in VIEWS:
+        return _void(f"unknown view {view!r}; this benchmark serves {', '.join(VIEWS)}")
+
     from robotwin_icil import robotwin, scene
     from robotwin_icil.episode import rollout
     from robotwin_icil.video import EpisodeVideo
@@ -129,9 +142,10 @@ def _policy(address: str | None, spec: str | None, authkey_file: str | None):
 def _demonstration(doc: dict[str, Any]):
     """Rebuild a `Demonstration` from the prompt's arrays.
 
-    Everything the file holds is rebuilt here. What a policy may *see* of it is the orchestrator's
-    decision, applied before this is ever called - which is why this module has no view logic and
-    no list of withheld channels.
+    Everything the file holds is rebuilt here, under either view. What a policy may *see* of it is
+    the orchestrator's decision, applied before this is ever called - which is why this module has
+    no view logic and no list of withheld channels, and why serving a second view took nothing
+    here.
     """
     import numpy as np
 

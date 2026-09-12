@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .plugin import BENCHMARK, RESULT_NAME, VIEWS
+from .plugin import BENCHMARK, DEFAULT_VIEW, RESULT_NAME, VIEWS
 from .units import derive_units
 
 
@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--policy-address", default=None, help="a policy the orchestrator is serving")
     run.add_argument("--policy", default=None, help="module:Class, run in this process")
     run.add_argument("--authkey-file", default=None)
-    run.add_argument("--view", default=VIEWS[0], choices=list(VIEWS))
+    run.add_argument("--view", default=DEFAULT_VIEW, choices=list(VIEWS))
     run.add_argument("--task-config", default="demo_clean")
     run.add_argument("--no-video", action="store_true")
     run.set_defaults(func=cmd_run_unit)
