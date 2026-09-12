@@ -33,17 +33,19 @@ profiles:
   # A third-person view from across the table, looking back at the robot.
   #
   # It takes the slot of `front_camera`, which sits 0.11 m above the table looking at the wall.
-  # From 4 cm in front of the wall (its front face is at y = 0.40) and 0.46 m above the 0.74 m
-  # table, it looks 38.9 degrees down (forward z = -0.628) along -y, towards the robot at
-  # y = -0.65. Its optical axis meets the table at y = -0.21, 0.21 m in front of the arm bases
-  # (about (+-0.30, -0.42, 0.78)), 0.73 m away. L515 renders 320x180 with a 45 degree vertical
-  # field, so a centred 180x180 crop is a 45 degree square. The arms enter from the top of the
-  # image, and with `left` = +x, image left is the robot's right.
+  # From (0, 0.90, 1.45) it looks 38.9 degrees down (forward z = -0.628) along -y, 0.71 m above the
+  # 0.74 m table and 1.32 m in front of the arm bases (about (+-0.30, -0.42, 0.78)), so its optical
+  # axis meets the table 0.44 m in front of them at 1.13 m range: LIBERO's agentview geometry
+  # relative to the Panda base, which is what the models this view serves were trained on. L515
+  # renders 320x180 with a 45 degree vertical field, so a centred 180x180 crop is a 45 degree
+  # square. The arms enter from the top of the image, and with `left` = +x, image left is the
+  # robot's right. The camera sits inside the wall's volume; the ray tracer ignores the wall's back
+  # faces, and every V1 object renders (checked over 9 tasks and 105 object observations).
   far_side:
     replace:
       front_camera:
         name: far_side_camera
         type: L515
-        position: [0.0, 0.36, 1.20]
+        position: [0.0, 0.90, 1.45]
         forward: [0.0, -0.778, -0.628]
         left: [1.0, 0.0, 0.0]

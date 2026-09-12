@@ -92,7 +92,7 @@ def test_far_side_replaces_front_camera_in_its_slot(static_camera_list):
     assert far_side == {
         "name": "far_side_camera",
         "type": "L515",
-        "position": [0.0, 0.36, 1.20],
+        "position": [0.0, 0.90, 1.45],
         "forward": [0.0, -0.778, -0.628],
         "left": [1.0, 0.0, 0.0],
     }
@@ -273,7 +273,7 @@ def test_the_sha256_is_canonical():
                 "front_camera": {
                     "left": [1, 0, 0],
                     "forward": [0, -0.778, -0.628],
-                    "position": [0, 0.36, 1.2],
+                    "position": [0, 0.90, 1.45],
                     "type": "L515",
                     "name": "far_side_camera",
                 }

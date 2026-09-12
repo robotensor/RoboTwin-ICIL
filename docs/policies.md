@@ -103,7 +103,7 @@ renders. Profiles are data in
 | profile | static cameras | what changes |
 | --- | --- | --- |
 | `stock` | `head_camera`, `front_camera` | nothing: RoboTwin's own cameras |
-| `far_side` | `head_camera`, `far_side_camera` | `far_side_camera` takes `front_camera`'s slot: across the table at (0, 0.36, 1.20), 38.9° down, 320x180 with a 45° vertical field; the arms enter from the top, and image left is the robot's right |
+| `far_side` | `head_camera`, `far_side_camera` | `far_side_camera` takes `front_camera`'s slot: across the table at (0, 0.90, 1.45), 38.9° down, 1.13 m from where it meets the table, 320x180 with a 45° vertical field; the arms enter from the top, and image left is the robot's right |
 
 Profiles only **replace** a camera, in its slot. RoboTwin builds every static camera with
 `create_camera`, which draws from numpy's global RNG after the scene seed is set and before any
