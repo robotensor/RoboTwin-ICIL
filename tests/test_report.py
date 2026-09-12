@@ -310,7 +310,8 @@ STOCK = camera_profiles.get("stock").identity()
         ({"robotwin_commit": "def-dirty"}, "robotwin_commit ('def-dirty', not 'def')"),
         (
             {"benchmark_config": {"camera_profile": camera_profiles.get("far_side").identity()}},
-            "camera profile (far_side (sha256 90ff70cb567f), not stock",
+            "camera profile (far_side (sha256 "
+            f"{camera_profiles.get('far_side').identity()['sha256'][:12]}), not stock",
         ),
         # A profile edited under its old name is another set of cameras.
         (
