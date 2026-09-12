@@ -1,0 +1,38 @@
+{
+  "_comment": "Two smoke runs on an RTX 5090, recorded because they are the first evidence the RoboTwin benchmark runs under the competition's protocol with a real model. Neither is a score: one episode each, on one task.",
+  "machine": {
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "driver": "580.173.02",
+    "compute_capability": "12.0"
+  },
+  "robotwin_commit": "96c1feab536306b50c26af200044fcdf126e8904",
+  "runs": [
+    {
+      "policy": "replay",
+      "what": "the harness ceiling: the demonstration's own actions, replayed",
+      "branch": "milestone-competition-plugin",
+      "task": "click_bell",
+      "seed": 42,
+      "episodes": 1,
+      "successes": 1,
+      "steps": 61
+    },
+    {
+      "policy": "bpp",
+      "what": "the released LIBERO-Gen Combination checkpoint, a cross-embodiment transfer",
+      "branch": "milestone-bpp-uniskill",
+      "adapter": "icil_policies.bpp/1",
+      "checkpoint": "austinpatel/liberogen_spatial_combination/liberogen_spatial_combination_behavior_prompting.ckpt@0e4c1fdf496592583acfbde51ce82880006aa0f3",
+      "camera_profile": "far_side",
+      "task": "click_bell",
+      "scene_seed": 191664963,
+      "seed": 42,
+      "episodes": 1,
+      "successes": 0,
+      "steps": 400,
+      "step_limit": 400,
+      "action_type": "ee",
+      "note": "0/1 is the expected result, not a failure of the path: the checkpoint has never seen RoboTwin, aloha-agilex or this task, and the plan predicted 0.00-0.05. What it demonstrates is that the whole chain runs - the model served in its own environment, one RoboTwin demonstration converted into its prompt, its actions executed through CuRobo, and RoboTwin's own check_success deciding the outcome."
+    }
+  ]
+}
