@@ -1,5 +1,6 @@
 """The RoboTwin seam: error reporting and config resolution, exercised without importing RoboTwin."""
 
+import sys
 import types
 
 import numpy as np
@@ -276,3 +277,94 @@ def test_captured_frames_carry_endposes_and_gripper_joints():
     np.testing.assert_allclose(last.gripper_joints["left"], [finger(env.qpos[6])] * 2)
     np.testing.assert_allclose(demonstration.endposes()[-1, :7], endpose_of(env.qpos[:6]))
     assert demonstration.endposes()[-1, 15] == env.qpos[13]
+
+
+def test_render_manifests_left_in_the_env_are_used(tmp_path, monkeypatch):
+    import os
+
+    from robotwin_icil import robotwin
+
+    share = tmp_path / "share" / "robotwin-icil"
+    icd = share / "vulkan" / "icd.d" / "nvidia_icd.json"
+    egl = share / "glvnd" / "egl_vendor.d" / "10_nvidia.json"
+    for manifest in (icd, egl):
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(robotwin.sys, "prefix", str(tmp_path))
+    monkeypatch.delenv("VK_ICD_FILENAMES", raising=False)
+    monkeypatch.setenv("__EGL_VENDOR_LIBRARY_FILENAMES", "/explicit/10_nvidia.json")
+    robotwin.use_env_render_manifests()
+    assert os.environ["VK_ICD_FILENAMES"] == str(icd)
+    assert os.environ["__EGL_VENDOR_LIBRARY_FILENAMES"] == "/explicit/10_nvidia.json"
+
+
+def test_no_render_manifests_in_the_env_leaves_the_environment_alone(tmp_path, monkeypatch):
+    import os
+
+    from robotwin_icil import robotwin
+
+    monkeypatch.setattr(robotwin.sys, "prefix", str(tmp_path))
+    monkeypatch.delenv("VK_ICD_FILENAMES", raising=False)
+    monkeypatch.delenv("__EGL_VENDOR_LIBRARY_FILENAMES", raising=False)
+    robotwin.use_env_render_manifests()
+    assert "VK_ICD_FILENAMES" not in os.environ
+    assert "__EGL_VENDOR_LIBRARY_FILENAMES" not in os.environ
+
+
+def test_oidn_stays_below_compute_capability_10():
+    assert robotwin.denoiser_for((8, 6), None) is None
+    assert robotwin.denoiser_for(None, None) is None
+
+
+def test_oidn_is_turned_off_on_blackwell():
+    assert robotwin.denoiser_for((10, 0), None) == "none"
+    assert robotwin.denoiser_for((12, 0), None) == "none"
+
+
+def test_the_denoiser_override_wins_and_is_checked():
+    assert robotwin.denoiser_for((12, 0), "oidn") is None
+    assert robotwin.denoiser_for((8, 6), "none") == "none"
+    with pytest.raises(robotwin.RoboTwinError, match="must be 'oidn' or 'none'"):
+        robotwin.denoiser_for((12, 0), "optix")
+
+
+def _fake_sapien(monkeypatch):
+    calls = []
+    render = types.ModuleType("sapien.render")
+    render.set_ray_tracing_denoiser = calls.append
+    sapien = types.ModuleType("sapien")
+    sapien.render = render
+    monkeypatch.setitem(sys.modules, "sapien", sapien)
+    monkeypatch.setitem(sys.modules, "sapien.render", render)
+    monkeypatch.delenv("ROBOTWIN_ICIL_DENOISER", raising=False)
+    return render, calls
+
+
+def test_robotwins_oidn_request_becomes_none_on_blackwell(monkeypatch):
+    render, calls = _fake_sapien(monkeypatch)
+    monkeypatch.setattr(robotwin, "_gpu_capability", lambda: (12, 0))
+    robotwin.use_supported_denoiser()
+    robotwin.use_supported_denoiser()  # once per process: no second wrapper
+    render.set_ray_tracing_denoiser("oidn")
+    render.set_ray_tracing_denoiser("optix")
+    assert calls == ["none", "optix"]
+
+
+def test_the_denoiser_is_left_alone_where_oidn_runs(monkeypatch):
+    render, calls = _fake_sapien(monkeypatch)
+    original = render.set_ray_tracing_denoiser
+    monkeypatch.setattr(robotwin, "_gpu_capability", lambda: (8, 6))
+    robotwin.use_supported_denoiser()
+    assert render.set_ray_tracing_denoiser is original
+
+
+def test_no_sapien_leaves_the_denoiser_alone(monkeypatch):
+    monkeypatch.setitem(sys.modules, "sapien", None)
+    robotwin.use_supported_denoiser()
+
+
+def test_a_lost_gpu_device_is_recognised():
+    assert robotwin.gpu_lost(RuntimeError("vk::Device::waitForFences: ErrorDeviceLost"))
+    assert robotwin.gpu_lost(RuntimeError("VK_ERROR_DEVICE_LOST"))
+    assert not robotwin.gpu_lost(RuntimeError("simulator exploded"))
+    assert not robotwin.gpu_lost(AssertionError("target_pose cannot be None for move action."))

@@ -155,6 +155,17 @@ def test_a_simulator_error_mid_rollout_is_a_failed_rollout():
     assert record.detail.startswith("rollout error")
 
 
+@pytest.mark.parametrize(
+    "error",
+    ["vk::Device::waitForFences: ErrorDeviceLost", "CUDA out of memory. Tried to allocate 2 MiB"],
+)
+def test_a_gpu_failure_mid_rollout_stops_the_run(error):
+    # Scored as a failed rollout, it would count a broken simulator against the model.
+    env = FakeTaskEnv(rollout_raises_at=2, rollout_error=error)
+    with pytest.raises(robotwin.RoboTwinError, match="GPU failed during the rollout"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
 def test_both_scenes_are_built_under_the_tasks_name():
     # RoboTwin looks the task's step limit up by name; an unnamed scene silently gets 1000 steps.
     env = FakeTaskEnv()
@@ -180,6 +191,13 @@ def test_a_scene_that_fails_to_build_stops_the_run():
 def test_running_out_of_gpu_memory_stops_the_run():
     env = FakeTaskEnv(oom_on_play={scene_seeds(0, 0, 5)[0]})
     with pytest.raises(robotwin.RoboTwinError, match="out of memory"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
+def test_losing_the_gpu_in_the_expert_stops_the_run():
+    # Recorded as a rejection, a device loss once turned one run into 40 bogus expert_errors.
+    env = FakeTaskEnv(device_lost_on_play={scene_seeds(0, 0, 5)[0]})
+    with pytest.raises(robotwin.RoboTwinError, match="lost the GPU"):
         run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
 
 

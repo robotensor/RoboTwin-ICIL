@@ -48,6 +48,9 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   `Frame.time_s` (`Demonstration.times()`) and `Observation.time_s`, from `robotwin.clock`, which
   counts `scene.step()` calls from after `setup_demo` and the fingerprint (so not RoboTwin's
   2500-step settle) until before `close`.
+- RoboTwin renders with SAPIEN's ray tracer and asks for the OIDN denoiser, which cannot run on
+  Blackwell GPUs: it leaves images untouched and, under GPU contention, hangs camera reads.
+  `robotwin.py` turns it off at compute capability 10.0 and above (`ROBOTWIN_ICIL_DENOISER`).
 - Assets load from `./assets/...` relative to the working directory, so `robotwin.py` chdirs into
   `vendor/RoboTwin`. Resolve any path (run dir, checkpoint) to absolute before calling into it.
 

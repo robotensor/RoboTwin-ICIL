@@ -23,6 +23,7 @@ import copy
 import gc
 import importlib
 import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -44,6 +45,82 @@ class RoboTwinError(RuntimeError):
     """RoboTwin is missing, misconfigured, or refused to build a scene."""
 
 
+def use_env_render_manifests() -> None:
+    """Point SAPIEN at the NVIDIA render manifests `install_robotwin.sh` left in the env, if any.
+
+    Without root the installer cannot put the Vulkan ICD and EGL vendor manifests where the loaders
+    look, so it writes them under the env's `share/robotwin-icil`, where SAPIEN finds them only
+    through these variables. Benchmark commands run the env's interpreter directly, so no
+    activation script sets them. Explicit settings win.
+    """
+    share = Path(sys.prefix) / "share" / "robotwin-icil"
+    for variable, manifest in (
+        ("VK_ICD_FILENAMES", share / "vulkan" / "icd.d" / "nvidia_icd.json"),
+        ("__EGL_VENDOR_LIBRARY_FILENAMES", share / "glvnd" / "egl_vendor.d" / "10_nvidia.json"),
+    ):
+        if manifest.is_file():
+            os.environ.setdefault(variable, str(manifest))
+
+
+def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> str | None:
+    """The ray-tracing denoiser to use where RoboTwin asks for "oidn", or None to keep its request.
+
+    SAPIEN 3.0.0b1's OIDN has no CUDA device for compute capability 10.0 and above (Blackwell): it
+    logs "unsupported device type: CUDA" and leaves every image as rendered, so turning it off there
+    changes no pixel (checked on an RTX 5090). Its failing path also hangs a camera read for good
+    while another process loads the GPU. `ROBOTWIN_ICIL_DENOISER` (`oidn` or `none`) overrides.
+    """
+    if override:
+        if override not in ("oidn", "none"):
+            raise RoboTwinError(
+                f"ROBOTWIN_ICIL_DENOISER must be 'oidn' or 'none', not {override!r}"
+            )
+        return None if override == "oidn" else "none"
+    if capability is not None and capability[0] >= 10:
+        return "none"
+    return None
+
+
+def _gpu_capability() -> tuple[int, int] | None:
+    """The first GPU's compute capability from `nvidia-smi`, without initialising CUDA here."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout
+        major, minor = out.splitlines()[0].strip().split(".")
+        return int(major), int(minor)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def use_supported_denoiser() -> None:
+    """Swap RoboTwin's "oidn" request for a denoiser this GPU can run (see `denoiser_for`).
+
+    RoboTwin sets the denoiser in `setup_scene` through `sapien.render.set_ray_tracing_denoiser`,
+    looked up at call time, so wrapping that function once per process is enough.
+    """
+    try:
+        import sapien.render as render
+    except ImportError:
+        return
+    current = render.set_ray_tracing_denoiser
+    if getattr(current, "robotwin_icil_denoiser", None) is not None:
+        return
+    choice = denoiser_for(_gpu_capability(), os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+    if choice is None:
+        return
+
+    def set_ray_tracing_denoiser(name: str) -> None:
+        current(choice if name == "oidn" else name)
+
+    set_ray_tracing_denoiser.robotwin_icil_denoiser = choice
+    render.set_ray_tracing_denoiser = set_ray_tracing_denoiser
+
+
 def _ensure_importable() -> None:
     """RoboTwin is a checkout, not a package: it imports from, and loads assets relative to, its root.
 
@@ -56,6 +133,8 @@ def _ensure_importable() -> None:
             f"no RoboTwin checkout at {ROBOTWIN_ROOT}; run "
             "`git submodule update --init --recursive`"
         )
+    use_env_render_manifests()
+    use_supported_denoiser()
     root = str(ROBOTWIN_ROOT)
     if root not in sys.path:
         sys.path.insert(0, root)
@@ -207,6 +286,17 @@ def close(env, clear_cache: bool = False) -> None:
 def gpu_exhausted(exc: BaseException) -> bool:
     """Whether an exception is the GPU running out of memory, recognised without importing torch."""
     return type(exc).__name__ == "OutOfMemoryError" or "CUDA out of memory" in str(exc)
+
+
+def gpu_lost(exc: BaseException) -> bool:
+    """Whether an exception is the renderer losing the GPU: Vulkan's device-lost error.
+
+    SAPIEN raises it from a camera read (`vk::Device::waitForFences: ErrorDeviceLost`), for
+    instance when another process has filled the GPU's memory. The process cannot render again,
+    so no later seed or step in it means anything.
+    """
+    text = str(exc)
+    return "ErrorDeviceLost" in text or "VK_ERROR_DEVICE_LOST" in text
 
 
 def free_gpu() -> None:

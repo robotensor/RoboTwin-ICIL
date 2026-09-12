@@ -162,6 +162,8 @@ class FakeTaskEnv:
         broken_setup=False,
         expert_raises_on=(),
         oom_on_play=(),
+        device_lost_on_play=(),
+        rollout_error="simulator exploded",
         step_lim=50,
         expert_steps=6,
         physics_per_action=1,
@@ -175,6 +177,8 @@ class FakeTaskEnv:
         self.broken_setup = broken_setup
         self.expert_raises_on = set(expert_raises_on)
         self.oom_on_play = set(oom_on_play)
+        self.device_lost_on_play = set(device_lost_on_play)
+        self.rollout_error = rollout_error
         self.step_lim_setting = step_lim
         self.expert_steps = expert_steps
         self.physics_per_action = physics_per_action
@@ -225,6 +229,8 @@ class FakeTaskEnv:
     def play_once(self):
         if self.seed in self.oom_on_play:
             raise OutOfMemoryError("CUDA out of memory. Tried to allocate 20.00 MiB.")
+        if self.seed in self.device_lost_on_play:
+            raise RuntimeError("vk::Device::waitForFences: ErrorDeviceLost")
         if self.seed in self.expert_raises_on:
             raise AssertionError("target_pose cannot be None for move action.")
         if self.seed in self.plan_fails_on:
@@ -258,7 +264,7 @@ class FakeTaskEnv:
         if self.take_action_cnt == self.step_lim or self.eval_success:
             return
         if self.rollout_raises_at is not None and self.take_action_cnt == self.rollout_raises_at:
-            raise RuntimeError("simulator exploded")
+            raise RuntimeError(self.rollout_error)
         self.take_action_cnt += 1
         self.action_types.append(action_type)
         self.qpos = self._joint_target(action, action_type)

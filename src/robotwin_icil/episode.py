@@ -165,7 +165,9 @@ def rollout(
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
     `eval_success`. An exception from the simulator mid-rollout ends the episode as a failure, as
-    upstream's evaluator does. With a running `clock`, each observation carries its simulated time.
+    upstream's evaluator does, except a GPU that runs out of memory or is lost: that breaks the
+    simulator, not the policy, so it stops the run and a resume replays the episode. With a
+    running `clock`, each observation carries its simulated time.
     """
     from . import robotwin
 
@@ -189,6 +191,10 @@ def rollout(
     except PolicyError:
         raise
     except Exception as exc:
+        if robotwin.gpu_exhausted(exc) or robotwin.gpu_lost(exc):
+            raise robotwin.RoboTwinError(
+                f"the GPU failed during the rollout: {type(exc).__name__}: {exc}"
+            ) from exc
         return bool(task_env.eval_success), f"rollout error: {type(exc).__name__}: {exc}"
     return bool(task_env.eval_success), ""
 

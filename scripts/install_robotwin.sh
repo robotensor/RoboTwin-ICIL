@@ -6,9 +6,16 @@
 # rather than reusing the host interpreter. It follows upstream's `scripts/_install.sh` step for
 # step, minus XPolicyLab and pytorch3d. Idempotent: every stage is skipped when already done.
 #
-#   bash scripts/install_robotwin.sh              # env, deps, patches, CuRobo, assets
+# Two GPU paths, chosen from the GPU's compute capability:
+#   reference (below 10.0: Ampere, Ada, Hopper): torch 2.4.1+cu121 and CUDA 12.1, exactly as
+#     RoboTwin pins them, so results stay comparable with the reference install in docs/install.md.
+#   blackwell (10.0 and above, e.g. an RTX 5090 at 12.0): torch 2.4.1 ships no kernels for these
+#     GPUs and nvcc 12.1 cannot target them, so torch 2.8.0+cu128 and CUDA 12.8 replace them.
+#
+#   bash scripts/install_robotwin.sh              # env, deps, patches, rendering, CuRobo, assets
 #   ROBOTWIN_SKIP_ASSETS=1 bash scripts/...       # everything but the multi-GB asset download
 #   ROBOTWIN_ROOT=/path/to/RoboTwin bash ...      # a RoboTwin checkout other than vendor/RoboTwin
+#   ROBOTWIN_GPU_PATH=reference|blackwell bash ...# force a path instead of detecting it
 #
 # pytorch3d is deliberately not installed. RoboTwin imports it in a try/except in
 # `envs/camera/camera.py` for farthest-point sampling of point clouds; the benchmark records rgb
@@ -21,15 +28,35 @@ CONDA_ROOT="${CONDA_ROOT:-/root/miniforge3}"
 ENV_NAME="${ROBOTWIN_ENV_NAME:-robotwin}"
 PY_VERSION="3.10"
 CUROBO_VERSION="v0.7.8"
-# CuRobo is built against torch's CUDA; RoboTwin pins torch 2.4.1, whose default wheel is cu121.
-CUDA_CHANNEL="nvidia/label/cuda-12.1.1"
 
 log() { printf '\033[95m[install]\033[0m %s\n' "$*"; }
 
 if [[ ! -f "${ROBOTWIN_ROOT}/envs/_base_task.py" ]]; then
-    echo "${ROBOTWIN_ROOT} is empty; run: git submodule update --init --recursive" >&2
+    echo "${ROBOTWIN_ROOT} is empty; run: git submodule update --init vendor/RoboTwin" >&2
     exit 1
 fi
+
+# --- GPU path -----------------------------------------------------------------
+ARCH="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d ' ')"
+if [[ -z "${ROBOTWIN_GPU_PATH:-}" ]]; then
+    if (( ${ARCH%%.*} >= 10 )); then ROBOTWIN_GPU_PATH=blackwell; else ROBOTWIN_GPU_PATH=reference; fi
+fi
+case "${ROBOTWIN_GPU_PATH}" in
+    reference)
+        TORCH_CUDA_EXPECTED="12.1"
+        CUDA_CHANNEL="nvidia/label/cuda-12.1.1"   # nvcc must match torch's cu121
+        GCC_VERSION="12"                          # nvcc 12.1 rejects host compilers newer than gcc 12
+        ;;
+    blackwell)
+        TORCH_CUDA_EXPECTED="12.8"
+        TORCH_PINS=(torch==2.8.0 torchvision==0.23.0)
+        TORCH_INDEX="https://download.pytorch.org/whl/cu128"
+        CUDA_CHANNEL="nvidia/label/cuda-12.8.1"   # CUDA 12.8 is the first toolkit that targets sm_100/sm_120
+        GCC_VERSION="13"
+        ;;
+    *) echo "ROBOTWIN_GPU_PATH must be reference or blackwell, got ${ROBOTWIN_GPU_PATH}" >&2; exit 1 ;;
+esac
+log "GPU compute capability ${ARCH}: ${ROBOTWIN_GPU_PATH} path (torch CUDA ${TORCH_CUDA_EXPECTED})"
 
 # --- conda ------------------------------------------------------------------
 if [[ ! -x "${CONDA_ROOT}/bin/conda" ]]; then
@@ -57,15 +84,33 @@ if [[ "$("${PY}" -c 'import setuptools; print(setuptools.__version__)')" != "69.
 fi
 
 # --- RoboTwin dependencies --------------------------------------------------
-if ! "${PY}" -c "import sapien, mplib, toppra" 2>/dev/null; then
-    log "installing RoboTwin requirements"
-    "${PY}" -m pip install -q -r "${ROBOTWIN_ROOT}/scripts/requirements.txt"
+# On the blackwell path torch comes from the cu128 index first, and RoboTwin's own requirements
+# are installed with their torch and torchvision lines removed so pip cannot pull 2.4.1 back in.
+if ! "${PY}" -c "import sapien, mplib, toppra, torch" 2>/dev/null; then
+    if [[ "${ROBOTWIN_GPU_PATH}" == blackwell ]]; then
+        log "installing ${TORCH_PINS[*]} from ${TORCH_INDEX}"
+        "${PY}" -m pip install -q "${TORCH_PINS[@]}" --index-url "${TORCH_INDEX}"
+        requirements="$(mktemp)"
+        grep -v -E '^[[:space:]]*(torch|torchvision)[[:space:]]*([=<>!~].*)?$' \
+            "${ROBOTWIN_ROOT}/scripts/requirements.txt" > "${requirements}"
+        log "installing RoboTwin requirements (torch lines removed)"
+        "${PY}" -m pip install -q -r "${requirements}"
+    else
+        log "installing RoboTwin requirements"
+        "${PY}" -m pip install -q -r "${ROBOTWIN_ROOT}/scripts/requirements.txt"
+    fi
+fi
+TORCH_CUDA="$("${PY}" -c 'import torch; print(torch.version.cuda)')"
+if [[ "${TORCH_CUDA}" != "${TORCH_CUDA_EXPECTED}" ]]; then
+    echo "torch reports CUDA ${TORCH_CUDA}, but the ${ROBOTWIN_GPU_PATH} path expects ${TORCH_CUDA_EXPECTED}" >&2
+    exit 1
 fi
 
 # --- sapien urdf loader patch ----------------------------------------------
 # From upstream's `_install.sh`: the embodiment URDFs carry non-ASCII bytes and name their
 # companion file `.srdf`, neither of which stock sapien 3.0.0b1 handles.
-URDF_LOADER="$("${PY}" -c 'import sapien, pathlib; print(pathlib.Path(sapien.__file__).parent)')/wrapper/urdf_loader.py"
+SAPIEN_DIR="$("${PY}" -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("sapien").origin).parent)')"
+URDF_LOADER="${SAPIEN_DIR}/wrapper/urdf_loader.py"
 if grep -q 'with open(urdf_file, "r") as f' "${URDF_LOADER}"; then
     log "patching sapien urdf_loader.py"
     sed -i -E 's/("r")(\))( as)/\1, encoding="utf-8") as/g' "${URDF_LOADER}"
@@ -82,38 +127,89 @@ if grep -q "< 1e-4 or collide or not within_joint_limit" "${MPLIB_PLANNER}"; the
     sed -i -E 's/(if np.linalg.norm\(delta_twist\) < 1e-4 )(or collide )(or not within_joint_limit:)/\1\3/g' "${MPLIB_PLANNER}"
 fi
 
+# --- rendering --------------------------------------------------------------
+# SAPIEN renders through NVIDIA's Vulkan driver, which needs three things besides the driver
+# libraries: glvnd's libEGL.so.1, an NVIDIA EGL vendor manifest and a Vulkan ICD manifest.
+# Bare-metal driver installs ship all three. Containers made by the NVIDIA container toolkit
+# often inject only the driver libraries; `import sapien` then fails on a missing
+# /usr/share/glvnd/egl_vendor.d, and Vulkan reports "failed to find a rendering device".
+has_manifest() { local d; for d in "$@"; do compgen -G "${d}/*nvidia*.json" >/dev/null && return 0; done; return 1; }
+if ! ldconfig -p | grep -q 'libEGL\.so\.1 '; then
+    if [[ ${EUID} -eq 0 ]] && command -v apt-get >/dev/null; then
+        log "installing libegl1 (glvnd EGL dispatch)"
+        apt-get install -y -q libegl1 >/dev/null 2>&1 || { apt-get update -q >/dev/null && apt-get install -y -q libegl1 >/dev/null; }
+    else
+        echo "libEGL.so.1 is missing: install your distribution's libegl1 (glvnd) package, then rerun" >&2
+        exit 1
+    fi
+fi
+# System-wide when root, as the driver package would place them; otherwise inside the env, where
+# robotwin_icil points SAPIEN at them (see scripts/robotwin_env.sh for interactive shells).
+if [[ ${EUID} -eq 0 ]]; then MANIFEST_ROOT=/usr/share; else MANIFEST_ROOT="${ENV_PREFIX}/share/robotwin-icil"; fi
+if ! has_manifest /usr/share/vulkan/icd.d /etc/vulkan/icd.d "${ENV_PREFIX}/share/robotwin-icil/vulkan/icd.d"; then
+    log "writing the NVIDIA Vulkan ICD manifest under ${MANIFEST_ROOT}"
+    mkdir -p "${MANIFEST_ROOT}/vulkan/icd.d"
+    printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {"library_path": "libGLX_nvidia.so.0", "api_version": "1.3.0"}\n}\n' \
+        > "${MANIFEST_ROOT}/vulkan/icd.d/nvidia_icd.json"
+fi
+if ! has_manifest /usr/share/glvnd/egl_vendor.d /etc/glvnd/egl_vendor.d "${ENV_PREFIX}/share/robotwin-icil/glvnd/egl_vendor.d"; then
+    log "writing the NVIDIA EGL vendor manifest under ${MANIFEST_ROOT}"
+    mkdir -p "${MANIFEST_ROOT}/glvnd/egl_vendor.d"
+    printf '{\n  "file_format_version": "1.0.0",\n  "ICD": {"library_path": "libEGL_nvidia.so.0"}\n}\n' \
+        > "${MANIFEST_ROOT}/glvnd/egl_vendor.d/10_nvidia.json"
+fi
+log "checking that SAPIEN renders (upstream scripts/test_render.py)"
+# shellcheck source=robotwin_env.sh
+source "${REPO_ROOT}/scripts/robotwin_env.sh"
+# Captured, then echoed: `tee /dev/stderr` reopens stderr's file with O_TRUNC, which wipes a log
+# that the script's output is redirected to.
+render_out=$(cd "${ROBOTWIN_ROOT}" && "${PY}" scripts/test_render.py 2>&1) || true
+printf '%s\n' "${render_out}" >&2
+if ! grep -q "Render Well" <<<"${render_out}"; then
+    echo "SAPIEN cannot render on this machine; see 'Rendering' in docs/install.md" >&2
+    exit 1
+fi
+
 # --- CuRobo -----------------------------------------------------------------
 # Every RoboTwin embodiment plans with CuRobo (`planner: "curobo"`), and `envs/robot/robot.py`
 # imports `CuroboPlanner` at module level, so no task even imports without it. Upstream clones
 # it into `envs/curobo`, which RoboTwin's .gitignore covers. Its CUDA kernels need an nvcc that
-# matches torch's CUDA and a host compiler nvcc 12.1 accepts (gcc <= 12); a driver-only machine
-# has neither, so both go into the env.
+# matches torch's CUDA and a host compiler that nvcc accepts; a driver-only machine has neither,
+# so both go into the env.
 if ! "${PY}" -c "import curobo" 2>/dev/null; then
-    TORCH_CUDA="$("${PY}" -c 'import torch; print(torch.version.cuda)')"
-    if [[ "${TORCH_CUDA}" != "12.1" ]]; then
-        echo "torch reports CUDA ${TORCH_CUDA}; this script builds CuRobo for 12.1 only" >&2
-        exit 1
-    fi
     if [[ ! -x "${ENV_PREFIX}/bin/nvcc" ]]; then
-        log "installing the CUDA 12.1 toolkit into ${ENV_NAME} for the CuRobo build"
+        log "installing the CUDA toolkit from ${CUDA_CHANNEL} into ${ENV_NAME} for the CuRobo build"
         conda install -y -q -n "${ENV_NAME}" -c "${CUDA_CHANNEL}" cuda-toolkit
     fi
+    NVCC_CUDA="$("${ENV_PREFIX}/bin/nvcc" --version | sed -n 's/.*release \([0-9]*\.[0-9]*\).*/\1/p')"
+    if [[ "${NVCC_CUDA}" != "${TORCH_CUDA_EXPECTED}" ]]; then
+        echo "nvcc is CUDA ${NVCC_CUDA} but torch is CUDA ${TORCH_CUDA_EXPECTED}; CuRobo needs them to match" >&2
+        exit 1
+    fi
     if [[ ! -x "${ENV_PREFIX}/bin/x86_64-conda-linux-gnu-g++" ]]; then
-        log "installing gcc 12 into ${ENV_NAME} (nvcc 12.1 rejects newer host compilers)"
-        conda install -y -q -n "${ENV_NAME}" -c conda-forge "gcc_linux-64=12" "gxx_linux-64=12"
+        log "installing gcc ${GCC_VERSION} into ${ENV_NAME}"
+        conda install -y -q -n "${ENV_NAME}" -c conda-forge "gcc_linux-64=${GCC_VERSION}" "gxx_linux-64=${GCC_VERSION}"
     fi
     CUROBO_DIR="${ROBOTWIN_ROOT}/envs/curobo"
     if [[ ! -d "${CUROBO_DIR}/.git" ]]; then
         git clone -q --branch "${CUROBO_VERSION}" --depth 1 https://github.com/NVlabs/curobo.git "${CUROBO_DIR}"
     fi
     "${PY}" -m pip install -q "setuptools-scm==8.1.0" wheel
-    ARCH="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)"
     log "building CuRobo ${CUROBO_VERSION} for compute capability ${ARCH} (several minutes)"
     (
         cd "${CUROBO_DIR}"
         export CUDA_HOME="${ENV_PREFIX}"
+        # conda's CUDA toolkit keeps its headers and libraries under targets/, where the host
+        # compiler does not look; torch's extension builder only adds ${CUDA_HOME}/include, so the
+        # C++ sources that include cuda_runtime.h fail with gcc before nvcc runs.
+        CUDA_TARGET="${ENV_PREFIX}/targets/x86_64-linux"
+        if [[ -d "${CUDA_TARGET}/include" ]]; then
+            export CPATH="${CUDA_TARGET}/include${CPATH:+:${CPATH}}"
+            export LIBRARY_PATH="${CUDA_TARGET}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}"
+        fi
         export CC="${ENV_PREFIX}/bin/x86_64-conda-linux-gnu-gcc"
         export CXX="${ENV_PREFIX}/bin/x86_64-conda-linux-gnu-g++"
+        # Set explicitly: torch's arch autodetection misreads some Blackwell cards (curobo#596).
         export TORCH_CUDA_ARCH_LIST="${ARCH}"
         export PATH="${ENV_PREFIX}/bin:${PATH}"
         "${PY}" -m pip install -q -e . --no-build-isolation
@@ -144,4 +240,4 @@ if [[ "${ROBOTWIN_SKIP_ASSETS:-0}" != "1" ]]; then
     fi
 fi
 
-log "done. interpreter: ${PY}"
+log "done (${ROBOTWIN_GPU_PATH} path). interpreter: ${PY}"

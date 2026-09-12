@@ -134,6 +134,16 @@
   static cameras (older manifests read as `stock`), survey results name their profile, clips
   film the profile's `video_camera`, and `robotwin-icil cameras` writes one PNG per camera of a
   scene (#34).
+- (feat): the simulator installs and renders on any NVIDIA machine. `install_robotwin.sh` picks a
+  GPU path from the compute capability: the reference path keeps RoboTwin's torch 2.4.1 and CUDA
+  12.1 below 10.0, so A6000 numbers stay comparable; the blackwell path (10.0 and above, e.g. an
+  RTX 5090) installs torch 2.8.0+cu128 and builds CuRobo with CUDA 12.8 and gcc 13 for the GPU's
+  own arch. In containers without them it installs `libegl1` and writes the NVIDIA Vulkan ICD and
+  EGL vendor manifests, which `robotwin_icil` points SAPIEN at when they live in the env; the
+  render check no longer truncates a redirected install log; SAPIEN's OIDN denoiser, which cannot run
+  on Blackwell and hangs renders under GPU contention, is turned off there, leaving images unchanged;
+  a GPU that is lost or runs out of memory during the expert or the rollout stops the run instead
+  of being recorded as rejected seeds or failed episodes (#33).
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin

@@ -125,6 +125,10 @@ def attempt(
             raise robotwin.RoboTwinError(
                 f"the GPU ran out of memory while the expert ran seed {seed}: {exc}"
             ) from exc
+        if robotwin.gpu_lost(exc):
+            raise robotwin.RoboTwinError(
+                f"the renderer lost the GPU while the expert ran seed {seed}: {exc}"
+            ) from exc
         # Anything else the expert raises is a failed seed, as upstream's collector counts it:
         # "target_pose cannot be None" is RoboTwin finding no feasible grasp.
         return Attempt(seed, Rejection.EXPERT_ERROR, f"{type(exc).__name__}: {exc}"), None, None
