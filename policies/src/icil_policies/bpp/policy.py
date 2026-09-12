@@ -162,7 +162,7 @@ class BPPPolicy(ICILPolicy):
         return np.stack(
             [
                 aggregate(chunk[start:stop], self.settings)
-                for start, stop in group_bounds(chunk, self.settings.mode)
+                for start, stop in group_bounds(chunk, self.settings.mode, self.settings)
             ]
         )
 

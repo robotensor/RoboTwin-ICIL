@@ -118,7 +118,7 @@ def _next_calls(actions: np.ndarray, cursor: int, settings: Settings) -> list[np
         return [HOLD.copy()]
     return [
         aggregate_actions(chunk[start:stop], settings)
-        for start, stop in group_bounds(chunk, settings.mode)
+        for start, stop in group_bounds(chunk, settings.mode, settings)
     ]
 
 

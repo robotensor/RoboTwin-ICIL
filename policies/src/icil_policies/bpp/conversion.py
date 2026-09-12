@@ -85,6 +85,9 @@ from .settings import ALOHA_FINGER_RANGE_M as ALOHA_FINGERS
 GRIPPER_FLAT = 1e-6
 # RoboTwin's commanded gripper is 0 (closed) to 1 (open); the halfway point splits the two.
 GRIPPER_CLOSED_BELOW = 0.5
+# How much of the representable composed rotation a grouped call may use before `group_bounds`
+# cuts the group: the round trip through the action encoding is ambiguous at exactly pi.
+ROTATION_ENCODING_MARGIN = 0.99
 # BPP's proprioception keys, in the order `describe()` and the tests report them.
 PROPRIO_KEYS = ("ee_pos", "ee_ori", "gripper_states")
 
@@ -456,12 +459,29 @@ def decode_action(action: np.ndarray, settings: Settings) -> tuple[np.ndarray, n
     return move, turn, 1.0 if row[9] < 0 else 0.0
 
 
-def group_bounds(chunk: np.ndarray, mode: str) -> list[tuple[int, int]]:
+def rotation_encoding_limit(settings: Settings) -> float:
+    """The largest composed rotation, in radians, one aggregated action can still encode.
+
+    `aggregate` writes a group's composed rotation back into the action representation, where a
+    rotation is an axis-angle divided by `alpha_r * OSC_ROTATION_SCALE_RAD`; that scaled
+    axis-angle only survives the round trip while its norm stays under pi, so the composed angle
+    must stay under `pi * alpha_r * OSC_ROTATION_SCALE_RAD`. Past it the encoding wraps and the
+    group would turn the short way round — the wrong way. The margin keeps the round trip away
+    from the antipodal point, where the axis is ambiguous.
+    """
+    return ROTATION_ENCODING_MARGIN * math.pi * settings.alpha_r * OSC_ROTATION_SCALE_RAD
+
+
+def group_bounds(
+    chunk: np.ndarray, mode: str, settings: Settings | None = None
+) -> list[tuple[int, int]]:
     """How a chunk's actions are split into `take_action` calls (plan 3.4).
 
     `ee_step` and `qpos_ik` send one action per call. `ee_grouped` sends 4, 4, 3 and 1 of them,
     the trailing single delta keeping the last two observations one 20 Hz step apart, and splits
-    again wherever the gripper command flips, so a group never hides a grasp or a release.
+    again wherever the gripper command flips, so a group never hides a grasp or a release, and —
+    given the `settings` the group will be aggregated with — again wherever the composed rotation
+    would outgrow what one action encodes (`rotation_encoding_limit`).
     """
     rows = np.asarray(chunk, dtype=np.float64)
     if rows.ndim != 2 or rows.shape[1] != ACTION_DIM:
@@ -478,17 +498,38 @@ def group_bounds(chunk: np.ndarray, mode: str) -> list[tuple[int, int]]:
         flips = np.flatnonzero(grips[start + 1 : stop] != grips[start])
         if flips.size:
             stop = start + 1 + int(flips[0])
+        if settings is not None:
+            stop = _rotation_cut(rows, start, stop, settings)
         bounds.append((start, stop))
         start = stop
     return bounds
+
+
+def _rotation_cut(rows: np.ndarray, start: int, stop: int, settings: Settings) -> int:
+    """Where a group must end so that `aggregate` can still encode its composed rotation.
+
+    A single action is never cut: `aggregate` hands one row back unchanged, so it never goes
+    through the encoding at all.
+    """
+    limit = rotation_encoding_limit(settings)
+    turn = np.eye(3)
+    for index in range(start, stop):
+        _, step, _ = decode_action(rows[index], settings)
+        turn = step @ turn
+        if float(np.linalg.norm(matrix_to_axis_angle(turn))) > limit:
+            return max(start + 1, index)
+    return stop
 
 
 def aggregate(rows: np.ndarray, settings: Settings) -> np.ndarray:
     """One action standing for several: their deltas composed, in the same representation.
 
     Positions add; rotations compose in the world frame, in the order they would be applied.
-    Exact, because decoding is linear in position and the composed rotation is re-encoded
-    through the same gain. The gripper is the group's, which `group_bounds` keeps constant.
+    Exact while the composed rotation stays inside `rotation_encoding_limit`, because decoding
+    is linear in position and the composed rotation is re-encoded through the same gain; past
+    that limit the encoding would wrap, so this refuses rather than turn the wrong way, and
+    `group_bounds` cuts the group before it can happen. The gripper is the group's, which
+    `group_bounds` keeps constant.
     """
     rows = np.atleast_2d(np.asarray(rows, dtype=np.float64))
     if len(rows) == 1:
@@ -497,6 +538,13 @@ def aggregate(rows: np.ndarray, settings: Settings) -> np.ndarray:
     for row in rows:
         _, step, _ = decode_action(row, settings)
         turn = step @ turn
+    angle = float(np.linalg.norm(matrix_to_axis_angle(turn)))
+    if angle > math.pi * settings.alpha_r * OSC_ROTATION_SCALE_RAD:
+        raise PolicyError(
+            f"a group of {len(rows)} actions composes {angle:.4f} rad, more than the "
+            f"{rotation_encoding_limit(settings):.4f} rad one action encodes at alpha_r "
+            f"{settings.alpha_r}; group_bounds must cut the group before it gets here"
+        )
     spin = matrix_to_axis_angle(turn) / (settings.alpha_r * OSC_ROTATION_SCALE_RAD)
     return np.concatenate(
         [rows[:, :3].sum(axis=0), matrix_to_rot6d(axis_angle_to_matrix(spin)), rows[-1, 9:]]

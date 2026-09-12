@@ -232,6 +232,39 @@ def test_an_aggregated_group_moves_exactly_as_its_steps_would():
     assert gripper == 1.0
 
 
+def _composed(rows):
+    composed = np.eye(3)
+    for row in rows:
+        _, step, _ = conversion.decode_action(row, SETTINGS)
+        composed = step @ composed
+    return composed
+
+
+def test_a_group_is_cut_before_its_rotation_outgrows_one_action():
+    # Four full-scale rotations about one axis compose past what a single action encodes; the
+    # aggregated group would otherwise wrap and turn the other way.
+    chunk = np.zeros((12, 10))
+    chunk[:, 3:9] = matrix_to_rot6d(axis_angle_to_matrix([0.0, 0.0, 1.0]))
+    chunk[:, 9] = -1.0
+    step_rad = SETTINGS.alpha_r * bpp_settings.OSC_ROTATION_SCALE_RAD
+    assert 4 * step_rad > conversion.rotation_encoding_limit(SETTINGS)
+    bounds = conversion.group_bounds(chunk, "ee_grouped", SETTINGS)
+    assert bounds[0] == (0, 3)
+    for start, stop in bounds:
+        total = conversion.aggregate(chunk[start:stop], SETTINGS)
+        np.testing.assert_allclose(
+            conversion.decode_action(total, SETTINGS)[1], _composed(chunk[start:stop]), atol=1e-9
+        )
+
+
+def test_aggregating_a_rotation_too_large_to_encode_is_refused():
+    rows = np.zeros((4, 10))
+    rows[:, 3:9] = matrix_to_rot6d(axis_angle_to_matrix([0.0, 0.0, 1.0]))
+    rows[:, 9] = -1.0
+    with pytest.raises(PolicyError, match="composes"):
+        conversion.aggregate(rows, SETTINGS)
+
+
 def _drive(settings, actions, moving=False):
     """Run actions through `Execution`. The observation stands still unless `moving`, so the
     virtual target is what advances, not the robot."""
