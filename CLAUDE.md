@@ -72,6 +72,11 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   capture is a `_take_picture` override, not a patch to the submodule.
 - `robotwin.py` is the only module that may import from `vendor/RoboTwin`; every other module stays
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
+- A model whose pins conflict with RoboTwin's runs in its own environment behind
+  `python -m robotwin_icil.serve`, reached through the built-in `remote` (`RemotePolicy`); the
+  simulator environment never imports model code. The wire protocol never pickles: only
+  `send_bytes`/`recv_bytes`, a JSON header and raw bool, integer and float arrays. Every remote
+  failure is a `PolicyError` that stops the server; no server outlives its client.
 - Skill categories are data: `tasks.yml` maps every upstream task exactly once and a test fails when
   `vendor/RoboTwin/envs/` and the table disagree. Suites are named there too; V1 is `v1`.
 - The evaluator uses no dataset and trains nothing: every episode of `robotwin-icil eval` gets its
