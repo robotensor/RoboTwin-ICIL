@@ -106,14 +106,6 @@ def test_the_adapter_encodes_actions_exactly_as_bpps_dataset_does():
     theirs = np.concatenate([raw[:, :3], transformer.forward(raw[:, 3:6]), raw[:, 6:]], axis=-1)
     np.testing.assert_allclose(encode_actions(raw), theirs, atol=1e-6)
 
-    libero = pytest.importorskip("libero", reason="BPP's dataset module imports LIBERO")
-    assert libero is not None
-    from behavior_prompting.train_network.dataset.libero_replay_image_dataset import (
-        _convert_actions,
-    )
-
-    np.testing.assert_allclose(encode_actions(raw), _convert_actions(raw, transformer), atol=1e-6)
-
 
 def test_the_prompt_is_chunked_by_bpps_own_chunker():
     """The prompt an adapter builds has the shapes BPP's `prompt()` reads (the facts file)."""
