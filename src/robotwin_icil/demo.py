@@ -18,6 +18,11 @@ import numpy as np
 
 # The order of the two halves of a qpos row, and of what `arms_moved` reports.
 ARMS = ("left", "right")
+# An arm moved if any of its values departs from its first-frame value by more than this. One
+# number gates two units — radians for an arm joint, a fraction of full travel for the gripper's
+# normalised [0, 1] opening — and 0.05 is small against either: about 3 degrees of a joint, a
+# twentieth of a gripper swing.
+MOVED_THRESHOLD = 0.05
 
 
 class DemonstrationError(ValueError):
@@ -124,17 +129,17 @@ class Demonstration:
         return np.stack([frame.images[camera] for frame in self.frames])
 
 
-def arms_moved(demonstration: Demonstration, threshold_rad: float = 0.05) -> tuple[str, ...]:
+def arms_moved(demonstration: Demonstration, threshold: float = MOVED_THRESHOLD) -> tuple[str, ...]:
     """Which arms the expert drove, in `ARMS` order, read from the joint trajectory.
 
     Assumes RoboTwin's `joint_action.vector` layout, which holds for every embodiment it ships:
     the left arm's joints then its gripper, followed by the right arm's joints then its gripper,
     both halves the same width (7+7 on aloha-agilex, 8+8 on two Franka Pandas). The row is split
     into two equal halves; an odd width is refused rather than guessed at. An arm moved if any of
-    its values, the gripper included, departs from its first-frame value by more than
-    `threshold_rad` at any frame. Arm joints are commanded angles in radians; the gripper is
-    upstream's normalised [0, 1] opening, so an open-close swing clears the same threshold by a
-    wide margin.
+    its values, the gripper included, departs from its first-frame value by more than `threshold`
+    at any frame. The one threshold reads in two units: radians for an arm joint, which is a
+    commanded angle, and a fraction of full travel for the gripper, which is upstream's normalised
+    [0, 1] opening — an open-close swing clears it by a wide margin either way.
 
     The survey uses this to measure a task's `arms` entry against what its expert actually did.
     """
@@ -144,4 +149,4 @@ def arms_moved(demonstration: Demonstration, threshold_rad: float = 0.05) -> tup
         raise DemonstrationError(f"qpos width {width} does not split into two equal arms")
     excursion = np.abs(qpos - qpos[0]).max(axis=0)
     halves = np.split(excursion, 2)
-    return tuple(arm for arm, half in zip(ARMS, halves, strict=True) if half.max() > threshold_rad)
+    return tuple(arm for arm, half in zip(ARMS, halves, strict=True) if half.max() > threshold)

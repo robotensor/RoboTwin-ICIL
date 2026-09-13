@@ -3,7 +3,13 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robotwin_icil.demo import Demonstration, DemonstrationError, Frame, arms_moved
+from robotwin_icil.demo import (
+    MOVED_THRESHOLD,
+    Demonstration,
+    DemonstrationError,
+    Frame,
+    arms_moved,
+)
 
 # aloha-agilex's joint vector; a dual Franka's is 16. The container takes its width from its frames.
 QPOS_DIM = 14
@@ -133,8 +139,14 @@ def test_arms_moved_counts_a_gripper_that_opens():
 
 
 def test_arms_moved_ignores_motion_within_the_threshold():
-    assert arms_moved(trajectory(REST, moved((3, 0.04), (10, -0.04)))) == ()
-    assert arms_moved(trajectory(REST, moved((3, 0.3))), threshold_rad=0.5) == ()
+    # The same number gates a joint (radians) and a gripper (fraction of full opening); reaching
+    # it exactly is not moving, exceeding it is.
+    at = MOVED_THRESHOLD
+    assert arms_moved(trajectory(REST, moved((3, at), (10, -at)))) == ()
+    assert arms_moved(trajectory(REST, moved((6, at), (13, -at)))) == ()
+    assert arms_moved(trajectory(REST, moved((3, at + 0.01)))) == ("left",)
+    assert arms_moved(trajectory(REST, moved((13, at + 0.01)))) == ("right",)
+    assert arms_moved(trajectory(REST, moved((3, 0.3))), threshold=0.5) == ()
 
 
 def test_arms_moved_measures_from_the_first_frame_not_from_rest():
