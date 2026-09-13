@@ -14,6 +14,7 @@ from pathlib import Path
 from . import report as report_
 from . import tasks as tasks_
 from .arms import LABELS, ONE, TWO
+from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
 from .records import RecordError, RunDir
 from .robotwin import EMBODIMENTS, RoboTwinError
@@ -201,7 +202,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return args.handler(args)
-    except (RecordError, PolicyError, RoboTwinError, tasks_.TaskTableError) as exc:
+    except (
+        RecordError,
+        PolicyError,
+        RoboTwinError,
+        DemonstrationError,
+        tasks_.TaskTableError,
+    ) as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1
 
