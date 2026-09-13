@@ -129,19 +129,16 @@ class Demonstration:
         return np.stack([frame.images[camera] for frame in self.frames])
 
 
-def arms_moved(demonstration: Demonstration, threshold: float = MOVED_THRESHOLD) -> tuple[str, ...]:
-    """Which arms the expert drove, in `ARMS` order, read from the joint trajectory.
+def arm_displacements(demonstration: Demonstration) -> dict[str, float]:
+    """Each arm's largest departure from its first-frame value, over every joint and every frame.
 
     Assumes RoboTwin's `joint_action.vector` layout, which holds for every embodiment it ships:
     the left arm's joints then its gripper, followed by the right arm's joints then its gripper,
     both halves the same width (7+7 on aloha-agilex, 8+8 on two Franka Pandas). The row is split
-    into two equal halves; an odd width is refused rather than guessed at. An arm moved if any of
-    its values, the gripper included, departs from its first-frame value by more than `threshold`
-    at any frame. The one threshold reads in two units: radians for an arm joint, which is a
-    commanded angle, and a fraction of full travel for the gripper, which is upstream's normalised
-    [0, 1] opening — an open-close swing clears it by a wide margin either way.
-
-    The survey uses this to measure a task's `arms` entry against what its expert actually did.
+    into two equal halves; an odd width is refused rather than guessed at. The value is in
+    radians when a joint set it and a fraction of full travel when the gripper did, since the
+    gripper is upstream's normalised [0, 1] opening; the survey records it per seed so the
+    `arms_moved` threshold can be judged from the json without re-running the expert.
     """
     qpos = demonstration.qpos()
     width = qpos.shape[1]
@@ -149,4 +146,18 @@ def arms_moved(demonstration: Demonstration, threshold: float = MOVED_THRESHOLD)
         raise DemonstrationError(f"qpos width {width} does not split into two equal arms")
     excursion = np.abs(qpos - qpos[0]).max(axis=0)
     halves = np.split(excursion, 2)
-    return tuple(arm for arm, half in zip(ARMS, halves, strict=True) if half.max() > threshold)
+    return {arm: float(half.max()) for arm, half in zip(ARMS, halves, strict=True)}
+
+
+def arms_moved(demonstration: Demonstration, threshold: float = MOVED_THRESHOLD) -> tuple[str, ...]:
+    """Which arms the expert drove, in `ARMS` order, read from the joint trajectory.
+
+    An arm moved if its `arm_displacements` entry exceeds `threshold`: any of its values, the
+    gripper included, departed from its first-frame value by more than that at some frame. The
+    one threshold reads in two units, radians for an arm joint and a fraction of full travel for
+    the gripper, and an open-close swing clears it by a wide margin either way.
+
+    The survey uses this to measure a task's `arms` entry against what its expert actually did.
+    """
+    displacements = arm_displacements(demonstration)
+    return tuple(arm for arm in ARMS if displacements[arm] > threshold)

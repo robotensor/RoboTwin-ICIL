@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from .demo import arms_moved
+from .demo import arm_displacements, arms_moved
 from .generate import attempt
 from .tasks import Task
 
@@ -27,13 +27,16 @@ class SeedRecord:
 
     `arms_moved` is measured from the demonstration's joints (`demo.arms_moved`), so a task's
     `arms` entry — a static read of the expert's source — is checked against the expert's actual
-    behaviour on every scene it solved. Both are None for a rejected seed.
+    behaviour on every scene it solved. `displacement` is the number that measurement
+    thresholds, each arm's largest departure from its first-frame value, kept so a borderline
+    seed can be told from an idle one after the run. All three are None for a rejected seed.
     """
 
     seed: int
     outcome: str
     frames: int | None
     arms_moved: tuple[str, ...] | None
+    displacement: dict[str, float] | None
     seconds: float
 
     @property
@@ -46,6 +49,7 @@ class SeedRecord:
             "outcome": self.outcome,
             "frames": self.frames,
             "arms_moved": None if self.arms_moved is None else list(self.arms_moved),
+            "displacement": None if self.displacement is None else dict(self.displacement),
             "seconds": self.seconds,
         }
 
@@ -125,9 +129,16 @@ def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attem
         outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
         seconds = time.monotonic() - started
         if outcome.rejection is None:
-            record = SeedRecord(seed, OK, len(demonstration), arms_moved(demonstration), seconds)
+            record = SeedRecord(
+                seed,
+                OK,
+                len(demonstration),
+                arms_moved(demonstration),
+                arm_displacements(demonstration),
+                seconds,
+            )
         else:
-            record = SeedRecord(seed, outcome.rejection.value, None, None, seconds)
+            record = SeedRecord(seed, outcome.rejection.value, None, None, None, seconds)
         result.records.append(record)
     return result
 

@@ -8,6 +8,7 @@ from robotwin_icil.demo import (
     Demonstration,
     DemonstrationError,
     Frame,
+    arm_displacements,
     arms_moved,
 )
 
@@ -156,7 +157,26 @@ def test_arms_moved_measures_from_the_first_frame_not_from_rest():
     assert arms_moved(trajectory(start, start + moved((7, 0.3)))) == ("right",)
 
 
+def test_arm_displacements_are_each_arms_largest_departure_from_the_first_frame():
+    # The number arms_moved thresholds: recorded per seed so a borderline demonstration can be
+    # told from an idle one after the survey, without re-running the expert.
+    d = trajectory(REST, moved((2, -0.1), (9, 0.3)), moved((4, 0.2), (13, 1.0)), REST)
+    displacement = arm_displacements(d)
+    assert displacement == {"left": pytest.approx(0.2), "right": pytest.approx(1.0)}
+    assert all(type(value) is float for value in displacement.values())  # json-serialisable
+    start = moved((0, 1.2), (7, -0.9))
+    assert arm_displacements(trajectory(start, start)) == {"left": 0.0, "right": 0.0}
+
+
+def test_arms_moved_is_the_displacement_over_the_threshold():
+    d = trajectory(REST, moved((2, MOVED_THRESHOLD), (9, MOVED_THRESHOLD + 0.01)))
+    assert arm_displacements(d)["left"] == pytest.approx(MOVED_THRESHOLD)
+    assert arms_moved(d) == ("right",)
+
+
 def test_arms_moved_refuses_a_row_that_does_not_split_into_two_arms():
     odd = SimpleNamespace(qpos=lambda: np.zeros((3, 15)))
     with pytest.raises(DemonstrationError, match="two equal arms"):
         arms_moved(odd)
+    with pytest.raises(DemonstrationError, match="two equal arms"):
+        arm_displacements(odd)

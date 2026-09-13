@@ -54,6 +54,11 @@ def test_a_survey_records_which_arms_each_demonstration_moved(monkeypatch):
     )
     payload = one_arm.to_json()
     assert [r["arms_moved"] for r in payload["seeds_detail"]] == [["right"], None, ["right"]]
+    # The displacement behind each verdict travels with it, so the threshold can be re-judged.
+    moved, rejected, _ = payload["seeds_detail"]
+    assert rejected["displacement"] is None
+    assert moved["displacement"]["left"] == 0.0 and moved["displacement"]["right"] > 0.05
+    assert list(moved["displacement"]) == ["left", "right"]
     assert (
         payload["one_arm_demonstrations"],
         payload["two_arm_demonstrations"],
@@ -104,13 +109,18 @@ def test_render_keeps_its_columns_in_place_at_a_hundred_seeds():
     # "100% (100/100)" is one character wider than any 20-seed cell; the columns after it must
     # not shift on that row alone.
     table = tasks.table()
+    one = {"left": 0.0, "right": 1.0}
+    two = {"left": 1.0, "right": 1.0}
     hundred = survey.TaskSurvey(
         table["click_bell"],
-        [survey.SeedRecord(seed, survey.OK, 78, ("right",), 1.0) for seed in range(100)],
+        [survey.SeedRecord(seed, survey.OK, 78, ("right",), one, 1.0) for seed in range(100)],
     )
     twenty = survey.TaskSurvey(
         table["lift_pot"],
-        [survey.SeedRecord(seed, survey.OK, 300, ("left", "right"), 1.0) for seed in range(20)],
+        [
+            survey.SeedRecord(seed, survey.OK, 300, ("left", "right"), two, 1.0)
+            for seed in range(20)
+        ],
     )
     header, bell, pot = survey.render([hundred, twenty]).splitlines()
     column = header.index("one-arm")
@@ -178,3 +188,5 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     assert [r["seed"] for r in detail] == seeds
     assert [r["outcome"] for r in detail] == ["ok", "plan_failed", "ok"]
     assert [r["arms_moved"] for r in detail] == [["left"], None, ["left"]]
+    assert detail[0]["displacement"]["left"] > 0.05 and detail[0]["displacement"]["right"] == 0.0
+    assert detail[1]["displacement"] is None
