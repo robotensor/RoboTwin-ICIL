@@ -215,3 +215,20 @@ def test_arrays_outside_the_published_dtypes_are_refused(tmp_path, edit, reason)
     assert len(arrays["qpos"]) == 7
     with pytest.raises(prompt.PromptError, match=reason):
         prompt.demonstration_from(edit(arrays))
+
+
+def test_an_interrupted_write_leaves_no_partial_prompt(tmp_path, monkeypatch):
+    # A materialize killed mid-write must not leave a truncated prompt.npz for a later reader.
+    path = tmp_path / prompt.PROMPT_FILE
+    path.write_bytes(b"the previous prompt")
+    demonstration = captured()
+
+    def interrupted(file, **arrays):
+        file.write(b"PK\x03\x04 half a zip")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(np, "savez_compressed", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        prompt.write_prompt(path, demonstration, META)
+    assert path.read_bytes() == b"the previous prompt"
+    assert [p.name for p in tmp_path.iterdir()] == [prompt.PROMPT_FILE]

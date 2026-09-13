@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -198,11 +199,23 @@ def _float64(arrays: Mapping[str, np.ndarray], name: str) -> np.ndarray:
 
 
 def write_prompt(path: str | Path, demonstration: Demonstration, meta: Mapping[str, Any]) -> str:
-    """Write the demonstration and its privileged `meta` to `path`; returns the file's sha256."""
+    """Write the demonstration and its privileged `meta` to `path`; returns the file's sha256.
+
+    Written beside `path` and moved into place, so an interrupted write never leaves a truncated
+    prompt where a reader looks for one.
+    """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     arrays = arrays_from(demonstration)
-    np.savez_compressed(target, **arrays, meta=json.dumps(dict(meta), sort_keys=True))
+    partial = target.with_name(target.name + ".partial")
+    try:
+        # A file object, not a path: given a path, numpy appends ".npz" to one that lacks it.
+        with open(partial, "wb") as handle:
+            np.savez_compressed(handle, **arrays, meta=json.dumps(dict(meta), sort_keys=True))
+        os.replace(partial, target)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     return sha256_of(target)
 
 
