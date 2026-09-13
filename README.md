@@ -99,8 +99,11 @@ The same table says how many arms each task's expert needs: `arms: 1` for the 26
 drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
 and ranking tasks that pick an arm per object, and `2` for the 18 that use both. The value is a
 static read of the task's `play_once` — `src/robotwin_icil/arms.py` re-derives it from the pinned
-checkout, and a test fails naming any task whose entry disagrees. `--arms 1` on `eval`, `survey`
-and `tasks` keeps only the one-arm tasks; without it a run is unchanged.
+checkout, following an arm through the helpers, parameters and attributes the expert passes it
+through, and a test fails naming any task whose entry disagrees. Where the read is unsure it
+errs towards more arms, so a wrong entry fails that test rather than admit a two-arm expert to a
+one-arm run. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks; without it
+a run is unchanged.
 
 ## Quick start
 
@@ -177,7 +180,9 @@ See [`docs/policies.md`](docs/policies.md).
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
 git commits, both configs, whether it asked for one-arm tasks only (`arms`), and per episode: the
 task, skill category, scene seed, number of expert
-generation attempts, rollout length and outcome. With `--video`, demonstration and evaluation clips
+generation attempts, rollout length and outcome. In the manifest, `suite` is what was asked for
+and `tasks` what ran: a `--arms 1` run of `v1` records `suite: v1`, `arms: "1"` and the seven
+one-arm tasks, so read `arms` or `tasks` with `suite`, never `suite` alone. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 

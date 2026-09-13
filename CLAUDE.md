@@ -90,7 +90,8 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   at report time.
 - Every episode records episode id, setting, skill category, task, scene seed, embodiment, expert
   generation attempts, success, rollout steps and model/checkpoint; every run also records the
-  global seed, the embodiment, both configs and both git commits. Videos go to
+  global seed, the embodiment, both configs, both git commits and whether it asked for one-arm
+  tasks only (`arms`, part of the run's identity). Videos go to
   `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
 ## Conventions
