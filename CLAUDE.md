@@ -88,7 +88,33 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   imperative, lower-case after the prefix, under 72 characters, no trailing period. Body: why the
   change, not what the diff shows; short bullets; `Refs #N` for the issue it advances,
   `Closes #N` only on the commit that finishes it.
-- One branch per issue (`issue-N-short-slug`) off `main`; one PR per issue with `Closes #N`, tests
-  and a CHANGELOG entry. Rebase, do not merge `main` into the branch.
+- Issues stand on their own: someone who was not in the conversation that produced one must be
+  able to act on it. The title is the outcome in plain words - what is true once it closes
+  ("Rebuild the identical scene and verify it matches") - not a component name or a plan step; a
+  bug's title is its symptom. The body, in this order:
+  - `## Why`: the problem, and what goes wrong without the change. No "see the plan", no "as
+    discussed".
+  - `## Scope`: the deliverable as concrete bullets (behaviour, files, commands), then
+    `Out of scope:` for what a reader might expect and will not get.
+  - `## Acceptance criteria`: a `- [ ]` checklist of things that can be checked - a test, a
+    command and its result, an observable behaviour. Never "works well".
+  - `## Notes`, optional: constraints, pitfalls, upstream references with paths, `Depends on #N`.
+  - A bug has `## What happened` (the command, the commit, the evidence), `## Expected` and, once
+    known, `## Cause`, in place of Why and Scope.
+  - On closing, add `## Outcome`: what shipped and in which PRs, the measured result, and anything
+    that differs from the scope. A criterion that was dropped or changed is said, not silently
+    ticked.
+- One issue is one deliverable. Label it with its area, add `bug` for a defect, and put it in a
+  milestone when the work belongs to one; split anything that will not land in one go and link the
+  parts with `Depends on #N`.
+- A branch carries a theme, not an issue number: related issues that touch the same code ship on
+  one branch (`short-slug`, or `issue-N-short-slug` when it really is a single issue) and land in
+  one PR, which says `Closes #N` for every issue it finishes and `Refs #N` for the ones it only
+  advances. Tests and a CHANGELOG entry land with it. Rebase, do not merge `main` into the branch.
+- Small changes go straight to `main`: a typo, a comment, a doc line, a version bump, a one-line
+  fix that comes with its test. Anything that changes behaviour a reader would need explained,
+  touches a published contract, or wants a second pair of eyes takes a branch and a PR.
+- When a branch is merged, delete it locally and on the remote, so only `main`, long-lived
+  `milestone-*` branches and deliberate `archive/*` refs remain.
 - Reports and evaluation results are plain files in the repository or run directory, not hosted
   artifacts.
