@@ -23,20 +23,24 @@ class OutOfMemoryError(RuntimeError):
 
 
 class FakeConfig:
-    task_config = "fake"
-    save_freq = 1
+    """Stands in for `robotwin.SceneConfig`; takes the same keywords the CLI passes."""
+
     head_camera = None
     overrides = None
 
-    def __init__(self, embodiment="fake-arms"):
+    def __init__(self, task_config="fake", save_freq=1, embodiment="fake-arms"):
+        self.task_config = task_config
+        self.save_freq = save_freq
         self.embodiment = embodiment
 
     def resolve(self, task_name=None):
+        # Like SceneConfig, no embodiment (the CLI without --embodiment) is the config's own robot.
+        robot = self.embodiment or "fake-arms"
         return {
             "save_freq": self.save_freq,
             "task_name": task_name,
-            "embodiment": [self.embodiment],
-            "embodiment_name": self.embodiment,
+            "embodiment": [robot],
+            "embodiment_name": robot,
         }
 
 

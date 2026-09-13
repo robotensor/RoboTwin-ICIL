@@ -16,17 +16,60 @@ from typing import Any
 from .generate import attempt
 from .tasks import Task
 
+# The outcome of a seed whose expert produced a demonstration; every other outcome is a rejection.
+OK = "ok"
+
+
+@dataclass(frozen=True)
+class SeedRecord:
+    """What one surveyed seed measured: its outcome and, for a success, the demonstration's size."""
+
+    seed: int
+    outcome: str
+    frames: int | None
+    seconds: float
+
+    @property
+    def ok(self) -> bool:
+        return self.outcome == OK
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "seed": self.seed,
+            "outcome": self.outcome,
+            "frames": self.frames,
+            "seconds": self.seconds,
+        }
+
 
 @dataclass
 class TaskSurvey:
+    """One task's survey: the per-seed records, and every tally derived from them."""
+
     task: Task
+    records: list[SeedRecord] = field(default_factory=list)
     # The robot the expert ran on: its success rate is the pair's, not the task's alone.
     embodiment: str | None = None
-    seeds: int = 0
-    successes: int = 0
-    rejections: Counter = field(default_factory=Counter)
-    frames: list[int] = field(default_factory=list)
-    seconds: float = 0.0
+
+    @property
+    def seeds(self) -> int:
+        return len(self.records)
+
+    @property
+    def successes(self) -> int:
+        return sum(1 for record in self.records if record.ok)
+
+    @property
+    def rejections(self) -> Counter:
+        return Counter(record.outcome for record in self.records if not record.ok)
+
+    @property
+    def frames(self) -> list[int]:
+        return [record.frames for record in self.records if record.ok]
+
+    @property
+    def seconds(self) -> float:
+        return sum(record.seconds for record in self.records)
 
     @property
     def success_rate(self) -> float | None:
@@ -47,11 +90,12 @@ class TaskSurvey:
             "rejections": dict(sorted(self.rejections.items())),
             "mean_demonstration_frames": self.mean_frames,
             "seconds_per_seed": self.seconds / self.seeds if self.seeds else None,
+            "seeds_detail": [record.to_json() for record in self.records],
         }
 
 
 def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attempt) -> TaskSurvey:
-    """Run the expert once per seed, exactly as an episode's generator would, and tally."""
+    """Run the expert once per seed, exactly as an episode's generator would, and record each."""
     result = TaskSurvey(task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]))
     for index, seed in enumerate(seeds):
         started = time.monotonic()
@@ -59,13 +103,12 @@ def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attem
         # one scene leaks into the next.
         args = config.resolve(task.name)
         outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
-        result.seconds += time.monotonic() - started
-        result.seeds += 1
+        seconds = time.monotonic() - started
         if outcome.rejection is None:
-            result.successes += 1
-            result.frames.append(len(demonstration))
+            record = SeedRecord(seed, OK, len(demonstration), seconds)
         else:
-            result.rejections[outcome.rejection.value] += 1
+            record = SeedRecord(seed, outcome.rejection.value, None, seconds)
+        result.records.append(record)
     return result
 
 
