@@ -79,6 +79,7 @@ class FakeTaskEnv:
         step_lim=50,
         expert_steps=6,
         qpos_dim=QPOS_DIM,
+        moves=("left", "right"),
     ):
         self.unstable_seeds = set(unstable_seeds)
         self.plan_fails_on = set(plan_fails_on)
@@ -94,6 +95,7 @@ class FakeTaskEnv:
         self.step_lim_setting = step_lim
         self.expert_steps = expert_steps
         self.qpos_dim = qpos_dim
+        self.moves = set(moves)  # the arms the expert drives; the others stay at their start
         self.save_data = False
         self.save_freq = None
         self.builds: dict[int, int] = {}
@@ -111,6 +113,10 @@ class FakeTaskEnv:
         self.builds[seed] = self.builds.get(seed, 0) + 1
         rng = np.random.default_rng(seed)
         self.target = rng.uniform(-1.0, 1.0, self.qpos_dim)
+        half = self.qpos_dim // 2
+        for arm, joints in (("left", slice(0, half)), ("right", slice(half, None))):
+            if arm not in self.moves:
+                self.target[joints] = 0.0  # never leaves the starting qpos below
         cube = rng.uniform(-0.3, 0.3, 3)
         if self.drift and self.builds[seed] > 1:
             cube = cube + 0.01  # what an unseeded RNG in scene construction would do

@@ -32,28 +32,71 @@ def test_a_survey_keeps_one_record_per_seed_in_order(monkeypatch):
         env, tasks.table()["place_object_basket"], [1, 2, 3, 4], FakeConfig()
     )
     detail = result.to_json()["seeds_detail"]
-    assert [(r["seed"], r["outcome"], r["frames"]) for r in detail] == [
-        (1, "unstable", None),
-        (2, "plan_failed", None),
-        (3, "ok", env.expert_steps + 1),
-        (4, "expert_failed", None),
+    assert [(r["seed"], r["outcome"], r["frames"], r["arms_moved"]) for r in detail] == [
+        (1, "unstable", None, None),
+        (2, "plan_failed", None, None),
+        (3, "ok", env.expert_steps + 1, ["left", "right"]),
+        (4, "expert_failed", None, None),
     ]
     assert all(r["seconds"] >= 0 for r in detail)
     assert sum(r["seconds"] for r in detail) == result.seconds
 
 
-def test_render_lists_every_task_with_its_rate(monkeypatch):
+def test_a_survey_records_which_arms_each_demonstration_moved(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    table = tasks.table()
+    one_arm = survey.survey_task(
+        FakeTaskEnv(moves=("right",), plan_fails_on={2}),
+        table["click_bell"],
+        [1, 2, 3],
+        FakeConfig(),
+    )
+    payload = one_arm.to_json()
+    assert [r["arms_moved"] for r in payload["seeds_detail"]] == [["right"], None, ["right"]]
+    assert (
+        payload["one_arm_demonstrations"],
+        payload["two_arm_demonstrations"],
+        payload["no_arm_demonstrations"],
+    ) == (2, 0, 0)
+
+    both = survey.survey_task(FakeTaskEnv(), table["lift_pot"], [1, 2], FakeConfig())
+    assert [r.arms_moved for r in both.records] == [("left", "right")] * 2
+    assert both.to_json()["two_arm_demonstrations"] == 2
+    assert both.to_json()["one_arm_demonstrations"] == 0
+
+    # A success that moved nothing is evidence for neither count; it is reported on its own.
+    still = survey.survey_task(FakeTaskEnv(moves=()), table["click_bell"], [1], FakeConfig())
+    counts = still.to_json()
+    assert still.records[0].arms_moved == ()
+    assert counts["no_arm_demonstrations"] == 1
+    assert (counts["one_arm_demonstrations"], counts["two_arm_demonstrations"]) == (0, 0)
+
+
+def test_render_lists_every_task_with_its_rate_and_one_arm_count(monkeypatch):
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
     table = tasks.table()
     results = [
-        survey.survey_task(FakeTaskEnv(), table[name], [5, 6], FakeConfig())
-        for name in ("place_object_basket", "click_bell")
+        survey.survey_task(FakeTaskEnv(moves=moves), table[name], [5, 6], FakeConfig())
+        for name, moves in (("place_object_basket", ("left", "right")), ("click_bell", ("left",)))
     ]
     text = survey.render(results)
-    assert "place_object_basket" in text and "click_bell" in text and "100% (2/2)" in text
+    header, basket, bell = text.splitlines()
+    assert "place_object_basket" in basket and "click_bell" in bell and "100% (2/2)" in bell
     # A rate is the task's on one robot; the printed table says which, not only the JSON.
-    header, first, second = text.splitlines()
-    assert "robot" in header and "fake-arms" in first and "fake-arms" in second
+    assert "robot" in header and "fake-arms" in basket and "fake-arms" in bell
+    assert "one-arm" in header
+    column = header.index("one-arm")
+    assert basket[column : column + 7].strip() == "0"
+    assert bell[column : column + 7].strip() == "2"
+
+
+def test_render_shows_no_one_arm_count_without_a_success(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(plan_fails_on={1, 2})
+    result = survey.survey_task(env, tasks.table()["click_bell"], [1, 2], FakeConfig())
+    header, row = survey.render([result]).splitlines()
+    column = header.index("one-arm")
+    assert row[column : column + 7].strip() == "—"
 
 
 def test_survey_rejects_zero_seeds(capsys):
@@ -67,7 +110,7 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
 
     def load_task(name):
         if name == first:
-            return FakeTaskEnv(plan_fails_on={seeds[1]})
+            return FakeTaskEnv(plan_fails_on={seeds[1]}, moves=("left",))
         raise robotwin.RoboTwinError(f"the simulator died before {name}")
 
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
@@ -76,10 +119,14 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     out = tmp_path / "survey.json"
 
     assert cli.main(["survey", "--suite", "v1", "--seeds", "3", "--json", str(out)]) == 1
-    assert f"the simulator died before {second}" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert f"{first}: expert solved 2/3, 2 with one arm" in captured.out
+    assert f"the simulator died before {second}" in captured.err
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert [entry["task"] for entry in payload] == [first]
     assert payload[0]["seeds"] == 3
+    assert (payload[0]["one_arm_demonstrations"], payload[0]["two_arm_demonstrations"]) == (2, 0)
     detail = payload[0]["seeds_detail"]
     assert [r["seed"] for r in detail] == seeds
     assert [r["outcome"] for r in detail] == ["ok", "plan_failed", "ok"]
+    assert [r["arms_moved"] for r in detail] == [["left"], None, ["left"]]

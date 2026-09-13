@@ -77,7 +77,11 @@ def _survey(args: argparse.Namespace) -> int:
     for task in selected:
         result = survey_task(robotwin.load_task(task.name), task, seeds, config)
         results.append(result)
-        print(f"{task.name}: expert solved {result.successes}/{result.seeds}", flush=True)
+        print(
+            f"{task.name}: expert solved {result.successes}/{result.seeds}, "
+            f"{result.demonstrations_moving(1)} with one arm",
+            flush=True,
+        )
         if out is not None:
             # Rewritten after every task: an interrupted survey keeps what it has measured.
             out.parent.mkdir(parents=True, exist_ok=True)

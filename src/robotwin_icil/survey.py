@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from .demo import arms_moved
 from .generate import attempt
 from .tasks import Task
 
@@ -22,11 +23,17 @@ OK = "ok"
 
 @dataclass(frozen=True)
 class SeedRecord:
-    """What one surveyed seed measured: its outcome and, for a success, the demonstration's size."""
+    """What one surveyed seed measured: its outcome and, for a success, what the expert did.
+
+    `arms_moved` is measured from the demonstration's joints (`demo.arms_moved`), so a task's
+    `arms` entry — a static read of the expert's source — is checked against the expert's actual
+    behaviour on every scene it solved. Both are None for a rejected seed.
+    """
 
     seed: int
     outcome: str
     frames: int | None
+    arms_moved: tuple[str, ...] | None
     seconds: float
 
     @property
@@ -38,6 +45,7 @@ class SeedRecord:
             "seed": self.seed,
             "outcome": self.outcome,
             "frames": self.frames,
+            "arms_moved": None if self.arms_moved is None else list(self.arms_moved),
             "seconds": self.seconds,
         }
 
@@ -79,6 +87,15 @@ class TaskSurvey:
     def mean_frames(self) -> float | None:
         return sum(self.frames) / len(self.frames) if self.frames else None
 
+    def demonstrations_moving(self, arms: int) -> int:
+        """How many successful demonstrations moved exactly `arms` arms.
+
+        Over 0, 1 and 2 these partition the successes. A demonstration that moved no arm — a
+        scene the expert found already solved, or motion under the threshold — is neither one-arm
+        nor two-arm evidence and is counted on its own rather than folded into either.
+        """
+        return sum(1 for record in self.records if record.ok and len(record.arms_moved) == arms)
+
     def to_json(self) -> dict[str, Any]:
         return {
             "task": self.task.name,
@@ -88,6 +105,9 @@ class TaskSurvey:
             "successes": self.successes,
             "success_rate": self.success_rate,
             "rejections": dict(sorted(self.rejections.items())),
+            "one_arm_demonstrations": self.demonstrations_moving(1),
+            "two_arm_demonstrations": self.demonstrations_moving(2),
+            "no_arm_demonstrations": self.demonstrations_moving(0),
             "mean_demonstration_frames": self.mean_frames,
             "seconds_per_seed": self.seconds / self.seeds if self.seeds else None,
             "seeds_detail": [record.to_json() for record in self.records],
@@ -105,9 +125,9 @@ def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attem
         outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
         seconds = time.monotonic() - started
         if outcome.rejection is None:
-            record = SeedRecord(seed, OK, len(demonstration), seconds)
+            record = SeedRecord(seed, OK, len(demonstration), arms_moved(demonstration), seconds)
         else:
-            record = SeedRecord(seed, outcome.rejection.value, None, seconds)
+            record = SeedRecord(seed, outcome.rejection.value, None, None, seconds)
         result.records.append(record)
     return result
 
@@ -117,20 +137,24 @@ def _percent(value: float | None) -> str:
 
 
 def render(results: list[TaskSurvey]) -> str:
-    """The plain-text table, one row per task; a rate is the task's on the robot the row names."""
+    """The plain-text table, one row per task; a rate is the task's on the robot the row names.
+
+    *one-arm* is how many of the successes moved exactly one arm.
+    """
     width = max([len(r.task.name) for r in results] + [4])
     robot_width = max([len(r.embodiment or "?") for r in results] + [5])
     lines = [
         f"{'task':<{width}}  {'category':<14}  {'robot':<{robot_width}}  {'expert':>13}  "
-        f"{'frames':>6}  {'s/seed':>6}  rejections"
+        f"{'one-arm':>7}  {'frames':>6}  {'s/seed':>6}  rejections"
     ]
     for r in results:
         rejections = ", ".join(f"{k} {v}" for k, v in sorted(r.rejections.items())) or "—"
         frames = "—" if r.mean_frames is None else f"{r.mean_frames:.0f}"
         per_seed = f"{r.seconds / r.seeds:.1f}" if r.seeds else "—"
         expert = f"{_percent(r.success_rate)} ({r.successes}/{r.seeds})"
+        one_arm = str(r.demonstrations_moving(1)) if r.successes else "—"
         lines.append(
             f"{r.task.name:<{width}}  {r.task.category:<14}  {r.embodiment or '?':<{robot_width}}  "
-            f"{expert:>13}  {frames:>6}  {per_seed:>6}  {rejections}"
+            f"{expert:>13}  {one_arm:>7}  {frames:>6}  {per_seed:>6}  {rejections}"
         )
     return "\n".join(lines) + "\n"
