@@ -228,8 +228,9 @@ class SceneConfig:
 
         Pass `task_name` for any scene that is built: RoboTwin reads it back as `self.task_name` to
         look up the task's evaluation step limit, and silently allows 1000 steps without it.
-        `embodiment_name` in the result is the benchmark's name for the robot (`embodiment_name`);
-        upstream's envs never read that key, only its collection scripts do.
+        `embodiment_name` in the result is the benchmark's name for the robot, from the
+        `embodiment_name()` helper; upstream's envs never read that key, only its collection
+        scripts do.
         """
         _ensure_importable()
         config_dir = ROBOTWIN_ROOT / "env_cfg" / "task_config"

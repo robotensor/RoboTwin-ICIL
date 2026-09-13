@@ -82,7 +82,10 @@ class ICILPolicy:
 
         `action_dims` is the robot's own width per action type, which the harness reads off the
         live arms every rollout. RoboTwin's `take_action` splits an action by the arms it has, so
-        an action of another robot's width would be mis-read joint by joint rather than refused.
+        an action of another robot's width is never refused there: one too wide is mis-read joint
+        by joint (aloha reads a 16-wide action's 14th entry as its right gripper and drops the
+        rest), one too narrow fails inside the simulator as a scored rollout failure (a 14-wide
+        action on two Frankas indexes past its end). Neither is the protocol error it is.
         """
         if self._demonstration is None:
             raise PolicyError(f"{self.name}: act() before set_demonstration()")
