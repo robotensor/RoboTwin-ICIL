@@ -428,3 +428,11 @@ def test_scene_config_is_rebuilt_from_meta(monkeypatch):
     assert unit.scene_config_from({**meta, "overrides": {}, "head_camera": None}) == (
         robotwin.SceneConfig(task_config="demo_randomized", save_freq=5, embodiment="franka-panda")
     )
+
+
+def test_run_unit_will_not_write_into_its_prompts_directory(tmp_path):
+    _, out = materialized(tmp_path)
+    before = sorted(p.name for p in out.iterdir())
+    with pytest.raises(unit.UnitError, match="holds the prompt"):
+        unit.run_unit(out / "prompt.npz", ReplayPolicy(), out, task_env=FakeTaskEnv())
+    assert sorted(p.name for p in out.iterdir()) == before and unit.read_result(out)["ok"]

@@ -21,6 +21,7 @@ from .policy import PolicyError, make_policy
 from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
 from .robotwin import EMBODIMENTS, RoboTwinError
+from .unit import UnitError
 
 # `materialize` exits with this when the expert was rejected on the seed: a legitimate outcome,
 # recorded in result.json, that the caller tells apart from a harness error (1).
@@ -103,11 +104,11 @@ def _survey(args: argparse.Namespace) -> int:
 
 def _materialize(args: argparse.Namespace) -> int:
     from . import robotwin
-    from .unit import materialize
+    from .unit import MATERIALIZE_OUTPUTS, clear_outputs, materialize
 
+    # First, so a command that fails from here on leaves nothing an earlier one wrote.
+    out = clear_outputs(args.out, MATERIALIZE_OUTPUTS)
     task = tasks_.table()[args.task]
-    # Resolve before entering the RoboTwin seam, which moves the working directory.
-    out = Path(args.out).resolve()
     config = robotwin.SceneConfig(
         task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
     )
@@ -117,12 +118,14 @@ def _materialize(args: argparse.Namespace) -> int:
 
 
 def _run_unit(args: argparse.Namespace) -> int:
-    from .unit import run_unit
+    from .unit import RUN_UNIT_OUTPUTS, clear_outputs, run_unit
 
+    # First, so a command that fails from here on leaves nothing an earlier one wrote.
+    out = clear_outputs(args.out, RUN_UNIT_OUTPUTS, prompt=args.prompt)
     kwargs = _policy_kwargs(args.policy_arg or [])
     policy = make_policy(args.policy, **kwargs)
     # Resolve before entering the RoboTwin seam, which moves the working directory.
-    result = run_unit(Path(args.prompt).resolve(), policy, Path(args.out).resolve())
+    result = run_unit(Path(args.prompt).resolve(), policy, out)
     print(json.dumps(result, indent=2, sort_keys=True))
     # A failed or void unit is a result, written to result.json; only a harness error exits 1.
     return 0
@@ -295,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         RoboTwinError,
         DemonstrationError,
         tasks_.TaskTableError,
+        UnitError,
     ) as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1

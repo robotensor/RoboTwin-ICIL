@@ -162,7 +162,7 @@ BUILTIN: dict[str, type[ICILPolicy]] = {"dummy": DummyPolicy, "replay": ReplayPo
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     """A built-in name, or ``package.module:Class`` for an adapter living outside the core."""
     if spec in BUILTIN:
-        return BUILTIN[spec](**kwargs)
+        return _construct(spec, BUILTIN[spec], kwargs)
     module_name, sep, class_name = spec.partition(":")
     if not sep:
         known = ", ".join(sorted(BUILTIN))
@@ -173,4 +173,12 @@ def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
         raise PolicyError(f"cannot load policy {spec!r}: {exc}") from exc
     if not (isinstance(cls, type) and issubclass(cls, ICILPolicy)):
         raise PolicyError(f"{spec!r} is not an ICILPolicy subclass")
-    return cls(**kwargs)
+    return _construct(spec, cls, kwargs)
+
+
+def _construct(spec: str, cls: type[ICILPolicy], kwargs: dict[str, Any]) -> ICILPolicy:
+    try:
+        return cls(**kwargs)
+    except TypeError as exc:
+        # Keyword arguments the constructor does not take: a command line's mistake, not a crash.
+        raise PolicyError(f"cannot construct policy {spec!r} with {sorted(kwargs)}: {exc}") from exc

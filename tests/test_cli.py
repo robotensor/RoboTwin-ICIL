@@ -239,3 +239,53 @@ def test_materialize_chooses_its_robot_and_records_it(tmp_path, fake_sim, capsys
     _, meta = prompt.read_raw(tmp_path / "prompt.npz")
     assert meta["embodiment"]["name"] == "franka-panda"
     assert json.loads(capsys.readouterr().out)["embodiment"] == "franka-panda"
+
+
+def _stale(directory, *names):
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (directory / name).write_text('{"success": true, "void": false, "ok": true}')
+
+
+@pytest.mark.parametrize(
+    ("argv", "error"),
+    [
+        (["--policy", "nope"], "unknown policy 'nope'"),
+        (["--policy", "replay", "--policy-arg", "novalue"], "key=value"),
+        (["--policy", "replay", "--policy-arg", "checkpoint=x"], "cannot construct policy"),
+    ],
+)
+def test_run_unit_failing_before_it_runs_leaves_no_earlier_result(
+    tmp_path, fake_sim, capsys, argv, error
+):
+    # A reused --out must never hand a reader an earlier command's verdict as this one's.
+    out = tmp_path / "run"
+    _stale(out, "result.json", "evaluation.mp4")
+    base = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--out", str(out)]
+    assert cli.main([*base, *argv]) == 1
+    assert error in capsys.readouterr().err
+    assert sorted(p.name for p in out.iterdir()) == []
+
+
+def test_materialize_failing_before_it_runs_leaves_no_earlier_prompt(tmp_path, fake_sim, capsys):
+    _stale(tmp_path, "prompt.npz", "demonstration.mp4", "result.json")
+    argv = ["materialize", "--task", "nope", "--scene-seed", "1", "--out", str(tmp_path)]
+    assert cli.main(argv) == 1
+    assert "unknown task 'nope'" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
+def test_run_unit_refuses_to_write_over_the_prompts_own_result(tmp_path, fake_sim, capsys):
+    out = tmp_path / "p"
+    assert cli.main([*MATERIALIZE, "--out", str(out)]) == 0
+    capsys.readouterr()
+    before = (out / "result.json").read_text()
+    argv = ["run-unit", "--prompt", str(out / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(out)]) == 1
+    assert "holds the prompt" in capsys.readouterr().err
+    assert (out / "result.json").read_text() == before
+    assert sorted(p.name for p in out.iterdir()) == [
+        "demonstration.mp4",
+        "prompt.npz",
+        "result.json",
+    ]

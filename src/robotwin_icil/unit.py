@@ -40,6 +40,34 @@ from .video import DEMONSTRATION_CLIP, EpisodeVideo
 RESULT_FILE = "result.json"
 #: The rollout clip `run_unit` writes; a run directory's episode keeps its own name.
 EVALUATION_CLIP = "evaluation.mp4"
+#: What each command writes into its `--out` directory, and so clears there before anything else.
+MATERIALIZE_OUTPUTS = (PROMPT_FILE, DEMONSTRATION_CLIP, RESULT_FILE)
+RUN_UNIT_OUTPUTS = (RESULT_FILE, EVALUATION_CLIP)
+
+
+class UnitError(ValueError):
+    """A command was pointed at a directory it must not write into."""
+
+
+def clear_outputs(
+    out_dir: str | Path, names: tuple[str, ...], prompt: str | Path | None = None
+) -> Path:
+    """`out_dir`, absolute and created, with no file left in it that this command writes.
+
+    Called first, before anything that can fail, so a directory reused for a second command
+    never holds the first one's result as if it were the second's. `prompt` is run-unit's: a
+    unit's result is never written over the result materialize left beside its prompt.
+    """
+    # Absolute before the RoboTwin seam moves the working directory into the checkout.
+    out = Path(out_dir).resolve()
+    if prompt is not None and Path(prompt).resolve().parent == out:
+        raise UnitError(
+            f"--out {out} holds the prompt; run-unit writes its result into a directory of its own"
+        )
+    out.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (out / name).unlink(missing_ok=True)
+    return out
 
 
 @dataclass(frozen=True)
@@ -75,11 +103,7 @@ def materialize(
     from . import robotwin
 
     started = time.monotonic()
-    # Absolute before the RoboTwin seam moves the working directory into the checkout.
-    out = Path(out_dir).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    for stale in (PROMPT_FILE, DEMONSTRATION_CLIP, RESULT_FILE):
-        (out / stale).unlink(missing_ok=True)
+    out = clear_outputs(out_dir, MATERIALIZE_OUTPUTS)
 
     args = config.resolve(task)
     embodiment = str(args["embodiment_name"])
@@ -239,17 +263,14 @@ def run_unit(
     episode — an unreadable or tampered prompt, a scene that drifted or would not build, a GPU
     that failed during the rollout.
     `success` and `steps` are None exactly when the unit is void. A simulator that cannot load
-    the task raises `RoboTwinError`.
+    the task raises `RoboTwinError`; an `out_dir` holding the prompt raises `UnitError`.
     """
     from . import robotwin
 
     started = time.monotonic()
     # Absolute before the RoboTwin seam moves the working directory into the checkout.
     prompt_path = Path(prompt_path).resolve()
-    out = Path(out_dir).resolve()
-    out.mkdir(parents=True, exist_ok=True)
-    for stale in (RESULT_FILE, EVALUATION_CLIP):
-        (out / stale).unlink(missing_ok=True)
+    out = clear_outputs(out_dir, RUN_UNIT_OUTPUTS, prompt=prompt_path)
     describe = policy.describe()
     result: dict[str, Any] = {
         "success": None,
