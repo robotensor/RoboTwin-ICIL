@@ -1,4 +1,5 @@
 import dataclasses
+import json
 
 import numpy as np
 import pytest
@@ -92,3 +93,45 @@ def test_repeated_names_are_keyed_by_scene_order():
         "block#2",
         "wall",
     ]
+
+
+def test_a_fingerprint_round_trips_through_json():
+    original = fingerprint()
+    data = json.loads(json.dumps(original.to_json()))  # plain data: nothing numpy survives
+    restored = scene.SceneFingerprint.from_json(data)
+    assert scene.compare(original, restored) == []
+    assert restored.extras == original.extras
+    assert scene.digest(restored) == scene.digest(original)
+    assert restored.to_json() == original.to_json()
+
+
+def test_the_digest_is_exact_where_compare_is_tolerant():
+    # A tenth of the position tolerance passes `compare`; the digest still changes, because a
+    # digest says "this file was written from this scene", not "close enough".
+    nudged = fingerprint()
+    nudged.actors["table"] = nudged.actors["table"] + np.array([1e-6, 0, 0, 0, 0, 0, 0])
+    assert scene.compare(fingerprint(), nudged) == []
+    assert scene.digest(nudged) != scene.digest(fingerprint())
+    assert len(scene.digest(fingerprint())) == 64
+
+
+def test_the_digest_does_not_depend_on_dict_order():
+    reordered = fingerprint(
+        actors=dict(reversed(list(fingerprint().actors.items()))),
+        extras={"table_texture": 7, "wall_texture": 3, "embodiment": "aloha.urdf"},
+    )
+    assert scene.digest(reordered) == scene.digest(fingerprint())
+
+
+def test_numpy_scalars_in_extras_become_plain_json():
+    data = fingerprint(
+        extras={"wall_texture": np.int64(3), "table_z_bias": np.float32(0.5)}
+    ).to_json()
+    assert data["extras"] == {"wall_texture": 3, "table_z_bias": 0.5}
+    assert type(data["extras"]["wall_texture"]) is int
+    json.dumps(data)
+
+
+def test_canonical_json_refuses_nan():
+    with pytest.raises(ValueError):
+        scene.canonical_json({"x": float("nan")})
