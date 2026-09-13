@@ -266,6 +266,17 @@ def _rewrite(path, edit):
     np.savez_compressed(path, **edit(arrays), meta=json.dumps(meta, sort_keys=True))
 
 
+def test_a_gpu_failure_mid_rollout_voids_the_unit(tmp_path):
+    _, out = materialized(tmp_path)
+    env = FakeTaskEnv(
+        rollout_raises_at=2, rollout_error="vk::Device::waitForFences: ErrorDeviceLost"
+    )
+    result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
+    assert_read_result_shape(result)
+    assert result["void"] is True and "lost the GPU during the rollout" in result["error"]
+    assert unit.read_result(tmp_path / "run") == result and env.closed == 1
+
+
 class _Faulty(ReplayPolicy):
     """A replay policy that breaks in one named place."""
 

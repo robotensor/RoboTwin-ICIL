@@ -236,7 +236,8 @@ def run_unit(
     with a wrong-width or non-finite action — has failed, with the reason in `detail`: a void unit
     leaves the score, and a policy must not be able to void the units it is losing. The unit is
     `void`, with the reason in `error`, only when the harness could not give the policy a fair
-    episode — an unreadable or tampered prompt, a scene that drifted or would not build.
+    episode — an unreadable or tampered prompt, a scene that drifted or would not build, a GPU
+    that failed during the rollout.
     `success` and `steps` are None exactly when the unit is void. A simulator that cannot load
     the task raises `RoboTwinError`.
     """
@@ -314,6 +315,9 @@ def run_unit(
             video=clip,
             score_policy_faults=True,
         )
+    except robotwin.RoboTwinError as exc:
+        # The simulator failed under the policy (the GPU lost or full): nothing to score.
+        return void(f"simulator failed: {exc}")
     finally:
         robotwin.free_gpu()
 

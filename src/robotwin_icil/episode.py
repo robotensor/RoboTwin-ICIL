@@ -229,9 +229,12 @@ def rollout(
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
     `eval_success`. An exception from the simulator mid-rollout ends the episode as a failure, as
-    upstream's evaluator does. The policy's actions are checked against the widths this robot
-    takes, read off its arms here rather than assumed — outside that catch-all, because a seam
-    that cannot read them is a harness bug, not a stream of failed rollouts.
+    upstream's evaluator does — except the GPU running out of memory or the renderer losing it,
+    which say nothing about the policy and leave a process that cannot simulate: those raise
+    `RoboTwinError`, as they do while the expert runs. The policy's actions are checked against
+    the widths this robot takes, read off its arms here rather than assumed — outside that
+    catch-all, because a seam that cannot read them is a harness bug, not a stream of failed
+    rollouts.
     """
     from . import robotwin
 
@@ -254,6 +257,14 @@ def rollout(
     except PolicyError:
         raise
     except Exception as exc:
+        if robotwin.gpu_exhausted(exc):
+            raise robotwin.RoboTwinError(
+                f"the GPU ran out of memory during the rollout: {exc}"
+            ) from exc
+        if robotwin.gpu_lost(exc):
+            raise robotwin.RoboTwinError(
+                f"the renderer lost the GPU during the rollout: {exc}"
+            ) from exc
         return bool(task_env.eval_success), f"rollout error: {type(exc).__name__}: {exc}"
     return bool(task_env.eval_success), ""
 
