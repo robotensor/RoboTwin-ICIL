@@ -109,6 +109,10 @@ def attempt(
         except DemonstrationError as exc:
             return Attempt(seed, Rejection.NO_DEMONSTRATION, str(exc)), None, None
         return Attempt(seed, None), demonstration, initial
+    except robotwin.RoboTwinError:
+        # The harness itself failed (a clock that cannot count this scene's steps): every seed
+        # would fail the same way, so it stops generation rather than reject the seed.
+        raise
     except Exception as exc:
         if robotwin.gpu_exhausted(exc):
             raise robotwin.RoboTwinError(

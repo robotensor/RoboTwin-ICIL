@@ -160,3 +160,40 @@ def test_the_clock_is_gone_before_a_failed_expert_is_closed(monkeypatch):
     result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
     assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
     assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+class _SlottedScene:
+    """A scene whose `step` cannot be shadowed, as a compiled SAPIEN scene's could not be."""
+
+    __slots__ = ("inner",)
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def step(self):
+        self.inner.step()
+
+    def get_timestep(self):
+        return self.inner.get_timestep()
+
+    def get_all_actors(self):
+        return self.inner.get_all_actors()
+
+    def get_all_articulations(self):
+        return self.inner.get_all_articulations()
+
+
+class _Unclockable(FakeTaskEnv):
+    def setup_demo(self, **kwargs):
+        super().setup_demo(**kwargs)
+        self.scene = _SlottedScene(self.scene)
+
+
+def test_a_scene_the_clock_cannot_count_stops_generation_rather_than_rejecting(monkeypatch):
+    # Not the expert failing on this seed: every seed would fail the same way, and recorded as
+    # rejections they would read as a task the expert cannot solve.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = _Unclockable()
+    with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
+        generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert env.closed == 1
