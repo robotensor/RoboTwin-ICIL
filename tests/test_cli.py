@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -249,6 +251,49 @@ def test_policy_args_reach_the_policys_constructor(tmp_path, fake_sim, capsys):
     assert KwargPolicy.created == [{"checkpoint": "ckpt.pt", "extra": "a=b"}]
     assert cli.main([*base, "--policy-arg", "novalue"]) == 1
     assert "key=value" in capsys.readouterr().err
+
+
+class WherePolicy(cli.make_policy("replay").__class__):
+    """A replay policy that notes the working directory it was built and reset in."""
+
+    name = "where"
+    seen: dict = {}
+
+    def __init__(self, checkpoint):
+        super().__init__()
+        self.seen.update(built=Path.cwd(), checkpoint=Path(checkpoint).resolve())
+
+    def _reset(self):
+        super()._reset()
+        self.seen["reset"] = Path.cwd()
+
+
+def test_a_policy_is_built_before_the_simulator_moves_the_working_directory(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # docs/policies.md tells adapters to resolve a relative checkpoint in __init__: that holds
+    # only while the constructor runs before RoboTwin chdirs into vendor/RoboTwin, as here.
+    from fake_robotwin import FakeTaskEnv
+
+    caller, simulator = tmp_path / "caller", tmp_path / "vendor"
+    caller.mkdir()
+    simulator.mkdir()
+    monkeypatch.chdir(caller)
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+
+    def load_task(name):
+        os.chdir(simulator)
+        return FakeTaskEnv()
+
+    fake_sim["next"] = load_task
+    WherePolicy.seen.clear()
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz")]
+    argv += ["--policy", "test_cli:WherePolicy", "--policy-arg", "checkpoint=ckpt/model.pt"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r")]) == 0
+    assert json.loads(capsys.readouterr().out)["success"] is True
+    assert WherePolicy.seen["built"] == caller and WherePolicy.seen["reset"] == simulator
+    assert WherePolicy.seen["checkpoint"] == caller / "ckpt" / "model.pt"
 
 
 def test_materialize_chooses_its_robot_and_records_it(tmp_path, fake_sim, capsys):
