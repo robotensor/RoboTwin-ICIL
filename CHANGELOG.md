@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- (feat): a demonstration is built once and saved, and an episode is evaluated from the saved
+  file. `robotwin-icil materialize --task T --scene-seed S --out DIR` builds one seed's scene,
+  runs the expert once and writes `prompt.npz`, `demonstration.mp4` and `result.json`, exiting 3
+  when the expert was rejected on the seed; `robotwin-icil run-unit --prompt DIR/prompt.npz
+  --policy P --out DIR` rebuilds the scene from the prompt's privileged `meta`, refuses a meta
+  whose digest is not its own fingerprint's, voids on scene drift with the mismatches, rolls the
+  policy out and writes `result.json` (`success` and `steps` null exactly when `void`) and
+  `evaluation.mp4`. `prompt.npz` holds `frames_<camera>`, `qpos`, `endpose` (per arm, left then
+  right: pose then gripper, 16 wide), `actions`, `times`, `frequency` and `meta`;
+  `prompt.CHANNELS` publishes which arrays are video, proprioception and actions. Every frame
+  records the simulated time it was taken at (`Frame.time_s`, `Demonstration.times()`), counted
+  in physics steps by `robotwin.clock`, because RoboTwin's frames are not evenly spaced. `eval`
+  is unchanged: `run_episode` is `generate.attempt` then `episode.evaluate`, and a fixture pins
+  its records (#84).
 - (feat): the survey renders no camera unless asked. Every frame called `get_obs`, which
   ray-traces every camera, although the survey reads only joints; `robotwin.capture(images=False)`
   now reads the joint vector and endpose straight from the robot (`robot_state`) and never calls

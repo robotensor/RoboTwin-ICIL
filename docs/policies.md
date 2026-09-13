@@ -75,13 +75,19 @@ trajectory from the very scene the rollout will start in:
 
 | | |
 | --- | --- |
-| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` `(qpos_dim,)`, `endpose` |
-| `frequency` | frames per second of the recording |
+| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` `(qpos_dim,)`, `endpose`, `time_s` |
+| `frequency` | nominal frames per second of the recording: the spacing of frames within one motion primitive |
 | `cameras` | the camera names present in every frame |
 | `qpos_dim` | the width of `qpos`, the same in every frame: the robot's |
 | `qpos()` | `(T, qpos_dim)` robot state over the demonstration |
 | `actions()` | `(T-1, qpos_dim)` the position target of each transition — the next frame's `qpos` |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
+| `times()` | `(T,)` simulated seconds since the expert started, per frame — real, and uneven: RoboTwin records a frame one physics step into each primitive, every `save_freq`-th step after, and one at its end |
+
+`endpose` is RoboTwin's dict per frame: `left_endpose` and `right_endpose` (`[x, y, z, qw, qx, qy,
+qz]`) and `left_gripper`, `right_gripper`. On disk (`prompt.npz`, written by `robotwin-icil
+materialize` and read by `run-unit`) it is one 16-wide row per frame, left arm then right, pose then
+gripper — `robotwin_icil.prompt.flatten_endpose` — which is also the layout of an `ee` action.
 
 **Each observation** (`robotwin_icil.policy.Observation`) has the same modalities as a frame —
 `images`, `qpos`, `endpose` — plus `step` and `instruction`.
@@ -134,3 +140,16 @@ robotwin-icil eval --policy replay --suite v1 --episodes 20 --seed 42 --run-dir 
 harness's own upper bound, so it tells you what a perfect imitator scores on your machine. Then run
 your adapter with `--video` and compare `demonstration.mp4` with `evaluation_same_scene.mp4` in a
 few episode directories before trusting any number.
+
+To iterate on one scene without regenerating its demonstration every time, save it once and
+evaluate from the file — the competition runs adapters this way:
+
+```bash
+robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz \
+    --policy mypkg.adapters:MyPolicy --policy-arg checkpoint=checkpoints/model.pt --out runs/unit/run
+```
+
+`--policy-arg key=value` reaches the adapter's constructor as a string. `run-unit` writes
+`result.json` (`success`, `void`, `steps`, `error`, ...) and `evaluation.mp4`; the adapter is handed
+the `Demonstration` read from the file and nothing of the prompt's `meta`.
