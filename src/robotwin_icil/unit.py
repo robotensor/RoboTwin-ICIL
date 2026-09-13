@@ -30,7 +30,7 @@ from typing import Any
 from . import generate
 from .demo import Demonstration
 from .episode import evaluate
-from .policy import ICILPolicy, PolicyError
+from .policy import ICILPolicy
 from .prompt import PROMPT_FILE, PROMPT_SCHEMA, PromptError, read_prompt, sha256_of, write_prompt
 from .records import SAME_SCENE, git_commit
 from .scene import SceneFingerprint, digest
@@ -230,12 +230,15 @@ def run_unit(
 ) -> dict[str, Any]:
     """Evaluate `policy` on the prompt at `prompt_path`, writing `result.json` and `evaluation.mp4`.
 
-    Never raises for what the policy did, nor for a prompt that cannot be trusted: `success` is
-    the verdict when the scene was rebuilt as recorded and the policy acted, and the unit is
-    `void`, with the reason in `error`, when it was not — an unreadable or tampered prompt, a
-    scene that drifted or would not build, a policy that broke the protocol. `success` and
-    `steps` are None exactly when the unit is void. A simulator that cannot load the task raises
-    `RoboTwinError`.
+    Never raises for what the policy did, nor for a prompt that cannot be trusted. `success` is
+    the verdict once the scene was rebuilt as recorded and the policy was handed it, and a policy
+    at fault — raising from `reset` or `set_demonstration`, or breaking the protocol mid-rollout
+    with a wrong-width or non-finite action — has failed, with the reason in `detail`: a void unit
+    leaves the score, and a policy must not be able to void the units it is losing. The unit is
+    `void`, with the reason in `error`, only when the harness could not give the policy a fair
+    episode — an unreadable or tampered prompt, a scene that drifted or would not build.
+    `success` and `steps` are None exactly when the unit is void. A simulator that cannot load
+    the task raises `RoboTwinError`.
     """
     from . import robotwin
 
@@ -309,9 +312,8 @@ def run_unit(
             initial,
             policy,
             video=clip,
+            score_policy_faults=True,
         )
-    except PolicyError as exc:
-        return void(f"policy broke the protocol: {exc}")
     finally:
         robotwin.free_gpu()
 

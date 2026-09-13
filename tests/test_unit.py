@@ -266,18 +266,53 @@ def _rewrite(path, edit):
     np.savez_compressed(path, **edit(arrays), meta=json.dumps(meta, sort_keys=True))
 
 
-def test_a_policy_breaking_the_protocol_voids_the_unit(tmp_path):
+class _Faulty(ReplayPolicy):
+    """A replay policy that breaks in one named place."""
+
+    name = "faulty"
+
+    def __init__(self, where):
+        super().__init__()
+        self.where = where
+
+    def _reset(self):
+        super()._reset()
+        if self.where == "reset":
+            raise RuntimeError("weights missing")
+
+    def _set_demonstration(self, demonstration):
+        if self.where == "set_demonstration":
+            raise ValueError("adapter could not load the demo")
+        super()._set_demonstration(demonstration)
+
+    def _act(self, observation):
+        action = super()._act(observation)
+        if self.where == "act-width" and self._cursor == 3:
+            return action[:3]
+        if self.where == "act-nan" and self._cursor == 3:
+            return np.full_like(action, np.nan)
+        return action
+
+
+@pytest.mark.parametrize(
+    ("where", "steps", "reason"),
+    [
+        ("reset", 0, "policy failed before acting: RuntimeError: weights missing"),
+        ("set_demonstration", 0, "policy failed before acting: ValueError: adapter could not"),
+        ("act-width", 2, "policy broke the protocol: faulty: act() returned shape (1, 3)"),
+        ("act-nan", 2, "policy broke the protocol: faulty: act() returned a non-finite action"),
+    ],
+)
+def test_a_policy_at_fault_fails_the_unit_rather_than_voiding_it(tmp_path, where, steps, reason):
+    # A void unit is thrown out of the score; a policy that could void a unit by raising or by
+    # returning junk could throw out the units it is losing. What the policy did is its result.
     _, out = materialized(tmp_path)
-
-    class Broken(ICILPolicy):
-        name = "broken"
-
-        def _act(self, observation):
-            return np.zeros(3)
-
-    result = unit.run_unit(out / "prompt.npz", Broken(), tmp_path / "run", task_env=FakeTaskEnv())
-    assert result["void"] and result["error"].startswith("policy broke the protocol")
-    assert result["success"] is None and result["steps"] is None
+    env = FakeTaskEnv()
+    result = unit.run_unit(out / "prompt.npz", _Faulty(where), tmp_path / "run", task_env=env)
+    assert_read_result_shape(result)
+    assert result["success"] is False and result["void"] is False and result["error"] is None
+    assert result["steps"] == steps and result["detail"].startswith(reason)
+    assert unit.read_result(tmp_path / "run") == result and env.closed == 1
 
 
 class _Recorder(ReplayPolicy):

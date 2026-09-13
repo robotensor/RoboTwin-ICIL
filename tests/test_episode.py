@@ -119,6 +119,21 @@ def test_a_policy_breaking_the_protocol_stops_the_run():
         run_episode(spec(), _Broken(), FakeConfig(), task_env=FakeTaskEnv())
 
 
+class _CannotLoad(ReplayPolicy):
+    name = "cannot-load"
+
+    def _set_demonstration(self, demonstration):
+        raise ValueError("adapter could not load the demo")
+
+
+def test_an_adapter_that_cannot_take_the_demonstration_stops_the_run():
+    # Only run-unit scores a policy at fault as a failure; a benchmark run surfaces the bug.
+    env = FakeTaskEnv()
+    with pytest.raises(ValueError, match="could not load"):
+        run_episode(spec(), _CannotLoad(), FakeConfig(), task_env=env)
+    assert env.closed == 2
+
+
 def test_a_simulator_error_mid_rollout_is_a_failed_rollout():
     record = run_episode(
         spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(rollout_raises_at=2)

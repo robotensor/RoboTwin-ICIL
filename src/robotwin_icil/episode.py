@@ -146,12 +146,19 @@ def evaluate(
     policy: ICILPolicy,
     video: EpisodeVideo | None = None,
     episode: int = 0,
+    score_policy_faults: bool = False,
 ) -> Evaluation:
     """Rebuild the demonstration's scene, check it is the same one, and roll the policy out in it.
 
     `initial` is the fingerprint taken when the demonstration was recorded; the rebuilt scene must
     match it before the policy is even handed the demonstration. The env is closed on the way out
-    whatever happened. A `PolicyError` propagates, as in `run_episode`.
+    whatever happened.
+
+    A `PolicyError`, and anything `reset` or `set_demonstration` raises, propagates, as in
+    `run_episode`: in a run of the benchmark an adapter at fault is a bug to fix. With
+    `score_policy_faults` they are instead the policy's result — a failure, with the reason in
+    `detail` — as a competition needs: an evaluation that is not scored is thrown out, and a
+    policy must not be able to throw out the episodes it is losing.
     """
     from . import robotwin
 
@@ -173,11 +180,22 @@ def evaluate(
                 "scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + note,
                 scene_max_error=max_error(mismatches),
             )
-        policy.reset()
-        policy.set_demonstration(demonstration)
-        success, detail = rollout(
-            task_env, policy, observe=video.observe if video is not None else None
-        )
+        try:
+            policy.reset()
+            policy.set_demonstration(demonstration)
+        except Exception as exc:
+            if not score_policy_faults:
+                raise
+            success, detail = False, f"policy failed before acting: {type(exc).__name__}: {exc}"
+        else:
+            try:
+                success, detail = rollout(
+                    task_env, policy, observe=video.observe if video is not None else None
+                )
+            except PolicyError as exc:
+                if not score_policy_faults:
+                    raise
+                success, detail = bool(task_env.eval_success), f"policy broke the protocol: {exc}"
         note = _film(video, lambda: _final_frame(video, task_env))
         return Evaluation(
             valid=True,
