@@ -10,6 +10,7 @@ from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import prompt, robotwin, scene, unit
 from robotwin_icil.demo import Demonstration
 from robotwin_icil.policy import ICILPolicy, ReplayPolicy
+from robotwin_icil.records import git_commit
 
 pytest.importorskip("imageio_ffmpeg")
 
@@ -116,6 +117,23 @@ def test_run_unit_succeeds_with_replay_from_the_file(tmp_path):
     assert_read_result_shape(result)
     # The scene was rebuilt from meta, under the task's name, and closed afterwards.
     assert env.setups == [SEED] and env.task_names == [TASK] and env.closed == 1
+    # What evaluated it, as every episode records: the checkpoint and both commits.
+    assert result["checkpoint"] is None
+    assert result["benchmark_commit"] == git_commit(robotwin.REPO_ROOT)
+    assert result["robotwin_commit"] == git_commit(robotwin.ROBOTWIN_ROOT)
+    assert result["benchmark_commit"] and result["robotwin_commit"]
+
+
+def test_run_unit_records_the_policys_checkpoint_even_when_void(tmp_path):
+    class Checkpointed(ReplayPolicy):
+        name = "checkpointed"
+
+        def describe(self):
+            return {**super().describe(), "model": "icrt", "checkpoint": "/ckpt/icrt.pt"}
+
+    result = unit.run_unit(tmp_path / "missing.npz", Checkpointed(), tmp_path / "run")
+    assert result["void"] and result["model"] == "icrt"
+    assert result["checkpoint"] == "/ckpt/icrt.pt" and result["benchmark_commit"]
 
 
 def test_a_policy_that_fails_is_a_failure_not_a_void(tmp_path):
