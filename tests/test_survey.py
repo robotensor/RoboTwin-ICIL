@@ -170,6 +170,7 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     assert f"{first}: expert solved 2/3, 2 with one arm" in captured.out
     assert f"the simulator died before {second}" in captured.err
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert not out.with_suffix(".json.tmp").exists()  # written whole, then renamed into place
     assert [entry["task"] for entry in payload] == [first]
     assert payload[0]["seeds"] == 3
     assert (payload[0]["one_arm_demonstrations"], payload[0]["two_arm_demonstrations"]) == (2, 0)

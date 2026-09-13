@@ -16,7 +16,7 @@ from . import tasks as tasks_
 from .arms import LABELS, ONE, TWO
 from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
-from .records import RecordError, RunDir
+from .records import RecordError, RunDir, write_json
 from .robotwin import EMBODIMENTS, RoboTwinError
 
 
@@ -84,10 +84,10 @@ def _survey(args: argparse.Namespace) -> int:
             flush=True,
         )
         if out is not None:
-            # Rewritten after every task: an interrupted survey keeps what it has measured.
+            # Rewritten whole after every task: an interrupted survey keeps what it has measured,
+            # and a kill that lands mid-write leaves the previous file rather than a torn one.
             out.parent.mkdir(parents=True, exist_ok=True)
-            payload = json.dumps([r.to_json() for r in results], indent=2) + "\n"
-            out.write_text(payload, encoding="utf-8")
+            write_json(out, [r.to_json() for r in results])
     print()
     print(render(results), end="")
     return 0
