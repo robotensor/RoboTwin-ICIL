@@ -47,6 +47,10 @@ class Frame:
             raise DemonstrationError(
                 f"frame {self.index}: qpos has shape {self.qpos.shape}, expected a flat joint vector"
             )
+        if not np.isfinite(self.qpos).all():
+            # No joint reads as NaN or inf; and a NaN compares false against every threshold, so
+            # `arms_moved` would count such an arm as still rather than refuse it.
+            raise DemonstrationError(f"frame {self.index}: qpos has a non-finite value")
         for name, image in self.images.items():
             if image.ndim != 3 or image.shape[2] != 3:
                 raise DemonstrationError(

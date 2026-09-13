@@ -67,6 +67,15 @@ def test_qpos_width_must_not_change_mid_demonstration():
         Demonstration(frames=(frame(0), frame(1, qpos_dim=16)), frequency=15)
 
 
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_frame_rejects_a_non_finite_qpos(value):
+    # A NaN never exceeds a threshold, so arms_moved would report the arm as still; refuse it.
+    qpos = np.zeros(QPOS_DIM)
+    qpos[3] = value
+    with pytest.raises(DemonstrationError, match="non-finite"):
+        Frame(index=0, images={}, qpos=qpos, endpose={})
+
+
 def test_frame_rejects_a_non_rgb_image():
     with pytest.raises(DemonstrationError):
         Frame(

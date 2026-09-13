@@ -103,3 +103,20 @@ def test_a_demonstration_is_as_wide_as_the_robot_that_made_it(qpos_dim, monkeypa
     assert result.rejection is None
     assert demonstration.qpos_dim == qpos_dim and demonstration.qpos().shape[1] == qpos_dim
     assert initial.robot_qpos.shape == (qpos_dim,)
+
+
+def test_a_seed_whose_joints_read_non_finite_is_rejected_not_measured(monkeypatch):
+    # The frame refuses the value while the expert runs, so the seed is a rejection with the
+    # reason on record — not a demonstration that arms_moved would silently read as still.
+    class NaNJointEnv(FakeTaskEnv):
+        def get_obs(self):
+            obs = super().get_obs()
+            obs["joint_action"]["vector"][3] = np.nan
+            return obs
+
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = NaNJointEnv()
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 1}, 1, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert "non-finite" in result.detail
+    assert env.closed == 1
