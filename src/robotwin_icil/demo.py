@@ -11,6 +11,7 @@ information rule in CLAUDE.md. Everything in a `Frame` is something a real robot
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,14 +41,20 @@ class Frame:
     `qpos` is RoboTwin's `joint_action.vector`: the left arm's joints and gripper, then the right's.
     Its width is the robot's — 14 on aloha-agilex, 16 on two Franka arms — so a frame only requires
     a flat vector; the demonstration requires every frame to have the same one.
+
+    `time_s` is simulated seconds since the expert started, counted in physics steps; None in a
+    frame recorded without a clock, when `Demonstration.times()` falls back to the nominal rate.
     """
 
     index: int
     images: dict[str, np.ndarray]
     qpos: np.ndarray
     endpose: dict[str, Any]
+    time_s: float | None = None
 
     def __post_init__(self) -> None:
+        if self.time_s is not None and not math.isfinite(self.time_s):
+            raise DemonstrationError(f"frame {self.index}: time_s is {self.time_s}")
         if self.qpos.ndim != 1 or self.qpos.shape[0] == 0:
             raise DemonstrationError(
                 f"frame {self.index}: qpos has shape {self.qpos.shape}, expected a flat joint vector"
@@ -65,10 +72,18 @@ class Frame:
 
 @dataclass(frozen=True)
 class Demonstration:
-    """One successful expert trajectory, as context for a frozen policy."""
+    """One successful expert trajectory, as context for a frozen policy.
+
+    Its frames are not evenly spaced in time. RoboTwin's `take_dense_action` records one frame
+    before its first physics step, one after every `save_freq`-th step counted from that first
+    step, and one after its last; `together_move_to_pose` does the same in a loop of its own. So
+    every motion primitive adds a frame one step in, a shorter remainder at its end, and a
+    duplicate where the next primitive starts. `times()` says when each frame was taken.
+    """
 
     frames: tuple[Frame, ...]
-    # Frames per second of the recording: the sim rate over RoboTwin's `save_freq`.
+    # Nominal frames per second: the sim rate over RoboTwin's `save_freq`, the spacing of the
+    # frames within a primitive. Not the spacing of every frame; see `times()`.
     frequency: float
     cameras: tuple[str, ...] = field(default=())
 
@@ -96,9 +111,35 @@ class Demonstration:
                 )
         if not self.cameras:
             object.__setattr__(self, "cameras", tuple(sorted(first)))
+        timed = [frame.time_s is not None for frame in self.frames]
+        if any(timed) and not all(timed):
+            raise DemonstrationError("some frames have a time_s and some do not")
+        if all(timed):
+            for before, frame in zip(self.frames[:-1], self.frames[1:], strict=True):
+                if frame.time_s < before.time_s:
+                    raise DemonstrationError(
+                        f"frame {frame.index} is timed at {frame.time_s} s, before frame "
+                        f"{before.index} at {before.time_s} s"
+                    )
 
     def __len__(self) -> int:
         return len(self.frames)
+
+    @property
+    def timed(self) -> bool:
+        """Whether the frames carry the simulated time they were taken at."""
+        return self.frames[0].time_s is not None
+
+    def times(self) -> np.ndarray:
+        """(T,) seconds since the expert started, one per frame.
+
+        The recorded `time_s` of every frame when the demonstration was captured under a clock:
+        real, and uneven, as the class docstring says. Without one, the nominal `index /
+        frequency`, which is only right within a single motion primitive.
+        """
+        if self.timed:
+            return np.asarray([frame.time_s for frame in self.frames], dtype=np.float64)
+        return np.arange(len(self.frames), dtype=np.float64) / self.frequency
 
     @property
     def duration_s(self) -> float:
