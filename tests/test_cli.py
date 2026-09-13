@@ -199,6 +199,28 @@ def test_run_unit_exits_0_on_a_failed_policy_and_1_on_a_harness_error(tmp_path, 
     assert "no RoboTwin checkout" in capsys.readouterr().err
 
 
+def test_a_harness_fault_mid_unit_is_a_void_result_and_a_logged_traceback(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # The orchestrator reads result.json; a command that died would leave it a log tail to read.
+    from robotwin_icil import robotwin
+
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+
+    def broken(env):
+        raise KeyError("head_camera")
+
+    monkeypatch.setattr(robotwin, "fingerprint", broken)
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r")]) == 0
+    printed, err = capsys.readouterr()
+    result = json.loads(printed)
+    assert result["void"] is True and "KeyError: 'head_camera'" in result["error"]
+    assert json.loads((tmp_path / "r" / "result.json").read_text()) == result
+    assert "Traceback" in err and "KeyError: 'head_camera'" in err
+
+
 class KwargPolicy(cli.make_policy("replay").__class__):
     """A replay policy that records how it was constructed."""
 

@@ -343,6 +343,27 @@ def test_a_gpu_failure_mid_rollout_voids_the_unit(tmp_path):
     assert unit.read_result(tmp_path / "run") == result and env.closed == 1
 
 
+def test_a_harness_fault_while_evaluating_voids_the_unit_with_its_reason(tmp_path, monkeypatch):
+    # Not a RoboTwinError and not the policy's doing: the harness failed to fingerprint the rebuilt
+    # scene. The unit is void and result.json says why, rather than the command dying without one.
+    _, out = materialized(tmp_path)
+
+    def broken(env):
+        raise AttributeError("'NoneType' object has no attribute 'get_pose'")
+
+    monkeypatch.setattr(robotwin, "fingerprint", broken)
+    env, policy = FakeTaskEnv(), _Recorder()
+    result = unit.run_unit(out / "prompt.npz", policy, tmp_path / "run", task_env=env)
+    assert_read_result_shape(result)
+    assert result["void"] is True and result["error"] == (
+        "harness error while evaluating: AttributeError: "
+        "'NoneType' object has no attribute 'get_pose'"
+    )
+    assert result["scene_sha256"] and result["live_scene_sha256"] is None
+    assert unit.read_result(tmp_path / "run") == result
+    assert env.setups == [SEED] and env.closed == 1 and policy.demonstrations == []
+
+
 class _Faulty(ReplayPolicy):
     """A replay policy that breaks in one named place."""
 

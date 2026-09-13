@@ -21,7 +21,9 @@ the `Demonstration` and nothing else.
 from __future__ import annotations
 
 import json
+import sys
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -282,7 +284,8 @@ def run_unit(
     leaves the score, and a policy must not be able to void the units it is losing. The unit is
     `void`, with the reason in `error`, only when the harness could not give the policy a fair
     episode — an unreadable, mistyped or tampered prompt, a config RoboTwin refuses, a scene that
-    drifted or would not build, a GPU lost or full during the rollout. `success` and `steps` are
+    drifted or would not build, a GPU lost or full during the rollout, or any other fault of the
+    harness while it evaluated (its traceback is printed to stderr). `success` and `steps` are
     None exactly when the unit is void.
 
     A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
@@ -370,6 +373,12 @@ def run_unit(
     except robotwin.RoboTwinError as exc:
         # The simulator failed under the policy (the GPU lost or full): nothing to score.
         return void(f"simulator failed: {exc}")
+    except Exception as exc:
+        # `evaluate` scores whatever the policy did, so what still escapes it is the harness's own
+        # fault (a rebuilt scene it cannot fingerprint, say). The reason goes on the result, where
+        # the caller reads it; the traceback goes to the log, where the bug is found.
+        traceback.print_exc(file=sys.stderr)
+        return void(f"harness error while evaluating: {type(exc).__name__}: {exc}")
     finally:
         robotwin.free_gpu()
 
