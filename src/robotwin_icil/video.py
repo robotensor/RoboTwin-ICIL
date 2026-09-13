@@ -61,12 +61,24 @@ def write_mp4(path: Path, frames: Sequence[np.ndarray], fps: float) -> None:
 
 
 class EpisodeVideo:
-    """One episode's two clips, written side by side into its directory."""
+    """One episode's two clips, written side by side into its directory.
 
-    def __init__(self, directory: Path, camera: str = DEFAULT_CAMERA) -> None:
+    `evaluation_clip` names the rollout's file: a run directory's episode keeps
+    `evaluation_same_scene.mp4`; an evaluation from a saved prompt writes `evaluation.mp4` next
+    to it. `fps` is the rate a rollout clip plays at when no demonstration clip is written first.
+    """
+
+    def __init__(
+        self,
+        directory: Path,
+        camera: str = DEFAULT_CAMERA,
+        evaluation_clip: str = EVALUATION_CLIP,
+        fps: float = 10.0,
+    ) -> None:
         self.directory = Path(directory)
         self.camera = camera
-        self.fps = 10.0
+        self.evaluation_clip = evaluation_clip
+        self.fps = float(fps)
         self._frames: list[np.ndarray] = []
 
     def demonstration(self, demonstration: Demonstration) -> None:
@@ -84,5 +96,5 @@ class EpisodeVideo:
     def finish(self) -> None:
         """Write what the policy did, from every observation it was given."""
         if self._frames:
-            write_mp4(self.directory / EVALUATION_CLIP, self._frames, self.fps)
+            write_mp4(self.directory / self.evaluation_clip, self._frames, self.fps)
         self._frames = []
