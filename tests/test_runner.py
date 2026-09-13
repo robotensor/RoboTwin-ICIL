@@ -63,6 +63,15 @@ def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
     assert manifest.benchmark_config["embodiment"] == "fake-arms"
     assert manifest.robotwin_config["embodiment"] == ["fake-arms"]
     assert manifest.robotwin_config["embodiment_name"] == "fake-arms"
+    assert manifest.arms == "2"  # a run that asked for nothing special says so
+
+
+def test_the_manifest_records_a_one_arm_run(tmp_path, fake_sim):
+    one_arm = tasks.table().select(suite="v1", arms="1")
+    runner.run(spec(tmp_path, tasks=one_arm, arms="1"), ReplayPolicy(), FakeConfig(), log=quiet)
+    manifest = RunDir(tmp_path / "run").manifest()
+    assert manifest.arms == "1"
+    assert manifest.tasks == tuple(task.name for task in one_arm)
 
 
 def test_every_record_says_which_robot_ran(tmp_path, fake_sim):

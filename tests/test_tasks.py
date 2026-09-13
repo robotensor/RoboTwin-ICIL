@@ -50,6 +50,35 @@ def test_unknown_names_are_rejected():
         table.suite("no_such_suite")
 
 
+def test_select_narrows_to_one_arm_tasks_only_when_asked():
+    table = tasks.table()
+    v1 = table.suite("v1")
+    assert table.select(suite="v1") == v1
+    assert table.select(suite="v1", arms=arms.TWO) == v1
+    one_arm = table.select(suite="v1", arms=arms.ONE)
+    assert one_arm == tuple(task for task in v1 if task.arms == arms.ONE)
+    assert 0 < len(one_arm) < len(v1)  # v1 has both one-arm tasks and switching ones
+    assert table.select(task="click_bell", arms=arms.ONE) == (table["click_bell"],)
+    assert table.select(task="lift_pot") == (table["lift_pot"],)
+
+
+def test_select_refuses_a_task_or_suite_with_no_one_arm_expert():
+    table = tasks.table()
+    with pytest.raises(tasks.TaskTableError, match="task 'lift_pot' needs two arms; --arms 1"):
+        table.select(task="lift_pot", arms=arms.ONE)
+    with pytest.raises(tasks.TaskTableError, match="'stack_bowls_two' needs switching arms"):
+        table.select(task="stack_bowls_two", arms=arms.ONE)
+    two_arm_only = tasks.TaskTable(
+        tasks=table.tasks, categories=table.categories, suites={"lifts": ("lift_pot",)}
+    )
+    with pytest.raises(tasks.TaskTableError, match="suite 'lifts' has no one-arm task"):
+        two_arm_only.select(suite="lifts", arms=arms.ONE)
+    with pytest.raises(tasks.TaskTableError, match="arms 1 or 2"):
+        table.select(suite="v1", arms="switching")
+    with pytest.raises(tasks.TaskTableError, match="either a suite or a task"):
+        table.select()
+
+
 def write_table(tmp_path, entries: str) -> Path:
     path = tmp_path / "tasks.yml"
     path.write_text(

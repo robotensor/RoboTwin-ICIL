@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .arms import TWO
 from .episode import EpisodeSpec, run_episode
 from .policy import ICILPolicy
 from .records import (
@@ -53,6 +54,8 @@ class RunSpec:
     clear_cache_every: int = 5
     # Clips per episode; off by default. Not part of the run's identity: it changes no result.
     video: bool = False
+    # "1" when the run asked for one-arm tasks only; "2", the default, runs whatever was named.
+    arms: str = TWO
 
 
 def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
@@ -71,6 +74,7 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
         evaluation_setting=SAME_SCENE,
         suite=spec.suite,
         tasks=tuple(task.name for task in spec.tasks),
+        arms=spec.arms,
         episodes=spec.episodes,
         max_expert_attempts=spec.max_expert_attempts,
         policy=policy.describe(),

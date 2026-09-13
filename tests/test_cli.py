@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from robotwin_icil import cli
+from robotwin_icil import cli, tasks
 from robotwin_icil.records import RunDir
 from test_records import manifest, record
 
@@ -10,11 +10,44 @@ EVAL = ["eval", "--policy", "replay", "--task", "click_bell", "--episodes", "1",
 SURVEY = ["survey", "--task", "click_bell"]
 
 
-def test_tasks_lists_categories_and_suite_membership(capsys):
+def listed(out: str) -> list[str]:
+    return [line.split()[0] for line in out.splitlines() if line.startswith("  ")]
+
+
+def test_tasks_lists_categories_arms_and_suite_membership(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
-    assert "click_bell  [v1]" in out
+    assert "click_bell  (one arm)  [v1]" in out
+    assert "stack_bowls_two  (switching arms)  [v1]" in out
+    assert "lift_pot  (two arms)" in out
+    assert listed(out) == list(tasks.table().tasks)
+
+
+def test_tasks_with_arms_1_lists_exactly_the_one_arm_tasks(capsys):
+    assert cli.main(["tasks", "--arms", "1"]) == 0
+    out = capsys.readouterr().out
+    one_arm = [task.name for task in tasks.table().tasks.values() if task.arms == "1"]
+    assert listed(out) == one_arm
+    assert len(one_arm) == 26
+    assert "Bimanual Manipulation" not in out  # no one-arm task there, so no empty heading
+    assert "(two arms)" not in out and "(switching arms)" not in out
+
+
+def test_arms_1_refuses_a_task_that_needs_both_arms_before_touching_the_simulator(tmp_path, capsys):
+    base = ["eval", "--policy", "replay", "--episodes", "1", "--run-dir", str(tmp_path)]
+    assert cli.main([*base, "--task", "lift_pot", "--arms", "1"]) == 1
+    err = capsys.readouterr().err
+    assert (
+        "task 'lift_pot' needs two arms; --arms 1 runs only tasks whose expert uses one arm" in err
+    )
+    assert cli.main(["survey", "--task", "handover_block", "--arms", "1"]) == 1
+    assert "task 'handover_block' needs two arms" in capsys.readouterr().err
+
+
+def test_arms_accepts_only_1_or_2():
+    with pytest.raises(SystemExit):
+        cli.main(["tasks", "--arms", "switching"])
 
 
 def test_report_reads_a_run_directory_without_a_simulator(tmp_path, capsys):

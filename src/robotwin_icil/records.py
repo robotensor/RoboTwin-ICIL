@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .arms import TWO
+
 SAME_SCENE = "same_scene"
 
 MANIFEST = "manifest.json"
@@ -103,6 +105,9 @@ class RunManifest:
     benchmark_config: dict[str, Any]
     robotwin_config: dict[str, Any]
     environment: dict[str, str] = field(default_factory=dict)
+    # "1" when the run asked for one-arm tasks only. Runs recorded before the field existed ran
+    # whatever they named, which is what "2" means, so they load unchanged.
+    arms: str = TWO
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)

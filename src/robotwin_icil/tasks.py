@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from . import arms as arms_
-from .arms import ARMS, NON_TASK_STEMS
+from .arms import ARMS, LABELS, NON_TASK_STEMS, ONE, TWO
 
 TABLE_PATH = Path(__file__).with_name("tasks.yml")
 
@@ -56,6 +56,31 @@ class TaskTable:
             known = ", ".join(sorted(self.suites))
             raise TaskTableError(f"unknown suite {name!r}; known suites: {known}") from None
         return tuple(self.tasks[task] for task in members)
+
+    def select(
+        self, *, suite: str | None = None, task: str | None = None, arms: str = TWO
+    ) -> tuple[Task, ...]:
+        """The tasks a run asks for: a suite or one task, narrowed to one-arm tasks by ``arms="1"``.
+
+        ``arms="2"`` — the default, a two-arm robot — changes nothing. A single task that is not
+        one-arm is refused rather than silently run, as is a suite with no one-arm task.
+        """
+        if (suite is None) == (task is None):
+            raise TaskTableError("choose either a suite or a task")
+        selected = (self[task],) if task is not None else self.suite(suite)
+        if arms == TWO:
+            return selected
+        if arms != ONE:
+            raise TaskTableError(f"a run asks for arms {ONE} or {TWO}, not {arms!r}")
+        one_arm = tuple(member for member in selected if member.arms == ONE)
+        if not one_arm:
+            what = (
+                f"task {task!r} needs {LABELS[selected[0].arms]}"
+                if task is not None
+                else f"suite {suite!r} has no one-arm task"
+            )
+            raise TaskTableError(f"{what}; --arms 1 runs only tasks whose expert uses one arm")
+        return one_arm
 
     def by_category(self) -> dict[str, tuple[Task, ...]]:
         grouped: dict[str, list[Task]] = {category: [] for category in self.categories}

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import report as report_
 from . import tasks as tasks_
+from .arms import LABELS, ONE, TWO
 from .policy import PolicyError, make_policy
 from .records import RecordError, RunDir
 from .robotwin import EMBODIMENTS, RoboTwinError
@@ -23,18 +24,16 @@ def _eval(args: argparse.Namespace) -> int:
     from .runner import RunSpec, run
 
     table = tasks_.table()
-    if args.task:
-        selected, suite = (table[args.task],), None
-    else:
-        selected, suite = table.suite(args.suite), args.suite
+    selected = table.select(suite=args.suite, task=args.task, arms=args.arms)
     spec = RunSpec(
         run_dir=Path(args.run_dir).resolve(),
         tasks=selected,
-        suite=suite,
+        suite=args.suite,
         episodes=args.episodes,
         global_seed=args.seed,
         max_expert_attempts=args.max_expert_attempts,
         video=args.video,
+        arms=args.arms,
     )
     config = SceneConfig(
         task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
@@ -67,7 +66,7 @@ def _survey(args: argparse.Namespace) -> int:
     from .survey import render, survey_task
 
     table = tasks_.table()
-    selected = (table[args.task],) if args.task else table.suite(args.suite)
+    selected = table.select(suite=args.suite, task=args.task, arms=args.arms)
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     out = Path(args.json).resolve() if args.json else None
     config = robotwin.SceneConfig(
@@ -93,11 +92,24 @@ def _tasks(args: argparse.Namespace) -> int:
     table = tasks_.table()
     suites = {name: set(members) for name, members in table.suites.items() if name != "all"}
     for category, members in table.by_category().items():
+        if args.arms == ONE:
+            members = tuple(task for task in members if task.arms == ONE)
+        if not members:
+            continue
         print(f"{table.categories[category]} ({category})")
         for task in members:
             tags = ", ".join(sorted(name for name, names in suites.items() if task.name in names))
-            print(f"  {task.name}" + (f"  [{tags}]" if tags else ""))
+            print(f"  {task.name}  ({LABELS[task.arms]})" + (f"  [{tags}]" if tags else ""))
     return 0
+
+
+def _add_arms(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--arms",
+        choices=[ONE, TWO],
+        default=TWO,
+        help="1 selects only tasks whose expert uses one arm; 2 (the default) changes nothing",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write demonstration.mp4 and evaluation_same_scene.mp4 per episode",
     )
+    _add_arms(run)
     run.set_defaults(handler=_eval)
 
     rep = commands.add_parser("report", help="report a run directory; needs no simulator")
@@ -151,9 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
     sur.add_argument("--task-config", default="demo_clean")
     _add_embodiment(sur)
     sur.add_argument("--save-freq", type=int, default=15)
+    _add_arms(sur)
     sur.set_defaults(handler=_survey)
 
-    lst = commands.add_parser("tasks", help="list the task table and suite membership")
+    lst = commands.add_parser(
+        "tasks", help="list the task table: skill category, arms and suite membership"
+    )
+    _add_arms(lst)
     lst.set_defaults(handler=_tasks)
     return parser
 

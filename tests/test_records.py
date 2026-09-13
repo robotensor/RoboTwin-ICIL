@@ -90,6 +90,17 @@ def test_resuming_the_same_run_is_allowed_but_not_a_different_one(tmp_path):
     )  # the machine may differ, the run may not
     with pytest.raises(RecordError):
         run.start(manifest(global_seed=7))
+    with pytest.raises(RecordError):
+        run.start(manifest(arms="1"))  # one-arm and two-arm runs are different runs
+
+
+def test_a_manifest_written_before_arms_existed_still_loads(tmp_path):
+    data = manifest().to_json()
+    del data["arms"]
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    loaded = RunDir(tmp_path).manifest()
+    assert loaded.arms == "2"
+    assert loaded == manifest()
 
 
 def test_a_run_on_another_robot_cannot_continue_this_one(tmp_path):
