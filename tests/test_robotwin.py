@@ -228,6 +228,14 @@ def test_a_task_config_naming_an_unshipped_robot_is_refused(robotwin_root):
         robotwin.SceneConfig().resolve("click_bell")
 
 
+def test_an_embodiment_override_is_refused_in_favour_of_the_field():
+    # `overrides` are applied last, after the robot's URDFs, arm distance and name were derived
+    # from `embodiment`; one that replaced the list would record a robot the scene never built.
+    with pytest.raises(robotwin.RoboTwinError, match="SceneConfig.embodiment"):
+        robotwin.SceneConfig(overrides={"embodiment": ["piper", "piper", 0.6]})
+    assert robotwin.SceneConfig(overrides={"render_freq": 0}).overrides == {"render_freq": 0}
+
+
 def test_embodiment_names_read_back_what_the_flag_takes():
     assert robotwin.embodiment_name(["aloha-agilex"]) == "aloha-agilex"
     assert robotwin.embodiment_name(["franka-panda", "franka-panda", 0.8]) == "franka-panda"

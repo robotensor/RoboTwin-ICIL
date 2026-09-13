@@ -210,9 +210,18 @@ class SceneConfig:
     task_config: str = "demo_clean"
     save_freq: int = 15
     head_camera: str | None = None
+    # Applied last, over everything `resolve` derives; the robot is not an override, see below.
     overrides: dict[str, Any] | None = None
     # A name from `EMBODIMENTS`, or None for the task config's own `embodiment` list.
     embodiment: str | None = None
+
+    def __post_init__(self) -> None:
+        if "embodiment" in (self.overrides or {}):
+            # The URDFs, the arm distance and the recorded name are all derived from the list
+            # before overrides apply; replacing it there would record a robot no scene was built with.
+            raise RoboTwinError(
+                "choose the robot with SceneConfig.embodiment, not overrides['embodiment']"
+            )
 
     def resolve(self, task_name: str | None = None) -> dict[str, Any]:
         """Build the `args` dict `setup_demo` takes, from RoboTwin's own config files.
