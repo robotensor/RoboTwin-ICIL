@@ -32,6 +32,7 @@ def test_replay_succeeds_from_the_same_scene():
     assert record.evaluation_setting == SAME_SCENE and record.skill_category == "pick_and_place"
     assert record.steps == env.expert_steps and record.demonstration_frames == env.expert_steps + 1
     assert record.scene_seed == scene_seeds(0, 0, 5)[0]
+    assert robotwin.action_dims(env) == {"qpos": 14, "ee": 16}
 
 
 def test_the_rollout_starts_from_a_rebuilt_scene_not_the_experts_final_state():

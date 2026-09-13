@@ -12,22 +12,23 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
 import numpy as np
 
-from .demo import BIMANUAL_QPOS_DIM, Demonstration
-
-# RoboTwin's `take_action(action_type='ee')`: xyz + quaternion + gripper, per arm.
-BIMANUAL_EE_DIM = 16
+from .demo import Demonstration
 
 # Given to models that require a language input, so that what is measured is the demonstration
 # and not the prompt. Never the task name or RoboTwin's per-task instruction.
 NEUTRAL_INSTRUCTION = "Follow the demonstrated behavior."
 
 ActionType = Literal["qpos", "ee"]
-_ACTION_DIMS: dict[str, int] = {"qpos": BIMANUAL_QPOS_DIM, "ee": BIMANUAL_EE_DIM}
+
+# The width of an action per action type, read off the live robot by `robotwin.action_dims`:
+# {"qpos": 14, "ee": 16} on aloha-agilex, {"qpos": 16, "ee": 16} on two Franka arms.
+ActionDims = Mapping[str, int]
 
 
 class PolicyError(RuntimeError):
@@ -76,14 +77,24 @@ class ICILPolicy:
         self._demonstration = demonstration
         self._set_demonstration(demonstration)
 
-    def act(self, observation: Observation) -> np.ndarray:
-        """The actions to execute before the next observation, shape (k, action_dim), k >= 1."""
+    def act(self, observation: Observation, action_dims: ActionDims) -> np.ndarray:
+        """The actions to execute before the next observation, shape (k, action_dim), k >= 1.
+
+        `action_dims` is the robot's own width per action type, which the harness reads off the
+        live arms every rollout. RoboTwin's `take_action` splits an action by the arms it has, so
+        an action of another robot's width would be mis-read joint by joint rather than refused.
+        """
         if self._demonstration is None:
             raise PolicyError(f"{self.name}: act() before set_demonstration()")
+        expected = action_dims.get(self.action_type)
+        if expected is None:
+            raise PolicyError(
+                f"{self.name}: no action width for action_type {self.action_type!r}; "
+                f"the robot takes {sorted(action_dims)}"
+            )
         actions = np.asarray(self._act(observation), dtype=np.float64)
         if actions.ndim == 1:
             actions = actions[None, :]
-        expected = _ACTION_DIMS[self.action_type]
         if actions.ndim != 2 or actions.shape[0] == 0 or actions.shape[1] != expected:
             raise PolicyError(
                 f"{self.name}: act() returned shape {actions.shape}, expected (k, {expected}) "

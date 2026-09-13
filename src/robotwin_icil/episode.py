@@ -143,11 +143,13 @@ def rollout(
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
     `eval_success`. An exception from the simulator mid-rollout ends the episode as a failure, as
-    upstream's evaluator does.
+    upstream's evaluator does. The policy's actions are checked against the widths this robot
+    takes, read off its arms here rather than assumed.
     """
     from . import robotwin
 
     try:
+        action_dims = robotwin.action_dims(task_env)
         while not robotwin.episode_over(task_env):
             raw = robotwin.observation(task_env)
             if observe is not None:
@@ -158,7 +160,7 @@ def rollout(
                 qpos=raw["qpos"],
                 endpose=raw["endpose"],
             )
-            for action in policy.act(observation):
+            for action in policy.act(observation, action_dims):
                 task_env.take_action(action, action_type=policy.action_type)
                 if robotwin.episode_over(task_env):
                     break

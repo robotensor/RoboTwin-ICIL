@@ -304,6 +304,23 @@ def episode_over(env) -> bool:
     return bool(env.eval_success) or (step_lim is not None and env.take_action_cnt >= step_lim)
 
 
+# `take_action(action_type='ee')` reads a pose (7) and a gripper per arm, whatever the arm.
+EE_ACTION_DIM = 2 * (7 + 1)
+
+
+def action_dims(env) -> dict[str, int]:
+    """The width `take_action` expects per action type, read off the live robot's arms.
+
+    A `qpos` action has the layout of `get_obs()['joint_action']['vector']`: the left arm's joints
+    and gripper, then the right's — 14 on aloha-agilex's six-joint arms, 16 on two seven-joint
+    Frankas. `take_action` splits a qpos action by these same lengths (`len(jointstate) - 1` per
+    arm), so the harness reads them from the same place rather than assuming a robot.
+    """
+    left = len(env.robot.get_left_arm_jointState())
+    right = len(env.robot.get_right_arm_jointState())
+    return {"qpos": left + right, "ee": EE_ACTION_DIM}
+
+
 def observation(env) -> dict[str, Any]:
     """One observation of the live scene, in the shape a `Frame` carries."""
     raw = env.get_obs()
