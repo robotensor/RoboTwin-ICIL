@@ -10,12 +10,20 @@ TASK = "click_bell"
 
 
 def _build(task_env, config, seeds=range(5)):
-    """Set the task up on the first stable seed; unstable placements are rejections, not evidence."""
+    """Set the task up on the first stable seed; unstable placements are rejections, not evidence.
+
+    Closes the env on any failure to build, as `generate.attempt` does: a half-built env left
+    open holds the GPU and can hang the next test's camera read.
+    """
     for seed in seeds:
         try:
             task_env.setup_demo(now_ep_num=0, seed=seed, is_test=True, **config.resolve(TASK))
         except robotwin.unstable_error():
+            robotwin.close(task_env)
             continue
+        except Exception:
+            robotwin.close(task_env)
+            raise
         return seed
     pytest.fail("every seed was unstable")
 
