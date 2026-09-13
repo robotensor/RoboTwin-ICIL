@@ -87,13 +87,20 @@ touched a score. The run took 35 minutes on an RTX A6000 shared with a 40 GiB tr
 
 Next: a real ICIL policy (#12), and scene-generalization settings beyond Same Scene (#13).
 
-## Skill categories
+## Skill categories and arms
 
 RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
 Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
 short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
 expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md).
+
+The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
+drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
+and ranking tasks that pick an arm per object, and `2` for the 18 that use both. The value is a
+static read of the task's `play_once` — `src/robotwin_icil/arms.py` re-derives it from the pinned
+checkout, and a test fails naming any task whose entry disagrees. `--arms 1` on `eval`, `survey`
+and `tasks` keeps only the one-arm tasks; without it a run is unchanged.
 
 ## Quick start
 
@@ -120,6 +127,9 @@ robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
+
+# one-arm robots: only the tasks whose expert uses one arm (26 of 50; `tasks --arms 1` lists them)
+robotwin-icil eval --policy <adapter> --suite v1 --arms 1 --episodes 500 --seed 42 --run-dir runs/v1-one-arm
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
@@ -130,7 +140,8 @@ upper bound: if it does not succeed, the bug is in the benchmark, not in the mod
 
 ```
 src/robotwin_icil/
-  tasks.yml tasks.py        task -> skill category table and suites
+  tasks.yml tasks.py        task -> skill category and arms table, suites, --arms selection
+  arms.py                   static read of each expert's play_once: 1, switching or 2 arms
   config.py                 benchmark + RoboTwin configuration
   demo.py                   model-independent demonstration container
   scene.py                  initial-state fingerprint and Same Scene verification
@@ -164,7 +175,8 @@ See [`docs/policies.md`](docs/policies.md).
 ## Reproducibility
 
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
-git commits, both configs, and per episode: the task, skill category, scene seed, number of expert
+git commits, both configs, whether it asked for one-arm tasks only (`arms`), and per episode: the
+task, skill category, scene seed, number of expert
 generation attempts, rollout length and outcome. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.

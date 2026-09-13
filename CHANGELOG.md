@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- (feat): every task declares how many arms its expert needs. `tasks.yml` entries become
+  `{category, arms}` with `arms: 1 | switching | 2` (26 / 6 / 18 tasks), `arms.py` re-derives the
+  value from a static read of each `play_once` in the pinned checkout, and a test fails naming any
+  task whose entry disagrees. `--arms 1` on `eval`, `survey` and `tasks` keeps only one-arm tasks
+  and refuses a task that needs more; `2` is the default and changes nothing; the run manifest
+  records `arms`. Two values differ from the issue's list, decided from the source:
+  `put_bottles_dustbin` hands right-side bottles to the left arm (2), `shake_bottle_horizontally`
+  drives one arm like `shake_bottle` (1) (#82).
 - (feat): a run chooses its robot. `eval` and `survey` take `--embodiment aloha-agilex` (one
   dual-arm URDF) or `franka-panda` (two Franka arms 0.8 m apart, the distance RoboTwin's
   configuration guide gives), resolved into RoboTwin's one-entry or `[left, right, distance]`
