@@ -65,6 +65,36 @@ def test_a_fixed_single_arm_is_one_arm():
     assert verdict == arms.Verdict(arms.ONE, "one arm, left (line 10)")
 
 
+def test_an_arm_bound_in_both_branches_of_an_if_is_one_choice():
+    verdict = classify(
+        """
+        if self.thing.get_pose().p[0] > 0:
+            arm_tag = ArmTag("right")
+        else:
+            arm_tag = ArmTag("left")
+        self.move(self.grasp_actor(self.thing, arm_tag=arm_tag, pre_grasp_dis=0.1))
+        self.move(self.move_by_displacement(arm_tag, z=0.1))
+        """
+    )
+    assert verdict.arms == arms.ONE
+    assert "chosen(" in verdict.evidence
+
+
+def test_an_arm_bound_in_both_branches_of_an_if_per_object_is_switching():
+    verdict = classify(
+        """
+        for block in self.blocks:
+            if block.get_pose().p[0] > 0:
+                arm_tag = ArmTag("right")
+            else:
+                arm_tag = ArmTag("left")
+            self.move(self.grasp_actor(block, arm_tag=arm_tag))
+        """
+    )
+    assert verdict.arms == arms.SWITCHING
+    assert "at line 10 in a loop" in verdict.evidence
+
+
 def test_an_arm_chosen_in_load_actors_is_one_arm():
     verdict = classify(
         """

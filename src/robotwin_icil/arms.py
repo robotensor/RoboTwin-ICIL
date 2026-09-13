@@ -210,14 +210,18 @@ class _Expert:
     def _scan(self, unit_name: str, unit: _Unit) -> None:
         """Gather the unit's assignments, and note every expression it evaluates per object —
         inside a loop, or anywhere in a unit that is entered more than once."""
+        merged: set[int] = set()
         for node, in_loop in _iter_body(unit.node):
+            per_object = in_loop or unit.repeated
             if (
-                (in_loop or unit.repeated)
+                per_object
                 and isinstance(node, ast.expr)
                 and not isinstance(node, ast.Constant | ast.Name)
             ):
                 self.choices.setdefault(ast.unparse(node), (node.lineno, unit_name))
-            if not isinstance(node, ast.Assign):
+            if isinstance(node, ast.If):
+                merged |= self._merge_branches(unit_name, node, per_object)
+            if not isinstance(node, ast.Assign) or id(node) in merged:
                 continue
             for target in node.targets:
                 pairs = [(target, node.value)]
@@ -227,6 +231,22 @@ class _Expert:
                     scope = _scope(unit_name, name)
                     if scope is not None:
                         self.assignments.setdefault(scope, []).append(value)
+
+    def _merge_branches(self, unit_name: str, node: ast.If, per_object: bool) -> set[int]:
+        """An if/else that binds the same name in both branches makes one choice of it, the
+        way a conditional expression does; returns the assignments folded into that choice."""
+        then, otherwise = _bindings(unit_name, node.body), _bindings(unit_name, node.orelse)
+        folded: set[int] = set()
+        for scope in then.keys() & otherwise.keys():
+            choice = ast.IfExp(
+                test=node.test, body=then[scope].value, orelse=otherwise[scope].value
+            )
+            ast.copy_location(choice, node)
+            self.assignments.setdefault(scope, []).append(choice)
+            if per_object:
+                self.choices.setdefault(ast.unparse(choice), (node.lineno, unit_name))
+            folded |= {id(then[scope]), id(otherwise[scope])}
+        return folded
 
     # -- identities -------------------------------------------------------------------------
 
@@ -373,6 +393,17 @@ def _scope(unit_name: str, expr: ast.expr) -> _Scope | None:
     ):
         return (_SELF, expr.attr)
     return None
+
+
+def _bindings(unit_name: str, statements: list[ast.stmt]) -> dict[_Scope, ast.Assign]:
+    """The single-name assignments at the top level of a branch, by what they bind."""
+    bindings = {}
+    for statement in statements:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            scope = _scope(unit_name, statement.targets[0])
+            if scope is not None:
+                bindings[scope] = statement
+    return bindings
 
 
 def _parameters(function: ast.FunctionDef) -> tuple[list[str], dict[str, ast.expr]]:
