@@ -192,7 +192,7 @@ def _fmt(value: float | None) -> str:
 
 
 def _embodiment(manifest: RunManifest) -> str:
-    """The robot a run ran on, by the name `--embodiment` takes.
+    """The robot a run ran on, as `embodiment_name` names it.
 
     A manifest written before a run could choose its robot has no `embodiment_name`, but it does
     carry RoboTwin's `embodiment` list, which names the robot on its own; nothing is asserted that

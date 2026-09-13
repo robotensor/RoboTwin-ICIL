@@ -189,13 +189,19 @@ EMBODIMENTS: dict[str, tuple[Any, ...]] = {
 
 
 def embodiment_name(embodiment: Sequence[Any]) -> str:
-    """The name a run records for a RoboTwin `embodiment` list: what `--embodiment` takes.
+    """The name a run records for a RoboTwin `embodiment` list.
 
-    `[x]` and `[x, x, d]` are both robot `x`, two arms either way; two different arms are named
-    `left+right`, as upstream's scripts file them.
+    A list that is one of `EMBODIMENTS` is named by its key, whose distance is fixed. Any other is
+    named by its arms — `x` for `[x]`, `x@d` for `[x, x, d]`, `left+right@d` for two different arms
+    (upstream's scripts spell those `left+right` and drop the distance) — because the same arms
+    stood another distance apart are another scene, and the name is all an episode record keeps.
     """
+    for name, form in EMBODIMENTS.items():
+        if tuple(embodiment) == form:
+            return name
     names = [str(name) for name in embodiment[:2]]
-    return names[0] if len(set(names)) == 1 else "+".join(names)
+    arms = names[0] if len(set(names)) == 1 else "+".join(names)
+    return arms if len(embodiment) < 3 else f"{arms}@{embodiment[2]}"
 
 
 @dataclass(frozen=True)

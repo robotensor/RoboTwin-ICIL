@@ -53,8 +53,9 @@ class EpisodeRecord:
     rejections: dict[str, int]
     scene_max_error: float
     model: str
-    # The robot, by the name `--embodiment` takes: a 14-wide aloha-agilex episode and a 16-wide
-    # franka-panda one are not the same measurement.
+    # The robot, as `robotwin.embodiment_name` names it (the `--embodiment` choice, or the arms and
+    # their distance): a 14-wide aloha-agilex episode and a 16-wide franka-panda one are not the
+    # same measurement, and neither are two Frankas at different distances.
     embodiment: str
     checkpoint: str | None = None
     detail: str = ""

@@ -239,4 +239,14 @@ def test_an_embodiment_override_is_refused_in_favour_of_the_field():
 def test_embodiment_names_read_back_what_the_flag_takes():
     assert robotwin.embodiment_name(["aloha-agilex"]) == "aloha-agilex"
     assert robotwin.embodiment_name(["franka-panda", "franka-panda", 0.8]) == "franka-panda"
-    assert robotwin.embodiment_name(["piper", "franka-panda", 0.6]) == "piper+franka-panda"
+    assert robotwin.embodiment_name(["piper", "franka-panda", 0.6]) == "piper+franka-panda@0.6"
+
+
+def test_two_arms_at_another_distance_are_another_robot_by_name(robotwin_root):
+    # `--embodiment franka-panda` fixes the distance, so its name need not say it; a task config
+    # that stands the same arms elsewhere is another scene, and every record must tell them apart.
+    assert robotwin.embodiment_name(["franka-panda", "franka-panda", 0.6]) == "franka-panda@0.6"
+    assert robotwin.embodiment_name(["piper", "piper", 0.8]) == "piper@0.8"
+    config = robotwin_root / "env_cfg" / "task_config" / "demo_clean.yml"
+    config.write_text(yaml.safe_dump({"embodiment": ["franka-panda", "franka-panda", 0.6]}))
+    assert robotwin.SceneConfig().resolve("click_bell")["embodiment_name"] == "franka-panda@0.6"
