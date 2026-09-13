@@ -100,6 +100,28 @@ def test_render_shows_no_one_arm_count_without_a_success(monkeypatch):
     assert row[column : column + 7].strip() == "—"
 
 
+def test_render_keeps_its_columns_in_place_at_a_hundred_seeds():
+    # "100% (100/100)" is one character wider than any 20-seed cell; the columns after it must
+    # not shift on that row alone.
+    table = tasks.table()
+    hundred = survey.TaskSurvey(
+        table["click_bell"],
+        [survey.SeedRecord(seed, survey.OK, 78, ("right",), 1.0) for seed in range(100)],
+    )
+    twenty = survey.TaskSurvey(
+        table["lift_pot"],
+        [survey.SeedRecord(seed, survey.OK, 300, ("left", "right"), 1.0) for seed in range(20)],
+    )
+    header, bell, pot = survey.render([hundred, twenty]).splitlines()
+    column = header.index("one-arm")
+    assert "100% (100/100)" in bell and "100% (20/20)" in pot
+    frames_column = header.index("frames")
+    for row, count, frames in ((bell, "100", "78"), (pot, "0", "300")):
+        assert row[column - 2 : column] == "  "
+        assert row[column : column + 7].strip() == count
+        assert row[frames_column : frames_column + 6].strip() == frames
+
+
 def test_survey_rejects_zero_seeds(capsys):
     assert cli.main(["survey", "--suite", "v1", "--seeds", "0"]) == 2
 

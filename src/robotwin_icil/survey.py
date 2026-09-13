@@ -141,20 +141,23 @@ def render(results: list[TaskSurvey]) -> str:
 
     *one-arm* is how many of the successes moved exactly one arm.
     """
+    # The task, robot and expert columns are as wide as their widest cell, so every column after
+    # them stays put whatever the names and the seed count.
     width = max([len(r.task.name) for r in results] + [4])
     robot_width = max([len(r.embodiment or "?") for r in results] + [5])
+    experts = [f"{_percent(r.success_rate)} ({r.successes}/{r.seeds})" for r in results]
+    expert_width = max([len(expert) for expert in experts] + [6])
     lines = [
-        f"{'task':<{width}}  {'category':<14}  {'robot':<{robot_width}}  {'expert':>13}  "
+        f"{'task':<{width}}  {'category':<14}  {'robot':<{robot_width}}  {'expert':>{expert_width}}  "
         f"{'one-arm':>7}  {'frames':>6}  {'s/seed':>6}  rejections"
     ]
-    for r in results:
+    for r, expert in zip(results, experts, strict=True):
         rejections = ", ".join(f"{k} {v}" for k, v in sorted(r.rejections.items())) or "—"
         frames = "—" if r.mean_frames is None else f"{r.mean_frames:.0f}"
         per_seed = f"{r.seconds / r.seeds:.1f}" if r.seeds else "—"
-        expert = f"{_percent(r.success_rate)} ({r.successes}/{r.seeds})"
         one_arm = str(r.demonstrations_moving(1)) if r.successes else "—"
         lines.append(
             f"{r.task.name:<{width}}  {r.task.category:<14}  {r.embodiment or '?':<{robot_width}}  "
-            f"{expert:>13}  {one_arm:>7}  {frames:>6}  {per_seed:>6}  {rejections}"
+            f"{expert:>{expert_width}}  {one_arm:>7}  {frames:>6}  {per_seed:>6}  {rejections}"
         )
     return "\n".join(lines) + "\n"
