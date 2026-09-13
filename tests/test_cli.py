@@ -106,3 +106,136 @@ def test_a_one_arm_survey_of_every_task_selects_the_26_one_arm_tasks():
     args = cli.build_parser().parse_args(argv)
     selected = tasks.table().select(suite=args.suite, task=args.task, arms=args.arms)
     assert len(selected) == 26 and {task.arms for task in selected} == {"1"}
+
+
+MATERIALIZE = ["materialize", "--task", "click_bell", "--scene-seed", "11"]
+
+
+@pytest.fixture
+def fake_sim(monkeypatch):
+    """Route materialize and run-unit to fake envs; `envs` is what a test wants load_task to give."""
+    from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
+    from robotwin_icil import robotwin
+
+    envs = {"next": lambda name: FakeTaskEnv()}
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
+    monkeypatch.setattr(robotwin, "load_task", lambda name: envs["next"](name))
+    return envs
+
+
+def test_materialize_then_run_unit_through_the_cli(tmp_path, fake_sim, capsys):
+    pytest.importorskip("imageio_ffmpeg")
+    out, run = tmp_path / "prompt", tmp_path / "run"
+    assert cli.main([*MATERIALIZE, "--out", str(out)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["ok"] is True and printed["scene_seed"] == 11
+    assert {p.name for p in out.iterdir()} == {"prompt.npz", "demonstration.mp4", "result.json"}
+
+    assert (
+        cli.main(
+            [
+                "run-unit",
+                "--prompt",
+                str(out / "prompt.npz"),
+                "--policy",
+                "replay",
+                "--out",
+                str(run),
+            ]
+        )
+        == 0
+    )
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["success"] is True and printed["void"] is False
+    assert json.loads((run / "result.json").read_text()) == printed
+    assert (run / "evaluation.mp4").is_file()
+
+
+def test_a_rejected_seed_exits_3_with_its_result(tmp_path, fake_sim, capsys):
+    from fake_robotwin import FakeTaskEnv
+
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11})
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == cli.EXIT_REJECTED == 3
+    assert json.loads(capsys.readouterr().out)["rejection"] == "unstable"
+    assert json.loads((tmp_path / "result.json").read_text())["ok"] is False
+    assert not (tmp_path / "prompt.npz").exists()
+
+
+def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
+    tmp_path, fake_sim, capsys
+):
+    assert (
+        cli.main(["materialize", "--task", "nope", "--scene-seed", "1", "--out", str(tmp_path)])
+        == 1
+    )
+    assert "unknown task 'nope'" in capsys.readouterr().err
+
+
+def test_run_unit_exits_0_on_a_failed_policy_and_1_on_a_harness_error(tmp_path, fake_sim, capsys):
+    from robotwin_icil import robotwin
+
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    prompt = str(tmp_path / "p" / "prompt.npz")
+    assert (
+        cli.main(
+            ["run-unit", "--prompt", prompt, "--policy", "dummy", "--out", str(tmp_path / "r")]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert json.loads((tmp_path / "r" / "result.json").read_text())["success"] is False
+
+    def broken(name):
+        raise robotwin.RoboTwinError("no RoboTwin checkout")
+
+    fake_sim["next"] = broken
+    assert (
+        cli.main(
+            ["run-unit", "--prompt", prompt, "--policy", "dummy", "--out", str(tmp_path / "r2")]
+        )
+        == 1
+    )
+    assert "no RoboTwin checkout" in capsys.readouterr().err
+
+
+class KwargPolicy(cli.make_policy("replay").__class__):
+    """A replay policy that records how it was constructed."""
+
+    name = "kwarg"
+    created: list = []
+
+    def __init__(self, checkpoint, extra="none"):
+        super().__init__()
+        self.created.append({"checkpoint": checkpoint, "extra": extra})
+
+
+def test_policy_args_reach_the_policys_constructor(tmp_path, fake_sim, capsys):
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    prompt = str(tmp_path / "p" / "prompt.npz")
+    base = [
+        "run-unit",
+        "--prompt",
+        prompt,
+        "--policy",
+        "test_cli:KwargPolicy",
+        "--out",
+        str(tmp_path / "r"),
+    ]
+    KwargPolicy.created.clear()
+    assert cli.main([*base, "--policy-arg", "checkpoint=ckpt.pt", "--policy-arg", "extra=a=b"]) == 0
+    assert KwargPolicy.created == [{"checkpoint": "ckpt.pt", "extra": "a=b"}]
+    assert cli.main([*base, "--policy-arg", "novalue"]) == 1
+    assert "key=value" in capsys.readouterr().err
+
+
+def test_materialize_chooses_its_robot_and_records_it(tmp_path, fake_sim, capsys):
+    from robotwin_icil import prompt
+
+    parser = cli.build_parser()
+    # As eval's: without the flag the task config's own robot runs, and the prompt records it.
+    assert parser.parse_args([*MATERIALIZE, "--out", "d"]).embodiment is None
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path), "--embodiment", "franka-panda"]) == 0
+    _, meta = prompt.read_raw(tmp_path / "prompt.npz")
+    assert meta["embodiment"]["name"] == "franka-panda"
+    assert json.loads(capsys.readouterr().out)["embodiment"] == "franka-panda"

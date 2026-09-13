@@ -72,7 +72,8 @@ def materialize(
     from . import robotwin
 
     started = time.monotonic()
-    out = Path(out_dir)
+    # Absolute before the RoboTwin seam moves the working directory into the checkout.
+    out = Path(out_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     for stale in (PROMPT_FILE, DEMONSTRATION_CLIP, RESULT_FILE):
         (out / stale).unlink(missing_ok=True)
@@ -219,7 +220,9 @@ def run_unit(
     from . import robotwin
 
     started = time.monotonic()
-    out = Path(out_dir)
+    # Absolute before the RoboTwin seam moves the working directory into the checkout.
+    prompt_path = Path(prompt_path).resolve()
+    out = Path(out_dir).resolve()
     out.mkdir(parents=True, exist_ok=True)
     for stale in (RESULT_FILE, EVALUATION_CLIP):
         (out / stale).unlink(missing_ok=True)
