@@ -87,8 +87,9 @@ trajectory from the very scene the rollout will start in:
 `images`, `qpos`, `endpose` — plus `step` and `instruction`.
 
 `qpos` is RoboTwin's joint vector: the left arm's joints then its gripper, then the right's. Its
-width is the robot's, chosen per run with `--embodiment`: aloha-agilex (the default) has six joints
-per arm, 14 in all; franka-panda is two seven-joint arms, 16. Grippers run from 0 (closed) to 1
+width is the robot's, chosen per run with `--embodiment`: aloha-agilex (what every shipped task
+config names) has six joints per arm, 14 in all; franka-panda is two seven-joint arms, 16.
+Grippers run from 0 (closed) to 1
 (open). Every episode record and the run manifest name the robot.
 
 ## What the policy never receives

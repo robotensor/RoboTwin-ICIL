@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-- (feat): a run chooses its robot. `eval` and `survey` take `--embodiment aloha-agilex` (the
-  default, one dual-arm URDF) or `franka-panda` (two Franka arms 0.8 m apart, the distance
-  RoboTwin's configuration guide gives), resolved into RoboTwin's one-entry or
-  `[left, right, distance]` form by `SceneConfig.embodiment`. Frame and action widths come from
+- (feat): a run chooses its robot. `eval` and `survey` take `--embodiment aloha-agilex` (one
+  dual-arm URDF) or `franka-panda` (two Franka arms 0.8 m apart, the distance RoboTwin's
+  configuration guide gives), resolved into RoboTwin's one-entry or `[left, right, distance]`
+  form by `SceneConfig.embodiment`; without the flag the task config's own robot runs, aloha-agilex
+  in every shipped config. Frame and action widths come from
   the live robot — `Demonstration.qpos_dim`, `robotwin.action_dims` — instead of the 14/16
   constants that fitted only aloha-agilex, so a dual Franka's 16-wide qpos runs end to end. Every
   episode record, the run manifest and the scene fingerprint name the robot, and a run directory

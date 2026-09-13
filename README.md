@@ -43,7 +43,7 @@ Generalization becomes a separate, explicitly named setting later — never a "d
 | Evaluation setting | **Same Scene** (demonstration and rollout share task, seed, objects, poses, cameras, lighting, background and initial robot state) |
 | Policy | frozen — `policy.reset()` between episodes, no `backward()`, no optimizer, no parameter write |
 | Demonstration source | RoboTwin's own scripted expert (`play_once`), captured on the fly |
-| Robot | `--embodiment aloha-agilex` (default; one dual-arm URDF, 14-dim qpos) or `franka-panda` (two Franka arms, 16-dim qpos); recorded with every episode |
+| Robot | `--embodiment aloha-agilex` (one dual-arm URDF, 14-dim qpos) or `franka-panda` (two Franka arms, 16-dim qpos); without the flag, the task config's own robot, aloha-agilex in every shipped config; recorded with every episode |
 | Success | RoboTwin's own per-task `check_success()`, binary |
 | Official score | **Same Scene 1-Demo Success Rate**, reported overall, by skill category and by task |
 
@@ -111,7 +111,7 @@ bash scripts/install_robotwin.sh
 # one episode, replay-oracle policy, to prove the harness end to end
 robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke
 
-# the same on two Franka arms instead of the default aloha-agilex
+# the same on two Franka arms instead of the task config's aloha-agilex
 robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke-franka
 
 # how often RoboTwin's own expert solves each task (decides suite membership)

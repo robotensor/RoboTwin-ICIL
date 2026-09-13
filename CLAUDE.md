@@ -54,7 +54,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets. One simulator
   process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
-- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval` and `survey` take `--embodiment aloha-agilex` (default) or `franka-panda`; a run directory is tied to its robot.
+- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval` and `survey` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules
