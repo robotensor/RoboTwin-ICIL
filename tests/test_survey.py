@@ -31,6 +31,9 @@ def test_render_lists_every_task_with_its_rate(monkeypatch):
     ]
     text = survey.render(results)
     assert "place_object_basket" in text and "click_bell" in text and "100% (2/2)" in text
+    # A rate is the task's on one robot; the printed table says which, not only the JSON.
+    header, first, second = text.splitlines()
+    assert "robot" in header and "fake-arms" in first and "fake-arms" in second
 
 
 def test_survey_rejects_zero_seeds(capsys):

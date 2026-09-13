@@ -74,9 +74,12 @@ def _percent(value: float | None) -> str:
 
 
 def render(results: list[TaskSurvey]) -> str:
+    """The plain-text table, one row per task; a rate is the task's on the robot the row names."""
     width = max([len(r.task.name) for r in results] + [4])
+    robot_width = max([len(r.embodiment or "?") for r in results] + [5])
     lines = [
-        f"{'task':<{width}}  {'category':<14}  {'expert':>13}  {'frames':>6}  {'s/seed':>6}  rejections"
+        f"{'task':<{width}}  {'category':<14}  {'robot':<{robot_width}}  {'expert':>13}  "
+        f"{'frames':>6}  {'s/seed':>6}  rejections"
     ]
     for r in results:
         rejections = ", ".join(f"{k} {v}" for k, v in sorted(r.rejections.items())) or "—"
@@ -84,6 +87,7 @@ def render(results: list[TaskSurvey]) -> str:
         per_seed = f"{r.seconds / r.seeds:.1f}" if r.seeds else "—"
         expert = f"{_percent(r.success_rate)} ({r.successes}/{r.seeds})"
         lines.append(
-            f"{r.task.name:<{width}}  {r.task.category:<14}  {expert:>13}  {frames:>6}  {per_seed:>6}  {rejections}"
+            f"{r.task.name:<{width}}  {r.task.category:<14}  {r.embodiment or '?':<{robot_width}}  "
+            f"{expert:>13}  {frames:>6}  {per_seed:>6}  {rejections}"
         )
     return "\n".join(lines) + "\n"

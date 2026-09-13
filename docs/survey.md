@@ -11,7 +11,8 @@ robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v
 ```
 
 The expert's rate is a property of the task *and* the robot: `--embodiment franka-panda` surveys
-the same seeds on two Franka arms, and the JSON names the robot each row was measured on.
+the same seeds on two Franka arms, and the table's `robot` column and the JSON's `embodiment`
+field name the robot each row was measured on.
 
 ## V1 survey
 
