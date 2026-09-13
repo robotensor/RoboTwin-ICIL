@@ -185,9 +185,13 @@ def build_meta(
         "evaluation_setting": SAME_SCENE,
         "task": task,
         "scene_seed": int(scene_seed),
+        # `choice` is how the robot was picked — an `EMBODIMENTS` name, or None for the task
+        # config's own list — and is what rebuilds it: a name alone cannot say which arm distance,
+        # or which robot the task config gave.
         "embodiment": {
             "name": str(args["embodiment_name"]),
             "robotwin": list(args["embodiment"]),
+            "choice": config.embodiment,
         },
         "task_config": config.task_config,
         "save_freq": int(config.save_freq),
@@ -222,6 +226,11 @@ def recorded_scene(meta: dict[str, Any]) -> SceneFingerprint:
         ) from None
     if not isinstance(meta["embodiment"], dict) or "name" not in meta["embodiment"]:
         raise PromptError("prompt meta's embodiment has no name")
+    if "choice" not in meta["embodiment"]:
+        raise PromptError("prompt meta's embodiment has no choice")
+    choice = meta["embodiment"]["choice"]
+    if choice is not None and not isinstance(choice, str):
+        raise PromptError(f"prompt meta's embodiment choice is {choice!r}, not a name or null")
     if isinstance(meta["scene_seed"], bool) or not isinstance(meta["scene_seed"], int):
         raise PromptError(f"prompt meta's scene_seed is {meta['scene_seed']!r}, not an integer")
     scene = meta["scene"]
@@ -241,7 +250,10 @@ def recorded_scene(meta: dict[str, Any]) -> SceneFingerprint:
 
 
 def scene_config_from(meta: dict[str, Any]):
-    """The `SceneConfig` that rebuilds a prompt's scene: the same task config, rate and robot."""
+    """The `SceneConfig` that rebuilds a prompt's scene: the same task config, rate and robot.
+
+    The robot is chosen as it was when the prompt was written, not by its recorded name.
+    """
     from . import robotwin
 
     return robotwin.SceneConfig(
@@ -249,7 +261,7 @@ def scene_config_from(meta: dict[str, Any]):
         save_freq=int(meta["save_freq"]),
         head_camera=meta.get("head_camera"),
         overrides=dict(meta.get("overrides") or {}) or None,
-        embodiment=str(meta["embodiment"]["name"]),
+        embodiment=meta["embodiment"]["choice"],
     )
 
 

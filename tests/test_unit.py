@@ -61,7 +61,11 @@ def test_materialize_writes_the_prompt_the_clip_and_the_result(tmp_path):
     demonstration, meta = prompt.read_prompt(out / "prompt.npz")
     assert len(demonstration) == env.expert_steps + 1 and demonstration.timed
     assert meta["task"] == TASK and meta["scene_seed"] == SEED
-    assert meta["embodiment"] == {"name": "fake-arms", "robotwin": ["fake-arms"]}
+    assert meta["embodiment"] == {
+        "name": "fake-arms",
+        "robotwin": ["fake-arms"],
+        "choice": "fake-arms",
+    }
     assert meta["task_config"] == "fake" and meta["save_freq"] == 5
     assert meta["head_camera"] is None and meta["overrides"] == {}
     assert meta["frames"] == len(demonstration) and meta["cameras"] == ["head_camera"]
@@ -260,6 +264,8 @@ def test_a_prompt_from_another_scene_is_caught_by_the_live_fingerprint(tmp_path)
     [
         (lambda meta: meta.pop("scene"), "no 'scene'"),
         (lambda meta: meta.__setitem__("embodiment", "aloha-agilex"), "embodiment has no name"),
+        (lambda meta: meta["embodiment"].pop("choice"), "embodiment has no choice"),
+        (lambda meta: meta["embodiment"].__setitem__("choice", 3), "embodiment choice is 3"),
         (lambda meta: meta.__setitem__("scene_seed", "11"), "not an integer"),
         (lambda meta: meta.__setitem__("save_freq", "fifteen"), "malformed"),
         (lambda meta: meta["scene"].__setitem__("fingerprint", {"actors": {}}), "malformed"),
@@ -451,7 +457,11 @@ def test_scene_config_is_rebuilt_from_meta(monkeypatch):
         "save_freq": 5,
         "head_camera": "L515",
         "overrides": {"render_freq": 0},
-        "embodiment": {"name": "franka-panda", "robotwin": ["franka-panda", "franka-panda", 0.8]},
+        "embodiment": {
+            "name": "franka-panda",
+            "robotwin": ["franka-panda", "franka-panda", 0.8],
+            "choice": "franka-panda",
+        },
     }
     assert unit.scene_config_from(meta) == robotwin.SceneConfig(
         task_config="demo_randomized",
@@ -463,6 +473,17 @@ def test_scene_config_is_rebuilt_from_meta(monkeypatch):
     assert unit.scene_config_from({**meta, "overrides": {}, "head_camera": None}) == (
         robotwin.SceneConfig(task_config="demo_randomized", save_freq=5, embodiment="franka-panda")
     )
+    # A robot the task config chose is rebuilt by the task config again, whatever it is named:
+    # its name need not be one --embodiment takes, nor its arms 0.8 m apart.
+    by_config = {
+        **meta,
+        "embodiment": {
+            "name": "franka-panda",
+            "robotwin": ["franka-panda", "franka-panda", 0.6],
+            "choice": None,
+        },
+    }
+    assert unit.scene_config_from(by_config).embodiment is None
 
 
 def test_run_unit_will_not_write_into_its_prompts_directory(tmp_path):

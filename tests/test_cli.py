@@ -237,7 +237,7 @@ def test_materialize_chooses_its_robot_and_records_it(tmp_path, fake_sim, capsys
     assert parser.parse_args([*MATERIALIZE, "--out", "d"]).embodiment is None
     assert cli.main([*MATERIALIZE, "--out", str(tmp_path), "--embodiment", "franka-panda"]) == 0
     _, meta = prompt.read_raw(tmp_path / "prompt.npz")
-    assert meta["embodiment"]["name"] == "franka-panda"
+    assert meta["embodiment"]["name"] == meta["embodiment"]["choice"] == "franka-panda"
     assert json.loads(capsys.readouterr().out)["embodiment"] == "franka-panda"
 
 
