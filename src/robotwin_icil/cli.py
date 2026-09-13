@@ -17,8 +17,6 @@ from .policy import PolicyError, make_policy
 from .records import RecordError, RunDir
 from .robotwin import EMBODIMENTS, RoboTwinError
 
-DEFAULT_EMBODIMENT = "aloha-agilex"
-
 
 def _eval(args: argparse.Namespace) -> int:
     from .robotwin import SceneConfig
@@ -161,12 +159,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_embodiment(parser: argparse.ArgumentParser) -> None:
+    # No default: without the flag the task config's own robot runs, as `--task-config` chose it.
+    # Every shipped config names aloha-agilex, so a plain run is unchanged.
     parser.add_argument(
         "--embodiment",
         choices=sorted(EMBODIMENTS),
-        default=DEFAULT_EMBODIMENT,
         help="the robot: aloha-agilex (one dual-arm URDF, 14-wide qpos) or franka-panda "
-        "(two Franka arms 0.8 m apart, 16-wide qpos); overrides the task config's",
+        "(two Franka arms 0.8 m apart, 16-wide qpos); without it, the task config's own, "
+        "aloha-agilex in every shipped config",
     )
 
 

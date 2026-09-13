@@ -43,11 +43,16 @@ def test_eval_rejects_bad_arguments_before_touching_the_simulator(tmp_path, caps
 
 
 @pytest.mark.parametrize("command", [EVAL, SURVEY])
-def test_a_run_chooses_its_robot_and_defaults_to_aloha(command, capsys):
+def test_a_run_chooses_its_robot_or_keeps_the_task_configs(command, capsys):
     parser = cli.build_parser()
-    assert parser.parse_args(command).embodiment == "aloha-agilex"
+    # Without the flag the task config's own robot runs (None reaches `SceneConfig.embodiment`),
+    # so `--task-config` still decides it and nothing is silently replaced.
+    assert parser.parse_args(command).embodiment is None
     assert parser.parse_args([*command, "--embodiment", "franka-panda"]).embodiment == (
         "franka-panda"
+    )
+    assert parser.parse_args([*command, "--embodiment", "aloha-agilex"]).embodiment == (
+        "aloha-agilex"
     )
     # A robot the benchmark cannot form is refused by the parser, before any simulator import.
     with pytest.raises(SystemExit) as exc:
