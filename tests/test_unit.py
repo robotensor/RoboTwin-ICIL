@@ -23,6 +23,17 @@ def _fake_sim(monkeypatch):
     monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
 
 
+def assert_read_result_shape(result):
+    """The fields the orchestrator's `read_result` promises, for either command's result.json."""
+    assert {"success", "void", "steps", "error"} <= set(result)
+    assert isinstance(result["void"], bool)
+    assert (result["success"] is None) == result["void"]
+    if result["void"]:
+        assert result["steps"] is None and isinstance(result["error"], str) and result["error"]
+    else:
+        assert isinstance(result["success"], bool) and isinstance(result["steps"], int)
+
+
 def materialized(tmp_path, env=None, **config):
     out = tmp_path / "prompt"
     done = unit.materialize(TASK, SEED, FakeConfig(**config), out, task_env=env or FakeTaskEnv())
@@ -42,6 +53,9 @@ def test_materialize_writes_the_prompt_the_clip_and_the_result(tmp_path):
     assert result["frames"] == env.expert_steps + 1 and result["cameras"] == ["head_camera"]
     assert result["prompt_sha256"] == prompt.sha256_of(out / "prompt.npz")
     assert result["video"] == "demonstration.mp4" and result["embodiment"] == "fake-arms"
+    assert_read_result_shape(result)
+    assert result["success"] is True and result["void"] is False and result["error"] is None
+    assert result["steps"] == env.expert_steps  # the demonstration's actions
 
     demonstration, meta = prompt.read_prompt(out / "prompt.npz")
     assert len(demonstration) == env.expert_steps + 1 and demonstration.timed
@@ -70,6 +84,10 @@ def test_a_rejected_seed_writes_its_rejection_and_no_prompt(tmp_path):
     assert result["ok"] is False and result["rejection"] == "unstable"
     assert result["detail"] == f"objects unstable in seed {SEED}"
     assert result["task"] == TASK and result["scene_seed"] == SEED and result["attempts"] == 1
+    # Read as the orchestrator reads any result: void, with the rejection as the reason.
+    assert_read_result_shape(result)
+    assert result["void"] is True and result["success"] is None and result["steps"] is None
+    assert result["error"] == f"expert rejected the seed: unstable: objects unstable in seed {SEED}"
 
 
 def test_an_expert_that_fails_is_a_rejection_too(tmp_path):
@@ -95,6 +113,7 @@ def test_run_unit_succeeds_with_replay_from_the_file(tmp_path):
     assert result["video"] == "evaluation.mp4"
     assert (tmp_path / "run" / "evaluation.mp4").is_file()
     assert unit.read_result(tmp_path / "run") == result
+    assert_read_result_shape(result)
     # The scene was rebuilt from meta, under the task's name, and closed afterwards.
     assert env.setups == [SEED] and env.task_names == [TASK] and env.closed == 1
 

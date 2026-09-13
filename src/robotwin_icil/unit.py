@@ -65,7 +65,10 @@ def materialize(
     """Build the scene for `scene_seed`, run the expert once, and save what it did.
 
     A rejected seed is a legitimate outcome, not an error: `result.json` says why and no prompt
-    is written. A simulator that cannot build any scene raises `RoboTwinError`, as `generate`
+    is written. The result carries what the orchestrator's `read_result` reads from either
+    command — `success`, `void`, `steps`, `error` — next to `ok`: a written prompt is a success
+    whose `steps` are the demonstration's actions, a rejected seed is void with the rejection as
+    its `error`. A simulator that cannot build any scene raises `RoboTwinError`, as `generate`
     does. Stale files from an earlier command in the same directory are removed first, so what
     the directory holds afterwards is this call's.
     """
@@ -102,7 +105,16 @@ def materialize(
 
     if demonstration is None or initial is None:
         assert attempt.rejection is not None
-        result = finish(ok=False, rejection=attempt.rejection.value, detail=attempt.detail)
+        reason = attempt.rejection.value + (f": {attempt.detail}" if attempt.detail else "")
+        result = finish(
+            ok=False,
+            success=None,
+            void=True,
+            steps=None,
+            error=f"expert rejected the seed: {reason}",
+            rejection=attempt.rejection.value,
+            detail=attempt.detail,
+        )
         return Materialized(ok=False, attempt=attempt, result=result)
 
     meta = build_meta(task, int(scene_seed), config, args, demonstration, initial)
@@ -112,6 +124,10 @@ def materialize(
         note = _film(lambda: EpisodeVideo(out).demonstration(demonstration))
     result = finish(
         ok=True,
+        success=True,
+        void=False,
+        steps=len(demonstration) - 1,
+        error=None,
         frames=len(demonstration),
         cameras=list(demonstration.cameras),
         prompt_sha256=prompt_sha256,
