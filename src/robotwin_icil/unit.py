@@ -281,10 +281,12 @@ def run_unit(
     with a wrong-width or non-finite action — has failed, with the reason in `detail`: a void unit
     leaves the score, and a policy must not be able to void the units it is losing. The unit is
     `void`, with the reason in `error`, only when the harness could not give the policy a fair
-    episode — an unreadable or tampered prompt, a scene that drifted or would not build, a GPU
-    that failed during the rollout.
-    `success` and `steps` are None exactly when the unit is void. A simulator that cannot load
-    the task raises `RoboTwinError`; an `out_dir` holding the prompt raises `UnitError`.
+    episode — an unreadable, mistyped or tampered prompt, a config RoboTwin refuses, a scene that
+    drifted or would not build, a GPU lost or full during the rollout. `success` and `steps` are
+    None exactly when the unit is void.
+
+    A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
+    prompt raises `UnitError`: neither is a unit's outcome, and no result is written for them.
     """
     from . import robotwin
 
