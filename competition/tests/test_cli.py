@@ -11,9 +11,20 @@ import json
 import pytest
 from icil_benchmark_robotwin import BENCHMARK
 from icil_benchmark_robotwin.cli import build_parser, main
+from icil_benchmark_robotwin.plugin import DEFAULT_VIEW, VIEWS
 from icil_benchmark_robotwin.units import derive_units
 
 UNIT = derive_units(seed_material="duel-1", count=1, suite="v1")[0].as_dict()
+
+
+def _run_argv(**extra):
+    return BENCHMARK.run_command(
+        unit=UNIT,
+        prompt="/prompt/u0/prompt.npz",
+        out_dir="/work/u0",
+        policy_address="/work/p.sock",
+        **extra,
+    )
 
 
 def _parse(argv):
@@ -32,18 +43,25 @@ def test_the_materialize_argv_parses():
 
 
 def test_the_run_argv_parses():
-    args = _parse(
-        BENCHMARK.run_command(
-            unit=UNIT,
-            prompt="/prompt/u0/prompt.npz",
-            out_dir="/work/u0",
-            policy_address="/work/p.sock",
-        )
-    )
+    args = _parse(_run_argv())
     assert args.cmd == "run-unit"
     assert args.prompt == "/prompt/u0/prompt.npz"
     assert args.policy_address == "/work/p.sock"
-    assert args.view in BENCHMARK.info()["views"]
+    assert args.view == DEFAULT_VIEW
+
+
+@pytest.mark.parametrize("view", VIEWS)
+def test_the_run_argv_carries_either_view_the_competition_asks_for(view):
+    """Both fields run through this one argv, so both spellings have to survive it."""
+    args = _parse(_run_argv(view=view))
+    assert args.view == view
+    assert view in BENCHMARK.info()["views"]
+
+
+def test_a_view_this_benchmark_does_not_serve_is_still_refused():
+    """Serving the sensorimotor view did not turn `--view` into a free-text field."""
+    with pytest.raises(SystemExit):
+        _parse(_run_argv(view="telepathy"))
 
 
 def test_an_option_the_orchestrator_adds_travels_without_a_change_here():

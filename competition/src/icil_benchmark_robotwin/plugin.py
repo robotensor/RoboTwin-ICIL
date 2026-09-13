@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .prompt import CHANNELS
+from .prompt import CHANNELS, channel_of
 from .units import derive_units
 
 #: The competition ABI this plugin speaks. Version 1 is provisional: it was designed against one
@@ -36,10 +36,26 @@ BENCHMARK_ID = "robotwin"
 #: identical scene it was recorded in.
 PROTOCOL = "same_scene_1demo"
 
-#: The demonstration views this benchmark can serve. Same Scene makes the sensorimotor view
-#: degenerate - replaying the demonstration's own actions solves the episode - so it is not
-#: offered, and a field asking for it is refused rather than quietly scored.
-VIEWS = ("video_only",)
+#: The demonstration views this benchmark serves. `video_only` shows a policy the demonstration's
+#: frames; `sensorimotor` shows it the frames, the action trajectory and the proprioception -
+#: everything the prompt carries. Both are served because the competition has a field for each and
+#: this is the benchmark plugged into both.
+#:
+#: Say plainly what the second one measures here. Under Same Scene the sensorimotor view is
+#: **degenerate by construction**: the rollout starts in the very scene the demonstration was
+#: recorded in, so replaying the demonstration's own actions solves the episode - the benchmark's
+#: own replay oracle does exactly that and scores 18/18 on the V1 suite. Serving the view is not a
+#: claim that a score under it measures in-context imitation. It is the competition's field, and
+#: the competition - not this benchmark - owns the decision to score it; what the benchmark owes
+#: is to serve both views the same way and to be honest about the difference between them.
+#:
+#: A view outside this tuple is still refused rather than quietly scored.
+VIEWS = ("video_only", "sensorimotor")
+
+#: The view a unit runs under when the orchestrator names none. Named rather than taken as
+#: `VIEWS[0]`, so it is a decision and not an accident of ordering: video-only is the view Same
+#: Scene measures something by.
+DEFAULT_VIEW = "video_only"
 
 #: The prompt file one materialized unit produces.
 PROMPT_NAME = "prompt.npz"
@@ -69,7 +85,9 @@ class Benchmark:
             "prompt_name": PROMPT_NAME,
             # Which array carries which channel, so the orchestrator's demonstration view can
             # allow or drop them as a unit. Only the benchmark knows what its arrays mean; the
-            # decision about what a policy may see stays the orchestrator's.
+            # decision about what a policy may see stays the orchestrator's. Two spellings are
+            # the orchestrator's: an entry ending in `*` is a prefix, and `metadata` is the
+            # channel every view keeps.
             "demo_channels": {k: list(v) for k, v in CHANNELS.items()},
             "commits": _commits(),
         }
@@ -100,6 +118,11 @@ class Benchmark:
 
         Reads the file rather than trusting a manifest: this is what lets anyone holding the
         published prompt confirm what a duel actually ran on.
+
+        Every channel is checked, not only the one this benchmark's default view is scored on.
+        A prompt whose `actions` or `proprio` arrays are missing or ragged is a perfectly good
+        video-only prompt and a broken sensorimotor one, and the file does not say which field
+        will read it.
         """
         import numpy as np
 
@@ -116,6 +139,7 @@ class Benchmark:
                 meta = json.loads(str(z["meta"]))
                 frames = int(z["times"].shape[0]) if "times" in z.files else 0
                 cameras = list(meta.get("cameras", []))
+                rows = {name: int(z[name].shape[0]) for name in z.files if name != "meta"}
         except Exception as exc:  # noqa: BLE001 - a corrupt prompt is a duel-stopping fault
             return {"ok": False, "sha256": "", "problems": [f"unreadable: {exc}"]}
 
@@ -128,6 +152,8 @@ class Benchmark:
             problems.append(f"{frames} frames: a demonstration needs at least two")
         if not cameras:
             problems.append("no cameras recorded")
+        carried = {name: channel_of(name) for name in rows}
+        problems.extend(_channel_problems(carried, rows, frames))
         return {
             "ok": not problems,
             "sha256": prompt_sha256(target),
@@ -135,6 +161,7 @@ class Benchmark:
             "scene_seed": meta.get("scene_seed"),
             "frames": frames,
             "cameras": cameras,
+            "channels": sorted({c for c in carried.values() if c}),
             "problems": problems,
         }
 
@@ -204,9 +231,36 @@ class Benchmark:
             "--policy-address",
             str(policy_address),
             "--view",
-            str(extra.pop("view", VIEWS[0])),
+            str(extra.pop("view", DEFAULT_VIEW)),
         ]
         return _with_extra(argv, extra)
+
+
+def _channel_problems(
+    carried: Mapping[str, str | None], rows: Mapping[str, int], frames: int
+) -> list[str]:
+    """Whether this file carries what its channel map promises, at the length it promises.
+
+    The orchestrator's view is an allow-list over channels, so an array in none of them is
+    dropped and an absent channel is simply not handed over - both silently. Neither is
+    recoverable once a duel has run on the prompt, so both are caught here.
+    """
+    present = {channel for channel in carried.values() if channel}
+    problems = [
+        f"{name}: in no channel, so no view would hand it to a policy"
+        for name in sorted(n for n, channel in carried.items() if channel is None)
+    ]
+    problems += [
+        f"channel {c!r} carries no array in this prompt" for c in CHANNELS if c not in present
+    ]
+    for name in sorted(rows):
+        # One action per transition; everything else is one row per frame.
+        expected = frames - 1 if carried.get(name) == "actions" else frames
+        if frames >= 2 and rows[name] != expected:
+            problems.append(
+                f"{name} has {rows[name]} rows, expected {expected} for {frames} frames"
+            )
+    return problems
 
 
 def _with_extra(argv: list[str], extra: Mapping[str, Any]) -> list[str]:

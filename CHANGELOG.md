@@ -18,8 +18,21 @@
   in the array convention the orchestrator already reads, grouped by channel - no new file format,
   and no change to `Demonstration`: what a policy may see of a demonstration stays the
   orchestrator's decision, which is what makes it hold for every benchmark.
-- (feat): only the `video_only` view is offered. Same Scene makes the sensorimotor view
-  degenerate, since replaying the demonstration's own actions solves the episode.
+- (feat): both of the competition's views are served, `video_only` and `sensorimotor`, with
+  `video_only` the default when a field names none. Under Same Scene the sensorimotor view is
+  degenerate by construction - the rollout starts in the scene the demonstration was recorded in,
+  so replaying the demonstration's own actions solves the episode, and the replay oracle scores
+  18/18 doing exactly that. The benchmark serves it and says so; the competition, not the
+  benchmark, owns the decision to score it. A view outside the two is refused rather than written
+  into a result (#73).
+- (fix): the channel map is published the way the orchestrator reads it - `frames_*` is a prefix,
+  and `times` is a `metadata` channel every view keeps. Spelled `frames_` and claimed by no
+  channel, an allow-list over them dropped every camera and every timestamp, so a sensorimotor
+  policy would have been scored on a trajectory with no pictures (#73).
+- (fix): `verify_prompt` checks every channel the map promises - a missing channel, an array in
+  no channel and rows that do not line up with the frame count are refusals - and names the
+  channels a prompt carries. It proved only that some camera was recorded, which says nothing
+  about the arrays the sensorimotor field is scored on (#73).
 - (docs): `docs/competition.md`, and the CLAUDE.md amendment - the evaluator still uses no dataset
   and trains nothing; a competition built on this benchmark may materialise and publish what it
   runs, and that lives in `competition/`. A test checks neither the core nor the plugin imports a
