@@ -164,3 +164,54 @@ def test_a_tampered_prompt_is_refused(tmp_path):
         prompt.read_raw(path)
     with pytest.raises(prompt.PromptError, match="cannot read"):
         prompt.read_raw(tmp_path / "missing.npz")
+
+
+def _written(tmp_path):
+    path = tmp_path / prompt.PROMPT_FILE
+    prompt.write_prompt(path, captured(), META)
+    return path
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda data: b"", id="empty"),
+        pytest.param(lambda data: data[: len(data) // 2], id="truncated"),
+        pytest.param(lambda data: data[:200], id="header-only"),
+        pytest.param(lambda data: b"not a zip at all" * 64, id="garbage"),
+    ],
+)
+def test_a_corrupt_prompt_file_is_a_prompt_error(tmp_path, corrupt):
+    # An interrupted copy or write leaves exactly these; numpy and zipfile raise a zoo of errors
+    # for them, and every one must reach the caller as a prompt that cannot be read.
+    path = _written(tmp_path)
+    path.write_bytes(corrupt(path.read_bytes()))
+    with pytest.raises(prompt.PromptError, match="cannot read"):
+        prompt.read_prompt(path)
+
+
+@pytest.mark.parametrize(
+    ("edit", "reason"),
+    [
+        (
+            lambda a: {**a, "frames_head_camera": a["frames_head_camera"].astype(np.float32)},
+            "frames are float32, expected uint8",
+        ),
+        (
+            lambda a: {**a, "frames_head_camera": a["frames_head_camera"][..., :2]},
+            "expected \\(7, h, w, 3\\)",
+        ),
+        (lambda a: {**a, "qpos": a["qpos"].astype(str)}, "qpos is <U"),
+        (lambda a: {**a, "qpos": a["qpos"].astype(np.float32)}, "qpos is float32"),
+        (lambda a: {**a, "endpose": a["endpose"].astype(np.int64)}, "endpose is int64"),
+        (lambda a: {**a, "times": a["times"].astype(np.float32)}, "times is float32"),
+        (lambda a: {**a, "frequency": np.asarray([20.0, 20.0])}, "frequency has shape \\(2,\\)"),
+        (lambda a: {**a, "frequency": np.asarray("fast")}, "frequency is <U"),
+        (lambda a: {**a, "frequency": np.asarray(np.inf)}, "frequency is inf"),
+    ],
+)
+def test_arrays_outside_the_published_dtypes_are_refused(tmp_path, edit, reason):
+    arrays, _ = prompt.read_raw(_written(tmp_path))
+    assert len(arrays["qpos"]) == 7
+    with pytest.raises(prompt.PromptError, match=reason):
+        prompt.demonstration_from(edit(arrays))

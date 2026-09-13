@@ -133,7 +133,11 @@ def arrays_from(demonstration: Demonstration) -> dict[str, np.ndarray]:
 
 
 def demonstration_from(arrays: Mapping[str, np.ndarray]) -> Demonstration:
-    """A demonstration from a prompt's arrays; `meta`, present or not, is never read."""
+    """A demonstration from a prompt's arrays; `meta`, present or not, is never read.
+
+    Every array must have the published dtype and shape: a reader that cast a string or a
+    float32 block into place would score a prompt no writer produced.
+    """
     cameras = sorted(
         name[len(FRAMES_PREFIX) :] for name in arrays if name.startswith(FRAMES_PREFIX)
     )
@@ -142,10 +146,9 @@ def demonstration_from(arrays: Mapping[str, np.ndarray]) -> Demonstration:
             raise PromptError(f"prompt has no {name!r} array")
     if not cameras:
         raise PromptError(f"prompt has no {FRAMES_PREFIX}<camera> array")
-    qpos = np.asarray(arrays["qpos"], dtype=np.float64)
-    endpose = np.asarray(arrays["endpose"], dtype=np.float64)
-    actions = np.asarray(arrays["actions"], dtype=np.float64)
-    times = np.asarray(arrays["times"], dtype=np.float64)
+    qpos, endpose, actions, times, frequency = (
+        _float64(arrays, name) for name in ("qpos", "endpose", "actions", "times", "frequency")
+    )
     if qpos.ndim != 2:
         raise PromptError(f"qpos has shape {qpos.shape}, expected (T, D)")
     count = qpos.shape[0]
@@ -153,16 +156,21 @@ def demonstration_from(arrays: Mapping[str, np.ndarray]) -> Demonstration:
         ("endpose", endpose, (count, ENDPOSE_DIM)),
         ("actions", actions, (count - 1, qpos.shape[1])),
         ("times", times, (count,)),
+        ("frequency", frequency, ()),
     ):
         if array.shape != shape:
             raise PromptError(f"{name} has shape {array.shape}, expected {shape}")
+    if not np.isfinite(frequency):
+        raise PromptError(f"frequency is {float(frequency)}, expected a finite rate")
     if not np.array_equal(actions, qpos[1:]):
         raise PromptError(
             "actions are not the next frame's qpos, as a position-controlled expert's are"
         )
     images = {camera: np.asarray(arrays[f"{FRAMES_PREFIX}{camera}"]) for camera in cameras}
     for camera, block in images.items():
-        if block.ndim != 4 or block.shape[0] != count:
+        if block.dtype != np.uint8:
+            raise PromptError(f"camera {camera!r} frames are {block.dtype}, expected uint8")
+        if block.ndim != 4 or block.shape[0] != count or block.shape[3] != 3:
             raise PromptError(
                 f"camera {camera!r} frames have shape {block.shape}, expected ({count}, h, w, 3)"
             )
@@ -177,11 +185,16 @@ def demonstration_from(arrays: Mapping[str, np.ndarray]) -> Demonstration:
             )
             for i in range(count)
         )
-        return Demonstration(
-            frames=frames, frequency=float(arrays["frequency"]), cameras=tuple(cameras)
-        )
+        return Demonstration(frames=frames, frequency=float(frequency), cameras=tuple(cameras))
     except DemonstrationError as exc:
         raise PromptError(f"prompt does not hold a demonstration: {exc}") from exc
+
+
+def _float64(arrays: Mapping[str, np.ndarray], name: str) -> np.ndarray:
+    array = np.asarray(arrays[name])
+    if array.dtype != np.float64:
+        raise PromptError(f"{name} is {array.dtype}, expected float64")
+    return array
 
 
 def write_prompt(path: str | Path, demonstration: Demonstration, meta: Mapping[str, Any]) -> str:
@@ -199,8 +212,10 @@ def read_raw(path: str | Path) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         with np.load(Path(path), allow_pickle=False) as loaded:
             arrays = {name: loaded[name] for name in loaded.files if name != PRIVILEGED}
             meta_text = loaded[PRIVILEGED].item() if PRIVILEGED in loaded.files else None
-    except (OSError, ValueError) as exc:
-        raise PromptError(f"cannot read prompt {path}: {exc}") from exc
+    except Exception as exc:
+        # Bytes that are not an npz fail in numpy, zipfile or zlib, each with its own exception
+        # (EOFError, BadZipFile, zlib.error, ...); to the caller they are one unreadable prompt.
+        raise PromptError(f"cannot read prompt {path}: {type(exc).__name__}: {exc}") from exc
     if not isinstance(meta_text, str):
         raise PromptError(f"prompt {path} has no meta")
     try:

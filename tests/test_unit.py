@@ -218,6 +218,35 @@ def test_an_unreadable_prompt_voids_the_unit(tmp_path):
     assert result["task"] is None and (tmp_path / "run" / "result.json").is_file()
 
 
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        pytest.param(lambda path: path.write_bytes(b""), id="empty"),
+        pytest.param(
+            lambda path: path.write_bytes(path.read_bytes()[: path.stat().st_size // 2]),
+            id="truncated",
+        ),
+        pytest.param(
+            lambda path: _rewrite(path, lambda a: {**a, "frequency": np.asarray([1.0, 2.0])}),
+            id="non-scalar-frequency",
+        ),
+    ],
+)
+def test_a_corrupt_prompt_voids_the_unit(tmp_path, corrupt):
+    _, out = materialized(tmp_path)
+    corrupt(out / "prompt.npz")
+    env = FakeTaskEnv()
+    result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
+    assert result["void"] and result["error"].startswith("unreadable prompt")
+    assert unit.read_result(tmp_path / "run") == result and env.setups == []
+
+
+def _rewrite(path, edit):
+    """Rewrite a prompt with its arrays edited and its meta untouched."""
+    arrays, meta = prompt.read_raw(path)
+    np.savez_compressed(path, **edit(arrays), meta=json.dumps(meta, sort_keys=True))
+
+
 def test_a_policy_breaking_the_protocol_voids_the_unit(tmp_path):
     _, out = materialized(tmp_path)
 
