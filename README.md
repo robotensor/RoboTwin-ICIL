@@ -152,7 +152,9 @@ check it by hash. `materialize` writes `prompt.npz`, `demonstration.mp4` and `re
 exits 3 when the expert was rejected on the seed. `run-unit` rebuilds the scene from the prompt's
 privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
 rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 whether the policy
-succeeded or not, and 1 only on a harness error. `prompt.npz` holds `frames_<camera>`, `qpos`,
+succeeded or not, and 1 only on a harness error. Both commands' `result.json` carry `success`,
+`void`, `steps` and `error`; a policy that raises or returns an invalid action fails its unit, and
+only what the harness could not give it (a prompt, a scene, a GPU) voids one. `prompt.npz` holds `frames_<camera>`, `qpos`,
 `endpose`, `actions`, `times` and `frequency` under the channel map `prompt.CHANNELS` publishes,
 plus `meta`, which never reaches a policy.
 

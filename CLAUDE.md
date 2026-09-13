@@ -51,8 +51,9 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   are not evenly spaced, though: `take_dense_action` (and `together_move_to_pose`, with a loop of
   its own) records one frame before its first step, one after every `save_freq`-th step counted
   from that first step, and one after its last, and the counter restarts per motion primitive. So
-  `robotwin.clock` counts `scene.step()` calls and every frame carries `time_s`; `times()` is
-  real, never `index / frequency`.
+  `robotwin.clock` counts `scene.step()` calls and every captured frame carries `time_s`: a
+  generated or saved demonstration's `times()` is real, and only one built without a clock (in
+  tests) falls back to `index / frequency`.
 - RoboTwin renders with SAPIEN's ray tracer and asks for the OIDN denoiser, which cannot run on
   Blackwell GPUs: it leaves images untouched and, under GPU contention, hangs camera reads.
   `robotwin.py` turns it off at compute capability 10.0 and above (`ROBOTWIN_ICIL_DENOISER`).
@@ -66,7 +67,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
 - Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval`, `survey` and `materialize` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks, and combines with `--embodiment` (`survey --suite all --embodiment franka-panda --arms 1`).
   `survey` renders no camera unless given `--images`, and its JSON records which. Pass `--images` when its rejections must predict `eval`'s on a GPU short of memory: rendering holds memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed plan.
-- The competition's shape, one process per half: `robotwin-icil materialize --task click_bell --scene-seed S --out DIR` writes `prompt.npz`, `demonstration.mp4` and `result.json` (exit 3 when the expert was rejected on the seed); `robotwin-icil run-unit --prompt DIR/prompt.npz --policy replay --out DIR2` rebuilds the scene from the prompt's `meta`, verifies it, rolls out and writes `result.json` and `evaluation.mp4` (exit 0 whatever the policy did, 1 on a harness error). `--policy-arg key=value` reaches the policy's constructor.
+- The competition's shape, one process per half: `robotwin-icil materialize --task click_bell --scene-seed S --out DIR` writes `prompt.npz`, `demonstration.mp4` and `result.json` (exit 3 when the expert was rejected on the seed); `robotwin-icil run-unit --prompt DIR/prompt.npz --policy replay --out DIR2` rebuilds the scene from the prompt's `meta`, verifies it, rolls out and writes `result.json` and `evaluation.mp4` into a directory other than the prompt's (exit 0 whatever the policy did, 1 on a harness error). Both results carry `success`, `void`, `steps` and `error`, the fields the orchestrator reads; a rejected seed is a void materialize. In `run-unit` a policy at fault (raising from `reset`/`set_demonstration`, a wrong-width or non-finite action) is a failure, never void — void is for the harness: an unreadable or tampered prompt, scene drift, a GPU lost mid-rollout. `--policy-arg key=value` reaches the policy's constructor.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules

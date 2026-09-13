@@ -82,10 +82,11 @@ trajectory from the very scene the rollout will start in:
 | `qpos()` | `(T, qpos_dim)` robot state over the demonstration |
 | `actions()` | `(T-1, qpos_dim)` the position target of each transition — the next frame's `qpos` |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
-| `times()` | `(T,)` simulated seconds since the expert started, per frame — real, and uneven: RoboTwin records a frame one physics step into each primitive, every `save_freq`-th step after, and one at its end |
+| `times()` | `(T,)` simulated seconds since the expert started, per frame — real, and uneven: each RoboTwin motion primitive records a frame before its first physics step, one after that step and after every `save_freq`-th step from it, and one after its last |
 
 `endpose` is RoboTwin's dict per frame: `left_endpose` and `right_endpose` (`[x, y, z, qw, qx, qy,
-qz]`) and `left_gripper`, `right_gripper`. On disk (`prompt.npz`, written by `robotwin-icil
+qz]`, each arm's end-effector pose as RoboTwin's `get_arm_pose` reports it) and `left_gripper`,
+`right_gripper`. On disk (`prompt.npz`, written by `robotwin-icil
 materialize` and read by `run-unit`) it is one 16-wide row per frame, left arm then right, pose then
 gripper — `robotwin_icil.prompt.flatten_endpose` — which is also the layout of an `ee` action.
 
@@ -151,5 +152,9 @@ robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz \
 ```
 
 `--policy-arg key=value` reaches the adapter's constructor as a string. `run-unit` writes
-`result.json` (`success`, `void`, `steps`, `error`, ...) and `evaluation.mp4`; the adapter is handed
-the `Demonstration` read from the file and nothing of the prompt's `meta`.
+`result.json` (`success`, `void`, `steps`, `error`, ...) and `evaluation.mp4` into a directory of
+its own; the adapter is handed the `Demonstration` read from the file and nothing of the prompt's
+`meta`. An adapter at fault — raising from `reset` or `set_demonstration`, or returning an action
+of the wrong width or a non-finite one — fails the unit, with the reason in `detail`; it is never
+void, which is kept for what the harness could not give the policy (an unreadable prompt, a scene
+that drifted, a GPU that failed). `eval` raises instead, so the bug surfaces.

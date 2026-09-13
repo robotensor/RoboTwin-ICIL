@@ -20,9 +20,9 @@ prefixes (it cannot enumerate a benchmark's cameras), the others name arrays exa
 — so every view keeps them. `meta` is in no channel at all: it holds the task, the scene seed and
 the initial scene's fingerprint, and a policy never sees it.
 
-`endpose` flattens RoboTwin's endpose dict once, here: per arm, left then right, the flange pose
-`[x, y, z, qw, qx, qy, qz]` then the gripper value, 16 wide — the layout `take_action` reads an
-`ee` action in.
+`endpose` flattens RoboTwin's endpose dict once, here: per arm, left then right, the end-effector
+pose `[x, y, z, qw, qx, qy, qz]` as RoboTwin's `get_arm_pose` reports it, then the gripper value,
+16 wide — the layout `take_action` reads an `ee` action in.
 """
 
 from __future__ import annotations
