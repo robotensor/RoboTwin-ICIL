@@ -496,6 +496,39 @@ def test_a_helper_that_moves_both_arms_wins_over_switching():
     assert verdict.arms == arms.TWO
 
 
+# --- known over-counts ------------------------------------------------------------------------
+# Shapes the reader gets wrong in the safe direction: it sees more arms than the expert uses, so
+# a correct `arms: 1` fails the cross-check loudly and a person reads the expert, and no two-arm
+# expert enters a one-arm run. Strict: a change that fixes one of these turns its test green.
+
+
+@pytest.mark.xfail(strict=True, reason="a choice re-made in a retry loop reads as per object")
+def test_a_scene_level_choice_remade_in_a_retry_loop_is_one_arm():
+    verdict = classify(
+        """
+        for _ in range(15):
+            arm_tag = ArmTag("left" if self.laptop.get_pose().p[0] < 0 else "right")
+            self.move(self.grasp_actor(self.laptop, arm_tag=arm_tag, pre_grasp_dis=0.0))
+            if self.check_success():
+                break
+        """
+    )
+    assert verdict.arms == arms.ONE
+
+
+@pytest.mark.xfail(strict=True, reason="two literal branches, one of which runs, read as both")
+def test_one_of_two_literal_branches_acting_is_one_arm():
+    verdict = classify(
+        """
+        if self.thing.get_pose().p[0] > 0:
+            self.move(self.grasp_actor(self.thing, arm_tag="right"))
+        else:
+            self.move(self.grasp_actor(self.thing, arm_tag="left"))
+        """
+    )
+    assert verdict.arms == arms.ONE
+
+
 # --- unreadable experts -----------------------------------------------------------------------
 
 

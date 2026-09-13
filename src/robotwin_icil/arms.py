@@ -26,6 +26,12 @@ that uses it: a helper's parameter is whatever its call sites pass (or its defau
 nested def reads the function it is written in. An attribute of the task resolves through every
 method the expert reaches and through ``load_actors``, where an expert may choose its arm while
 building the scene.
+
+The read is a heuristic, and where it errs it errs towards more arms: a scene-level choice
+re-made inside a retry loop reads as per object, and ``if``/``else`` branches that each move a
+different literal arm read as both acting (``tests/test_arms.py`` pins these). Such an
+over-count fails the cross-check against a correct table, loudly and naming the task, so a
+person reads the expert; it never admits a two-arm expert to a one-arm run.
 """
 
 from __future__ import annotations
