@@ -15,7 +15,7 @@ The arrays are grouped by channel so the orchestrator's view can allow or drop t
 | channel | arrays |
 | --- | --- |
 | `video` | `frames_*`, one `(T, h, w, 3)` uint8 block per camera |
-| `proprio` | `qpos` `(T, 14)`, `endpose` `(T, 16)` |
+| `proprio` | `qpos` `(T, 14)`, `endpose` `(T, 16)`, `gripper_joints` `(T, 2, J)` |
 | `actions` | `actions` `(T-1, 14)` |
 | `metadata` | `times` `(T,)` |
 
@@ -28,6 +28,13 @@ would ever claim them and a view that dropped them would leave the demonstration
 `meta` is in no channel. The scene seed and the initial-state fingerprint travel in it so Same
 Scene can be re-verified against a published artifact - they are privileged, and a policy never
 sees `meta`.
+
+`gripper_joints` carries the *measured* finger positions, left arm then right, in metres. The
+gripper value inside `qpos` and `endpose` is RoboTwin's command, which reads closed while the
+fingers rest on an object; a model that was trained on where the fingers actually are (BPP's
+`gripper_states`, say) needs the measurement, and a prompt that dropped it could not serve one.
+It is absent from a demonstration recorded before the benchmark read them, and from a prompt
+written before this, which reads back with no measurement rather than failing.
 """
 
 from __future__ import annotations
@@ -58,7 +65,7 @@ METADATA_CHANNEL = "metadata"
 #: repeated here so a prompt can be checked on its own.
 CHANNELS = {
     "video": (f"frames_{PREFIX_MARK}",),
-    "proprio": ("qpos", "endpose"),
+    "proprio": ("qpos", "endpose", "gripper_joints"),
     "actions": ("actions",),
     METADATA_CHANNEL: ("times",),
 }
@@ -74,6 +81,8 @@ def dump(
     provenance: dict[str, Any] | None = None,
 ) -> str:
     """Write one demonstration and return its sha256."""
+    from robotwin_icil.demo import ARMS
+
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     arrays: dict[str, np.ndarray] = {
@@ -82,6 +91,12 @@ def dump(
         "endpose": np.asarray(demonstration.endposes(), dtype=np.float32),
         "actions": np.asarray(demonstration.actions(), dtype=np.float32),
     }
+    # All frames carry them or none do, which `Demonstration` itself checks.
+    if demonstration.frames[0].gripper_joints is not None:
+        arrays["gripper_joints"] = np.asarray(
+            [[frame.gripper_joints[arm] for arm in ARMS] for frame in demonstration.frames],
+            dtype=np.float32,
+        )
     for camera in demonstration.cameras:
         arrays[f"frames_{camera}"] = np.asarray(demonstration.images(camera), dtype=np.uint8)
     meta = {

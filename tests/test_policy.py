@@ -11,7 +11,9 @@ from robotwin_icil.policy import (
     Observation,
     PolicyError,
     ReplayPolicy,
+    format_policy_arg,
     make_policy,
+    parse_policy_arg,
 )
 
 
@@ -116,7 +118,116 @@ def test_nothing_privileged_reaches_the_policy():
     privileged = {"task", "task_name", "seed", "scene_seed", "info", "success"}
     assert not privileged & {f.name for f in dataclasses.fields(Observation)}
     assert not privileged & {f.name for f in dataclasses.fields(Demonstration)}
-    assert (
-        Observation(step=0, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM)).instruction
-        == NEUTRAL_INSTRUCTION
+    bare = Observation(step=0, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM))
+    assert bare.instruction == NEUTRAL_INSTRUCTION
+    # Measured finger positions are proprioception a real robot has; they default for callers
+    # that read none.
+    assert bare.gripper_joints is None
+
+
+def test_every_hook_has_a_default():
+    """A policy overrides only the hooks it needs, so the served path can call all of them on a
+    built-in that never heard of a server."""
+    policy = ReplayPolicy()
+    policy.seed(7)
+    assert policy.episode_info() == {}
+    assert policy.environment() == {}
+    policy.close()
+
+
+@pytest.mark.parametrize(
+    "item, expected",
+    [
+        ("steps=3", ("steps", 3)),
+        ("temperature=0.5", ("temperature", 0.5)),
+        ("lr=1.0e-4", ("lr", 0.0001)),
+        ("lr=1e-4", ("lr", "1e-4")),  # YAML 1.1: no dot, no float
+        ("lr=1.0e4", ("lr", "1.0e4")),  # nor without a signed exponent
+        ("deterministic=true", ("deterministic", True)),
+        ("deterministic=False", ("deterministic", False)),
+        ("checkpoint=null", ("checkpoint", None)),
+        ("checkpoint=", ("checkpoint", None)),
+        ("config=configs/bpp.yml", ("config", "configs/bpp.yml")),
+        ("arm=left", ("arm", "left")),
+        ("revision='0123'", ("revision", "0123")),  # quoted: the string, not octal 83
+        ("date=2024-01-01", ("date", "2024-01-01")),
+        ("tags=[a, b]", ("tags", "[a, b]")),
+        ("tag=#1", ("tag", "#1")),
+        ("expr=a=b", ("expr", "a=b")),
+    ],
+)
+def test_a_policy_arg_is_read_as_yaml_and_anything_else_stays_a_string(item, expected):
+    assert parse_policy_arg(item) == expected
+
+
+@pytest.mark.parametrize(
+    "item, message",
+    [
+        ("steps", "is not KEY=VALUE"),
+        ("2steps=3", "is not a Python identifier"),
+        ("steps=.nan", "must be finite"),
+        ("steps=.inf", "must be finite"),
+    ],
+)
+def test_what_is_not_a_policy_arg_says_why(item, message):
+    with pytest.raises(ValueError, match=message):
+        parse_policy_arg(item)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        True,
+        False,
+        0,
+        -7,
+        10**30,
+        0.5,
+        -1.25,
+        1.0,
+        1e-10,
+        1e16,
+        5e-324,
+        "",
+        "0123",
+        "true",
+        "null",
+        "1e-4",
+        "a=b",
+        "[a, b]",
+        "configs/bpp.yml",
+        'say "hi"',
+        "tab\there",
+        "naïve ☃",
+    ],
+)
+def test_a_formatted_policy_arg_reads_back_as_itself(value):
+    """A spawned policy server gets its client's keyword arguments on a command line; each has to
+    arrive as the value that was given."""
+    key, parsed = parse_policy_arg(format_policy_arg("key", value))
+    assert key == "key" and parsed == value and type(parsed) is type(value)
+
+
+def test_a_path_or_a_numpy_scalar_is_formatted_as_the_value_it_holds(tmp_path):
+    assert parse_policy_arg(format_policy_arg("config", tmp_path / "bpp.yml")) == (
+        "config",
+        str(tmp_path / "bpp.yml"),
     )
+    assert parse_policy_arg(format_policy_arg("scale", np.float32(0.5))) == ("scale", 0.5)
+    assert parse_policy_arg(format_policy_arg("steps", np.int64(3))) == ("steps", 3)
+
+
+@pytest.mark.parametrize(
+    "value, message",
+    [
+        ([1, 2], "list values cannot be passed"),
+        ({"a": 1}, "dict values cannot be passed"),
+        (float("nan"), "it reads back as 'nan'"),
+        (float("inf"), "it reads back as 'inf'"),
+        (object(), "object values cannot be passed"),
+    ],
+)
+def test_what_a_policy_arg_cannot_express_is_refused(value, message):
+    with pytest.raises(PolicyError, match=message):
+        format_policy_arg("key", value)

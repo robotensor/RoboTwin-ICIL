@@ -12,15 +12,16 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+import json
+import math
 from dataclasses import dataclass, field
+from pathlib import PurePath
 from typing import Any, ClassVar, Literal
 
 import numpy as np
+import yaml
 
-from .demo import BIMANUAL_QPOS_DIM, Demonstration
-
-# RoboTwin's `take_action(action_type='ee')`: xyz + quaternion + gripper, per arm.
-BIMANUAL_EE_DIM = 16
+from .demo import BIMANUAL_EE_DIM, BIMANUAL_QPOS_DIM, Demonstration
 
 # Given to models that require a language input, so that what is measured is the demonstration
 # and not the prompt. Never the task name or RoboTwin's per-task instruction.
@@ -39,6 +40,10 @@ class Observation:
     """What the policy sees at one control step: the same modalities as a demonstration frame.
 
     Deliberately no task name, scene seed, success condition, object identities or actor handles.
+    `time_s` is simulated seconds since the rollout started, counted in physics steps, as a
+    frame's `time_s` is since the expert started; None when the caller kept no clock.
+    `gripper_joints` are the measured gripper joint positions per arm, as in a `Frame`; None
+    when the caller read none.
     """
 
     step: int
@@ -46,6 +51,8 @@ class Observation:
     qpos: np.ndarray
     endpose: dict[str, Any] = field(default_factory=dict)
     instruction: str = NEUTRAL_INSTRUCTION
+    time_s: float | None = None
+    gripper_joints: dict[str, np.ndarray] | None = None
 
 
 class ICILPolicy:
@@ -56,7 +63,10 @@ class ICILPolicy:
     """
 
     name: ClassVar[str] = "icil"
-    action_type: ClassVar[ActionType] = "qpos"
+    # Not a ClassVar: a policy whose action path depends on how it was configured sets this per
+    # instance (`remote` takes it from the server it connected to), and one class per action
+    # type would be a class per configuration.
+    action_type: ActionType = "qpos"
 
     def __init__(self) -> None:
         self._demonstration: Demonstration | None = None
@@ -96,6 +106,35 @@ class ICILPolicy:
     def describe(self) -> dict[str, Any]:
         """What the run manifest records about this policy: its name, model and checkpoint."""
         return {"policy": self.name, "action_type": self.action_type}
+
+    # Optional hooks. Each has a no-op default, so a policy overrides only those it needs.
+
+    def seed(self, seed: int) -> None:
+        """Seed this episode's sampling. Called before every `reset()`, never with the scene seed.
+
+        The seed comes from the policy's own stream, a function of the run's global seed and the
+        episode index, so an episode samples the same way whether or not the run was resumed.
+        RoboTwin seeds torch's global RNG whenever it builds a scene: draw noise from a generator
+        of your own seeded here, never from a global RNG.
+        """
+
+    def episode_info(self) -> dict[str, Any]:
+        """What this policy reports about the episode it just rolled out, e.g. the arm it drove or
+        how many actions it clipped. Called after every rollout and stored in the episode record's
+        `policy_info`; every value must be JSON-serialisable."""
+        return {}
+
+    def close(self) -> None:
+        """Release what the policy holds: a model on the GPU, a connection to a model server.
+
+        Called exactly once, when the run ends, however it ends.
+        """
+
+    def environment(self) -> dict[str, str]:
+        """The policy's own software environment, as strings: python, torch, CUDA, the GPU, the
+        commits of the model's repositories. Recorded beside the run; like the benchmark's own
+        environment, it may differ on resume."""
+        return {}
 
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
@@ -143,15 +182,26 @@ class ReplayPolicy(ICILPolicy):
 
 
 BUILTIN: dict[str, type[ICILPolicy]] = {"dummy": DummyPolicy, "replay": ReplayPolicy}
+# Built in as well, but not in BUILTIN: `RemotePolicy` serves another policy, named in its
+# arguments, and its module imports this one.
+REMOTE = "remote"
+
+
+def builtin_names() -> list[str]:
+    return sorted([*BUILTIN, REMOTE])
 
 
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     """A built-in name, or ``package.module:Class`` for an adapter living outside the core."""
     if spec in BUILTIN:
         return BUILTIN[spec](**kwargs)
+    if spec == REMOTE:
+        from .remote import RemotePolicy
+
+        return RemotePolicy(**kwargs)
     module_name, sep, class_name = spec.partition(":")
     if not sep:
-        known = ", ".join(sorted(BUILTIN))
+        known = ", ".join(builtin_names())
         raise PolicyError(f"unknown policy {spec!r}; built-ins are {known}, or give module:Class")
     try:
         cls = getattr(importlib.import_module(module_name), class_name)
@@ -160,3 +210,76 @@ def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     if not (isinstance(cls, type) and issubclass(cls, ICILPolicy)):
         raise PolicyError(f"{spec!r} is not an ICILPolicy subclass")
     return cls(**kwargs)
+
+
+_NULLS = ("", "~", "null", "Null", "NULL")
+
+
+def parse_policy_arg(item: str) -> tuple[str, Any]:
+    """One `--policy-arg KEY=VALUE`, or `ValueError` saying why it is not one.
+
+    The value is read as YAML, so numbers, booleans and null arrive typed; a quoted value is the
+    string inside the quotes, and anything else stays the string it was. Scientific notation
+    needs a dot and a signed exponent, as YAML 1.1 has it: `1.0e-4` is a float, `1e-4` the string
+    '1e-4'. KEY must be a Python identifier, since it becomes a keyword argument.
+    """
+    key, sep, raw = item.partition("=")
+    if not sep:
+        raise ValueError(f"{item!r} is not KEY=VALUE")
+    if not key.isidentifier():
+        raise ValueError(f"{key!r} is not a Python identifier")
+    try:
+        value = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return key, raw
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{key}={raw}: a number must be finite")
+    if isinstance(value, (bool, int, float)):
+        return key, value
+    if value is None and raw.strip() in _NULLS:
+        return key, None
+    if isinstance(value, str) and raw.strip()[:1] in ("'", '"'):
+        return key, value
+    return key, raw
+
+
+def format_policy_arg(key: str, value: Any) -> str:
+    """The `KEY=VALUE` that `parse_policy_arg` reads back as `(key, value)`, or `PolicyError`.
+
+    How a policy's keyword arguments reach the command line of a policy server. None, booleans,
+    integers, finite floats and strings go as themselves, a path as its string, a numpy scalar as
+    the Python value it holds; a list, a mapping or anything else `--policy-arg` cannot express
+    is refused rather than turned into something else.
+    """
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, PurePath):
+        value = str(value)
+    if value is None:
+        text = "null"
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    elif isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        # YAML 1.1 reads scientific notation as a float only with a dot in the mantissa.
+        text = repr(value)
+        mantissa, e, exponent = text.partition("e")
+        if e and "." not in mantissa:
+            text = f"{mantissa}.0e{exponent}"
+    elif isinstance(value, str):
+        text = json.dumps(value, ensure_ascii=False)
+    else:
+        raise PolicyError(
+            f"{key}: {type(value).__name__} values cannot be passed as a --policy-arg"
+        )
+    item = f"{key}={text}"
+    try:
+        parsed = parse_policy_arg(item)
+    except ValueError as exc:
+        raise PolicyError(f"{key}={value!r} cannot be passed as a --policy-arg: {exc}") from exc
+    if parsed != (key, value) or type(parsed[1]) is not type(value):
+        raise PolicyError(
+            f"{key}={value!r} cannot be passed as a --policy-arg: it reads back as {parsed[1]!r}"
+        )
+    return item

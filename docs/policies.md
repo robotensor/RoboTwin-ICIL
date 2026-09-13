@@ -107,6 +107,40 @@ unchanged; the episode ends as soon as RoboTwin latches success or the task's st
 
 Actions of the wrong width or containing non-finite values raise `PolicyError`.
 
+## A model that cannot share the simulator's process
+
+A model stack usually pins libraries RoboTwin also pins, so there is no environment in which both
+import. Such a model runs in an environment of its own, behind a policy server:
+
+```bash
+/opt/envs/model/bin/python -m robotwin_icil.serve \
+    --policy mypkg.adapters:Model --config configs/model.yml \
+    --policy-arg device=cuda --address /run/policy.sock --authkey-file /run/authkey
+```
+
+and the simulator side reaches it with the built-in `remote`:
+
+```python
+from robotwin_icil.policy import make_policy
+
+policy = make_policy("remote", address="/run/policy.sock", authkey_file="/run/authkey")
+```
+
+Without `address=`, `RemotePolicy` spawns the server itself: `policy="mypkg.adapters:Model"` with
+`python="/opt/envs/model/bin/python"` starts one on a Unix socket in a private directory, with a
+fresh key handed over in an environment variable rather than on the command line. Either way it is
+an `ICILPolicy` here too, so the lifecycle and action checks run on both sides of the socket, and
+it takes its `action_type` from the server it connected to.
+
+The wire protocol never pickles — `send_bytes`/`recv_bytes`, a JSON header and raw bool, integer
+and float arrays — because unpickling runs code. Every remote failure (an error reply, a timeout,
+a server that hung up or died) is a `PolicyError` carrying the tail of the server's log, and it
+stops the server; `runner.run` closes the policy exactly once, so no server outlives its client.
+
+`robotwin-icil-competition run-unit --policy-address` is the path a competition uses. `robotwin-icil
+eval --policy remote` cannot configure one yet on this branch: the evaluator's `--policy-arg`, which
+is how a built-in receives keyword arguments, comes with the policy-configuration work (#37).
+
 ## The policy is frozen
 
 No `backward()`, no optimizer, no parameter writes, anywhere, during a benchmark run. The model

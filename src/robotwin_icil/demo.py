@@ -11,6 +11,7 @@ information rule in CLAUDE.md. Everything in a `Frame` is something a real robot
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,6 +19,10 @@ import numpy as np
 
 # RoboTwin's bimanual `joint_action.vector`: 6 arm joints + 1 gripper, per arm.
 BIMANUAL_QPOS_DIM = 14
+# RoboTwin's `take_action(action_type='ee')`: flange pose (xyz + wxyz quaternion) + gripper, per arm.
+EE_POSE_DIM = 7
+BIMANUAL_EE_DIM = 2 * (EE_POSE_DIM + 1)
+ARMS = ("left", "right")
 
 
 class DemonstrationError(ValueError):
@@ -31,14 +36,28 @@ class Frame:
     `qpos` is the robot's state when the frame was taken; the action that carried the robot from
     this frame to the next is `action`, which is the *next* frame's `qpos` for a position-controlled
     expert. The last frame has no action.
+
+    `time_s` is simulated seconds since the expert started, counted in physics steps; None in
+    frames recorded before the benchmark kept time.
+
+    `gripper_joints` maps "left" and "right" to the measured positions of that arm's gripper
+    joints, in metres (aloha-agilex: the finger joint and its mimic). The gripper value in
+    `qpos` and `endpose` is the command, which reads closed while the fingers rest on an object;
+    these read where the fingers are. None in frames recorded before they were read.
     """
 
     index: int
     images: dict[str, np.ndarray]
     qpos: np.ndarray
     endpose: dict[str, Any]
+    time_s: float | None = None
+    gripper_joints: dict[str, np.ndarray] | None = None
 
     def __post_init__(self) -> None:
+        if self.time_s is not None and not math.isfinite(self.time_s):
+            raise DemonstrationError(f"frame {self.index}: time_s is {self.time_s}")
+        if self.gripper_joints is not None:
+            check_gripper_joints(self.gripper_joints, f"frame {self.index}")
         if self.qpos.shape != (BIMANUAL_QPOS_DIM,):
             raise DemonstrationError(
                 f"frame {self.index}: qpos has shape {self.qpos.shape}, expected ({BIMANUAL_QPOS_DIM},)"
@@ -52,10 +71,17 @@ class Frame:
 
 @dataclass(frozen=True)
 class Demonstration:
-    """One successful expert trajectory, as context for a frozen policy."""
+    """One successful expert trajectory, as context for a frozen policy.
+
+    Its frames are not evenly spaced in time: RoboTwin records one frame before each motion
+    primitive, one after every `save_freq`-th physics step from its first, and one after its
+    last, so each primitive adds a frame one step in, a shorter remainder, and an exact duplicate
+    where the next primitive starts. `times()` says when each frame was taken.
+    """
 
     frames: tuple[Frame, ...]
-    # Frames per second of the recording: the sim rate over RoboTwin's `save_freq`.
+    # Nominal frames per second: the sim rate over RoboTwin's `save_freq`, the spacing of the
+    # frames within a primitive. Not the spacing of every frame; see `times()`.
     frequency: float
     cameras: tuple[str, ...] = field(default=())
 
@@ -78,13 +104,49 @@ class Demonstration:
                 )
         if not self.cameras:
             object.__setattr__(self, "cameras", tuple(sorted(first)))
+        measured = [frame.gripper_joints is not None for frame in self.frames]
+        if any(measured) and not all(measured):
+            raise DemonstrationError("some frames have gripper_joints and some do not")
+        timed = [frame.time_s is not None for frame in self.frames]
+        if any(timed) and not all(timed):
+            raise DemonstrationError("some frames have a time_s and some do not")
+        if all(timed):
+            for before, frame in zip(self.frames[:-1], self.frames[1:], strict=True):
+                if frame.time_s < before.time_s:
+                    raise DemonstrationError(
+                        f"frame {frame.index} is timed at {frame.time_s} s, before frame "
+                        f"{before.index} at {before.time_s} s"
+                    )
 
     def __len__(self) -> int:
         return len(self.frames)
 
     @property
     def duration_s(self) -> float:
-        return len(self.frames) / self.frequency
+        """Simulated seconds from the first frame to the last, by `times()`.
+
+        Not `len / frequency`: boundary duplicates, one-step gaps and remainders make the frame
+        count over the nominal rate wrong for timed data.
+        """
+        times = self.times()
+        return float(times[-1] - times[0])
+
+    def times(self) -> np.ndarray:
+        """(T,) simulated seconds of each frame since the expert started.
+
+        Recorded times are returned as they are; a tie is two frames with no physics step between
+        them. Frames recorded without times get an estimate: a frame identical to the one before it
+        (qpos, endpose and every image) shares its time, and every other frame follows the one
+        before it by 1 / `frequency`. It collapses the duplicates at primitive boundaries but not
+        the one-step and remainder gaps, which only recorded times resolve.
+        """
+        if self.frames[0].time_s is not None:
+            return np.array([frame.time_s for frame in self.frames], dtype=np.float64)
+        times = np.zeros(len(self.frames))
+        for i in range(1, len(self.frames)):
+            gap = 0.0 if _same_frame(self.frames[i - 1], self.frames[i]) else 1.0 / self.frequency
+            times[i] = times[i - 1] + gap
+        return times
 
     def qpos(self) -> np.ndarray:
         """(T, 14) robot state over the demonstration."""
@@ -99,8 +161,100 @@ class Demonstration:
         """
         return np.stack([frame.qpos for frame in self.frames[1:]])
 
+    def endposes(self) -> np.ndarray:
+        """(T, 16) end-effector state over the demonstration, in `take_action('ee')` layout.
+
+        Per arm, left then right: the flange pose `[x, y, z, qw, qx, qy, qz]` in the world frame
+        (the tool centre is 0.12 m further along the pose's own +x axis on aloha-agilex), then
+        the gripper value RoboTwin reports, which is the commanded one, 0 closed to 1 open.
+        """
+        return np.stack([_ee_state(frame) for frame in self.frames])
+
+    def ee_actions(self) -> np.ndarray:
+        """(T-1, 16) end-effector targets, one per transition: the next frame's `endposes()` row.
+
+        The `ee` counterpart of `actions()`. Feeding an arm's own endpose back through
+        `take_action(action_type='ee')` reaches it again, as the expert's `back_to_origin` does,
+        but every call is re-planned, so a replay of these is not the expert's joint trajectory.
+        """
+        return self.endposes()[1:]
+
+    def arms_moved(self, threshold_m: float = 0.02) -> tuple[str, ...]:
+        """The arms, of "left" and "right", whose flange path is longer than `threshold_m`.
+
+        Path length is the sum of the flange's straight-line moves from frame to frame, so it
+        counts a move out and back. Provisional: the 2 cm default is not yet measured against the
+        jitter of an arm the expert holds still.
+        """
+        poses = self.endposes()
+        moved = []
+        for i, arm in enumerate(ARMS):
+            start = i * (EE_POSE_DIM + 1)
+            path = np.linalg.norm(np.diff(poses[:, start : start + 3], axis=0), axis=1).sum()
+            if path > threshold_m:
+                moved.append(arm)
+        return tuple(moved)
+
     def images(self, camera: str) -> np.ndarray:
         """(T, h, w, 3) rgb from one camera."""
         if camera not in self.cameras:
             raise DemonstrationError(f"no camera {camera!r}; have {list(self.cameras)}")
         return np.stack([frame.images[camera] for frame in self.frames])
+
+
+def check_gripper_joints(gripper_joints: dict[str, np.ndarray], where: str) -> None:
+    """Measured gripper joints are one 1-D array of finite positions per arm, both arms."""
+    if set(gripper_joints) != set(ARMS):
+        raise DemonstrationError(
+            f"{where}: gripper_joints has arms {sorted(gripper_joints)}, expected {list(ARMS)}"
+        )
+    for arm, positions in gripper_joints.items():
+        positions = np.asarray(positions)
+        if positions.ndim != 1 or not np.all(np.isfinite(positions)):
+            raise DemonstrationError(
+                f"{where}: {arm} gripper joints must be a 1-D array of finite positions, "
+                f"got {positions!r}"
+            )
+
+
+def _ee_state(frame: Frame) -> np.ndarray:
+    """One frame's `endpose` as the 16 numbers `take_action('ee')` reads."""
+    parts = []
+    for arm in ARMS:
+        try:
+            pose, gripper = frame.endpose[f"{arm}_endpose"], frame.endpose[f"{arm}_gripper"]
+        except KeyError as exc:
+            raise DemonstrationError(
+                f"frame {frame.index}: endpose has no {exc.args[0]!r}; "
+                f"it has {sorted(frame.endpose)}"
+            ) from None
+        pose = np.asarray(pose, dtype=np.float64)
+        if pose.shape != (EE_POSE_DIM,):
+            raise DemonstrationError(
+                f"frame {frame.index}: {arm}_endpose has shape {pose.shape}, "
+                f"expected ({EE_POSE_DIM},)"
+            )
+        parts += [pose, [float(gripper)]]
+    return np.concatenate(parts)
+
+
+def _same_frame(a: Frame, b: Frame) -> bool:
+    """Whether two frames observed the same state: equal qpos, endpose, gripper joints, images."""
+    return (
+        np.array_equal(a.qpos, b.qpos)
+        and _equal(a.endpose, b.endpose)
+        and _equal(a.gripper_joints or {}, b.gripper_joints or {})
+        and a.images.keys() == b.images.keys()
+        and all(np.array_equal(a.images[name], b.images[name]) for name in a.images)
+    )
+
+
+def _equal(a: Any, b: Any) -> bool:
+    if isinstance(a, dict) or isinstance(b, dict):
+        return (
+            isinstance(a, dict)
+            and isinstance(b, dict)
+            and a.keys() == b.keys()
+            and all(_equal(a[key], b[key]) for key in a)
+        )
+    return bool(np.array_equal(np.asarray(a), np.asarray(b)))

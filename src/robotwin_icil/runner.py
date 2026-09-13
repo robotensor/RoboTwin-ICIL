@@ -92,53 +92,60 @@ def run(
     config,
     log: Callable[[str], None] = print,
 ) -> list[EpisodeRecord]:
-    """Run (or resume) every episode of `spec`, appending each record as it finishes."""
-    from . import robotwin
+    """Run (or resume) every episode of `spec`, appending each record as it finishes.
 
-    # Resolve before entering the RoboTwin seam, which moves the working directory.
-    run_dir = RunDir(Path(spec.run_dir).resolve())
-    run_dir.start(manifest_for(spec, policy, config))
-    done = run_dir.completed()
-    plan = assign(spec.tasks, spec.episodes)
-    if done:
-        log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
+    The run owns the policy's end: `policy.close()` is called exactly once, however the
+    run ends.
+    """
+    try:
+        from . import robotwin
 
-    # One RoboTwin env alive at a time. Each env builds two CuRobo planners on the GPU and keeps
-    # them for its lifetime, so holding every task's env at once grows GPU memory with the suite.
-    # Episodes run task by task — episode i still runs plan[i] on its own seed stream — and each
-    # task's env is released before the next one is built.
-    progress = len(done)
-    for task in spec.tasks:
-        pending = [
-            i for i, assigned in enumerate(plan) if assigned.name == task.name and i not in done
-        ]
-        if not pending:
-            continue
-        task_env = robotwin.load_task(task.name)
-        try:
-            for episode in pending:
-                record = run_episode(
-                    EpisodeSpec(
-                        episode=episode,
-                        task=task,
-                        global_seed=spec.global_seed,
-                        max_expert_attempts=spec.max_expert_attempts,
-                    ),
-                    policy,
-                    config,
-                    task_env=task_env,
-                    video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
-                )
-                run_dir.append(record)
-                progress += 1
-                log(_line(record, progress, len(plan)))
-                if spec.clear_cache_every and progress % spec.clear_cache_every == 0:
-                    robotwin.clear_render_cache()
-        finally:
-            robotwin.close(task_env)
-            task_env = None
-            robotwin.free_gpu()
-    return sorted(run_dir.records(), key=lambda record: record.episode)
+        # Resolve before entering the RoboTwin seam, which moves the working directory.
+        run_dir = RunDir(Path(spec.run_dir).resolve())
+        run_dir.start(manifest_for(spec, policy, config))
+        done = run_dir.completed()
+        plan = assign(spec.tasks, spec.episodes)
+        if done:
+            log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
+
+        # One RoboTwin env alive at a time. Each env builds two CuRobo planners on the GPU and keeps
+        # them for its lifetime, so holding every task's env at once grows GPU memory with the suite.
+        # Episodes run task by task — episode i still runs plan[i] on its own seed stream — and each
+        # task's env is released before the next one is built.
+        progress = len(done)
+        for task in spec.tasks:
+            pending = [
+                i for i, assigned in enumerate(plan) if assigned.name == task.name and i not in done
+            ]
+            if not pending:
+                continue
+            task_env = robotwin.load_task(task.name)
+            try:
+                for episode in pending:
+                    record = run_episode(
+                        EpisodeSpec(
+                            episode=episode,
+                            task=task,
+                            global_seed=spec.global_seed,
+                            max_expert_attempts=spec.max_expert_attempts,
+                        ),
+                        policy,
+                        config,
+                        task_env=task_env,
+                        video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
+                    )
+                    run_dir.append(record)
+                    progress += 1
+                    log(_line(record, progress, len(plan)))
+                    if spec.clear_cache_every and progress % spec.clear_cache_every == 0:
+                        robotwin.clear_render_cache()
+            finally:
+                robotwin.close(task_env)
+                task_env = None
+                robotwin.free_gpu()
+        return sorted(run_dir.records(), key=lambda record: record.episode)
+    finally:
+        policy.close()
 
 
 def _line(record: EpisodeRecord, done: int, total: int) -> str:
