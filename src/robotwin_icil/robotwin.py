@@ -435,8 +435,8 @@ def fingerprint(env) -> SceneFingerprint:
 
     Covers what makes a scene this scene: every actor's pose (object instances, placements, the
     table), every articulation's root pose and joints (the robot, articulated objects), camera
-    extrinsics, the robot's commanded qpos, and the texture and lighting draws recorded in
-    `env.info`. Harness-only: none of it is ever handed to a policy.
+    extrinsics, the robot's commanded qpos, which robot was built, and the texture and lighting
+    draws recorded in `env.info`. Harness-only: none of it is ever handed to a policy.
     """
     actors = env.scene.get_all_actors()
     articulations = env.scene.get_all_articulations()
@@ -466,12 +466,20 @@ def fingerprint(env) -> SceneFingerprint:
             dtype=np.float64,
         ),
         extras={
+            "embodiment": _embodiment_built(env.robot),
             "wall_texture": textures.get("wall_texture"),
             "table_texture": textures.get("table_texture"),
             "crazy_random_light": bool(getattr(env, "crazy_random_light", False)),
             "table_z_bias": float(getattr(env, "table_z_bias", 0.0)),
         },
     )
+
+
+def _embodiment_built(robot) -> str:
+    """The robot as `_init_robot_` built it: one URDF holding both arms, or one URDF per arm."""
+    if robot.is_dual_arm:
+        return str(robot.left_urdf_path)
+    return f"{robot.left_urdf_path}|{robot.right_urdf_path}"
 
 
 def _pose7(pose) -> np.ndarray:

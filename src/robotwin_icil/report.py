@@ -149,6 +149,7 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             f"Evaluation setting:          {manifest.evaluation_setting}",
             "Demonstrations per episode:  1",
             f"Policy:                      {manifest.policy.get('policy', '?')}",
+            f"Embodiment:                  {manifest.robotwin_config.get('embodiment_name', '?')}",
             f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}",
             f"Global seed:                 {manifest.global_seed}",
             "",

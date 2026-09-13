@@ -60,6 +60,24 @@ def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
     assert manifest.global_seed == 3 and manifest.suite == "v1" and manifest.episodes == 4
     assert manifest.policy["policy"] == "replay"
     assert manifest.benchmark_commit  # this checkout is a git repository
+    assert manifest.benchmark_config["embodiment"] == "fake-arms"
+    assert manifest.robotwin_config["embodiment"] == ["fake-arms"]
+    assert manifest.robotwin_config["embodiment_name"] == "fake-arms"
+
+
+def test_every_record_says_which_robot_ran(tmp_path, fake_sim):
+    records = runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    assert {r.embodiment for r in records} == {"fake-arms"}
+    lines = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
+    assert all(json.loads(line)["embodiment"] == "fake-arms" for line in lines)
+
+
+def test_a_run_on_another_robot_cannot_resume_this_one(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    with pytest.raises(RecordError, match="different run"):
+        runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(embodiment="franka-panda"), log=quiet)
+    # And nothing was appended by the refused run.
+    assert len(RunDir(tmp_path / "run").records()) == 4
 
 
 def test_a_resumed_run_only_runs_what_is_missing(tmp_path, fake_sim):

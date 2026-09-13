@@ -28,8 +28,16 @@ class FakeConfig:
     head_camera = None
     overrides = None
 
+    def __init__(self, embodiment="fake-arms"):
+        self.embodiment = embodiment
+
     def resolve(self, task_name=None):
-        return {"save_freq": self.save_freq, "task_name": task_name}
+        return {
+            "save_freq": self.save_freq,
+            "task_name": task_name,
+            "embodiment": [self.embodiment],
+            "embodiment_name": self.embodiment,
+        }
 
 
 class _Pose:
@@ -120,6 +128,9 @@ class FakeTaskEnv:
         self.robot = SimpleNamespace(
             get_left_arm_jointState=lambda: list(self.qpos[:half]),
             get_right_arm_jointState=lambda: list(self.qpos[half:]),
+            left_urdf_path="./assets/embodiments/fake/fake.urdf",
+            right_urdf_path="./assets/embodiments/fake/fake.urdf",
+            is_dual_arm=True,
         )
         self.info = {"texture_info": {"wall_texture": 0, "table_texture": 0}}
         self.crazy_random_light = False

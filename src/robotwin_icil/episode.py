@@ -54,6 +54,7 @@ def run_episode(
     started = time.monotonic()
     task_env = task_env if task_env is not None else robotwin.load_task(spec.task.name)
     seeds = scene_seeds(spec.global_seed, spec.episode, spec.max_expert_attempts)
+    embodiment = str(config.resolve(spec.task.name)["embodiment_name"])
     generated = generate(
         task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
     )
@@ -71,6 +72,7 @@ def run_episode(
             rejections=_rejections(generated),
             rejection_details=_rejection_details(generated),
             model=str(describe.get("model", describe["policy"])),
+            embodiment=embodiment,
             checkpoint=describe.get("checkpoint"),
             duration_s=round(time.monotonic() - started, 3),
             **fields,

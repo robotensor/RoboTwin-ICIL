@@ -20,7 +20,7 @@ def fingerprint(**overrides) -> scene.SceneFingerprint:
         articulation_roots={"aloha": np.array([0.0, -0.65, 0.0, *IDENTITY])},
         cameras={"head_camera": np.eye(4)},
         robot_qpos=np.zeros(QPOS_DIM),
-        extras={"wall_texture": 3, "table_texture": 7},
+        extras={"embodiment": "aloha.urdf", "wall_texture": 3, "table_texture": 7},
     )
     return dataclasses.replace(base, **overrides)
 
@@ -66,10 +66,18 @@ def test_robot_state_camera_and_texture_drift_are_caught():
     drifted = fingerprint(
         robot_qpos=np.full(QPOS_DIM, 1e-3),
         cameras={"head_camera": np.eye(4) * 1.01},
-        extras={"wall_texture": 4, "table_texture": 7},
+        extras={"embodiment": "aloha.urdf", "wall_texture": 4, "table_texture": 7},
     )
     parts = {m.part for m in scene.compare(fingerprint(), drifted)}
     assert parts == {"robot", "camera", "extra"}
+
+
+def test_another_robot_is_another_scene():
+    other = fingerprint(
+        extras={"embodiment": "panda.urdf|panda.urdf", "wall_texture": 3, "table_texture": 7}
+    )
+    found = scene.compare(fingerprint(), other)
+    assert [(m.part, m.name) for m in found] == [("extra", "embodiment")]
 
 
 def test_float_noise_below_tolerance_passes():

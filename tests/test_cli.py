@@ -19,7 +19,8 @@ def test_report_reads_a_run_directory_without_a_simulator(tmp_path, capsys):
     run.append(record(1, success=False))
 
     assert cli.main(["report", str(tmp_path)]) == 0
-    assert "50.0%" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "50.0%" in out and "Embodiment:                  aloha-agilex" in out
     assert cli.main(["report", str(tmp_path), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["overall"]["success_rate"] == 0.5
 

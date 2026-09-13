@@ -25,6 +25,7 @@ def record(
         rejections=rejections or {},
         scene_max_error=0.0,
         model="replay",
+        embodiment="aloha-agilex",
     )
 
 
