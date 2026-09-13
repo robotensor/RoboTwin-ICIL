@@ -311,6 +311,48 @@ def test_an_arm_chosen_per_object_in_a_loop_is_switching():
     assert "in a loop" in verdict.evidence
 
 
+def test_an_arm_chosen_per_object_between_two_tags_is_switching():
+    verdict = classify(
+        """
+        for block in self.blocks:
+            arm_tag = ArmTag("left") if block.get_pose().p[0] < 0 else ArmTag("right")
+            self.move(self.grasp_actor(block, arm_tag=arm_tag))
+            self.move(self.place_actor(block, arm_tag=arm_tag, target_pose=[0, 0, 1]))
+        """
+    )
+    assert verdict.arms == arms.SWITCHING
+
+
+@pytest.mark.parametrize(
+    "choice", ["self.arms[block.get_name()]", "self.arm_for(block)", "block.arm"]
+)
+def test_an_arm_looked_up_per_object_is_switching(choice):
+    # However the per-object arm is computed — a lookup, a helper's answer, an attribute — it
+    # is a choice made inside the loop, and that is what makes the expert switch.
+    verdict = classify(
+        f"""
+        for block in self.blocks:
+            arm_tag = {choice}
+            self.move(self.grasp_actor(block, arm_tag=arm_tag))
+        """
+    )
+    assert verdict.arms == arms.SWITCHING
+    assert "at line 10 in a loop" in verdict.evidence
+
+
+def test_a_side_chosen_per_object_that_is_not_an_arm_does_not_switch():
+    verdict = classify(
+        """
+        arm_tag = ArmTag("left")
+        for thing in self.things:
+            side = "left" if thing.get_pose().p[0] < 0 else "right"
+            self.move(self.grasp_actor(thing, arm_tag=arm_tag))
+            self.move(self.place_actor(thing, arm_tag=arm_tag, target_pose=self.targets[side]))
+        """
+    )
+    assert verdict == arms.Verdict(arms.ONE, "one arm, left (line 12)")
+
+
 def test_a_helper_called_from_a_loop_is_repeated():
     verdict = classify(
         """

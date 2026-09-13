@@ -12,8 +12,9 @@ The rule, from a read of every expert at the pinned commit:
   different arm identities act over the episode — a fixed ``"left"`` and a fixed ``"right"``, a
   chosen arm and its ``.opposite``, a chosen arm and a fixed one. Sending an arm
   ``back_to_origin`` is not acting: it is how an expert clears the other arm out of the way.
-- ``"switching"``: one arm acts at a time, but which one is chosen per object: an arm built
-  from a pose inside a loop, or in a helper the expert calls more than once.
+- ``"switching"``: one arm acts at a time, but which one is chosen per object: the expression
+  that picks the acting arm — from a pose, a lookup, a helper's answer — is evaluated inside a
+  loop, or in a helper the expert calls more than once.
 - ``"1"``: one arm, chosen once from the scene or fixed.
 
 An identity is what an arm expression resolves to through the expert's own assignments: the
@@ -141,9 +142,11 @@ class _Expert:
         self.assignments: dict[_Scope, list[ast.expr]] = {}
         # A helper's parameter, and what each call site passes for it: (caller unit, expression).
         self.arguments: dict[_Scope, list[tuple[str, ast.expr]]] = {}
+        # The text of every expression evaluated per object, and where: (line, unit).
+        self.choices: dict[str, tuple[int, str]] = {}
         self._collect("play_once", repeated=False)
         for unit_name, unit in self.units.items():
-            self._gather_assignments(unit_name, unit.node)
+            self._scan(unit_name, unit)
 
     # -- collection -------------------------------------------------------------------------
 
@@ -201,8 +204,16 @@ class _Expert:
                     self.units[callee].repeated = True
                     self._propagate(self.units[callee])
 
-    def _gather_assignments(self, unit_name: str, function: ast.FunctionDef) -> None:
-        for node, _ in _iter_body(function):
+    def _scan(self, unit_name: str, unit: _Unit) -> None:
+        """Gather the unit's assignments, and note every expression it evaluates per object —
+        inside a loop, or anywhere in a unit that is entered more than once."""
+        for node, in_loop in _iter_body(unit.node):
+            if (
+                (in_loop or unit.repeated)
+                and isinstance(node, ast.expr)
+                and not isinstance(node, ast.Constant | ast.Name)
+            ):
+                self.choices.setdefault(ast.unparse(node), (node.lineno, unit_name))
             if not isinstance(node, ast.Assign):
                 continue
             for target in node.targets:
@@ -261,18 +272,10 @@ class _Expert:
     def verdict(self) -> Verdict:
         acting: list[_Use] = []
         together: int | None = None
-        choice_repeated: tuple[int, str] | None = None
         moves = 0
         for unit_name, unit in self.units.items():
-            for node, in_loop in _iter_body(unit.node):
+            for node, _ in _iter_body(unit.node):
                 if not isinstance(node, ast.Call):
-                    if (
-                        isinstance(node, ast.IfExp)
-                        and _is_literal_choice(node)
-                        and (unit.repeated or in_loop)
-                        and choice_repeated is None
-                    ):
-                        choice_repeated = (node.lineno, unit_name)
                     continue
                 method = _self_method(node)
                 if method == _MOVE:
@@ -289,14 +292,6 @@ class _Expert:
                         acting.append(_Use(self.identity(arm, unit_name), node.lineno))
                 elif _plain_name(node) == _ACTION_CLASS and node.args:
                     acting.append(_Use(self.identity(node.args[0], unit_name), node.lineno))
-                elif _plain_name(node) == _TAG_CLASS and node.args:
-                    inner = node.args[0]
-                    if (
-                        not isinstance(inner, ast.Constant | ast.Name | ast.Attribute | ast.IfExp)
-                        and (unit.repeated or in_loop)
-                        and choice_repeated is None
-                    ):
-                        choice_repeated = (node.lineno, unit_name)
         if not moves:
             raise ArmsError(f"{self.name}: play_once moves no arm")
 
@@ -309,16 +304,24 @@ class _Expert:
         if len(identities) >= 2:
             listed = ", ".join(f"{i} (line {line})" for i, line in sorted(identities.items()))
             return Verdict(TWO, f"different arms act: {listed}")
-        if choice_repeated is not None:
-            line, unit_name = choice_repeated
-            where = f"in {unit_name}" if unit_name != "play_once" else "in a loop"
-            calls = self.units[unit_name].calls
-            detail = f"called {calls} times" if calls > 1 else "in a loop"
-            return Verdict(SWITCHING, f"arm chosen per object at line {line} {where}, {detail}")
+        for text, (line, unit_name) in self.choices.items():
+            if f"chosen({text})" in identities:
+                return Verdict(
+                    SWITCHING, f"arm chosen per object at line {line} {self._where(unit_name)}"
+                )
         if not identities:
             raise ArmsError(f"{self.name}: play_once moves an arm no motion names")
         ((identity, line),) = identities.items()
         return Verdict(ONE, f"one arm, {identity} (line {line})")
+
+    def _where(self, unit_name: str) -> str:
+        """How a unit comes to evaluate an expression more than once."""
+        unit = self.units[unit_name]
+        if unit.calls > 1:
+            return f"in {unit_name}, called {unit.calls} times"
+        if unit.repeated:
+            return f"in {unit_name}, called from a loop"
+        return "in a loop"
 
 
 # --- ast helpers ------------------------------------------------------------------------------
@@ -401,10 +404,3 @@ def _arm_argument(call: ast.Call, position: int) -> ast.expr | None:
         if keyword.arg == _ARM_KEYWORD:
             return keyword.value
     return call.args[position] if len(call.args) > position else None
-
-
-def _is_literal_choice(node: ast.IfExp) -> bool:
-    return all(
-        isinstance(branch, ast.Constant) and branch.value in _LITERALS
-        for branch in (node.body, node.orelse)
-    )
