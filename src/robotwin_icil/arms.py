@@ -89,12 +89,8 @@ class Verdict:
     evidence: str
 
 
-def classify_arms(envs_dir: Path) -> dict[str, str]:
-    """``arms`` for every task in a RoboTwin ``envs/`` directory, by task name."""
-    return {task: verdict.arms for task, verdict in classify_all(envs_dir).items()}
-
-
 def classify_all(envs_dir: Path) -> dict[str, Verdict]:
+    """The verdict for every task in a RoboTwin ``envs/`` directory, by task name."""
     envs_dir = Path(envs_dir)
     if not envs_dir.is_dir():
         raise ArmsError(f"no RoboTwin envs directory at {envs_dir}; init the submodule")

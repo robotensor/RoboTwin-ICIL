@@ -549,7 +549,7 @@ def test_an_expert_that_moves_no_arm_is_an_error():
 # --- a directory of tasks ---------------------------------------------------------------------
 
 
-def test_classify_arms_reads_every_task_file_and_skips_the_rest(tmp_path):
+def test_classify_all_reads_every_task_file_and_skips_the_rest(tmp_path):
     (tmp_path / "one.py").write_text(
         expert(
             """
@@ -569,6 +569,10 @@ def test_classify_arms_reads_every_task_file_and_skips_the_rest(tmp_path):
     )
     for stem in arms.NON_TASK_STEMS:
         (tmp_path / f"{stem}.py").write_text("x = 1\n")
-    assert arms.classify_arms(tmp_path) == {"one": arms.ONE, "two": arms.TWO}
+    verdicts = arms.classify_all(tmp_path)
+    assert {task: verdict.arms for task, verdict in verdicts.items()} == {
+        "one": arms.ONE,
+        "two": arms.TWO,
+    }
     with pytest.raises(arms.ArmsError, match="init the submodule"):
-        arms.classify_arms(tmp_path / "missing")
+        arms.classify_all(tmp_path / "missing")
