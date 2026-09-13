@@ -8,10 +8,11 @@ and nested function it reaches, because several experts do their work in helpers
 
 The rule, from a read of every expert at the pinned commit:
 
-- ``"2"``: both arms act. Either one ``self.move`` carries two arm motions at once, or two
-  different arm identities act over the episode — a fixed ``"left"`` and a fixed ``"right"``, a
-  chosen arm and its ``.opposite``, a chosen arm and a fixed one. Sending an arm
-  ``back_to_origin`` is not acting: it is how an expert clears the other arm out of the way.
+- ``"2"``: both arms act. Either one ``self.move`` carries two arm motions at once (or a
+  ``together_*`` helper of ``Base_Task`` drives both), or two different arm identities act over
+  the episode — a fixed ``"left"`` and a fixed ``"right"``, a chosen arm and its ``.opposite``,
+  a chosen arm and a fixed one. Sending an arm ``back_to_origin`` is not acting: it is how an
+  expert clears the other arm out of the way.
 - ``"switching"``: one arm acts at a time, but which one is chosen per object: the expression
   that picks the acting arm — from a pose, a lookup, a helper's answer — is evaluated inside a
   loop, or in a helper the expert calls more than once.
@@ -56,6 +57,8 @@ _ARM_KEYWORD = "arm_tag"
 _TAG_CLASS = "ArmTag"
 _ACTION_CLASS = "Action"
 _MOVE = "move"
+# Base_Task helpers that drive both arms themselves, without going through `move`.
+_TOGETHER = frozenset({"together_move_to_pose", "together_open_gripper", "together_close_gripper"})
 _LITERALS = frozenset({"left", "right"})
 _LOOPS = (
     ast.For,
@@ -278,7 +281,10 @@ class _Expert:
                 if not isinstance(node, ast.Call):
                     continue
                 method = _self_method(node)
-                if method == _MOVE:
+                if method in _TOGETHER:
+                    moves += 1
+                    together = node.lineno if together is None else together
+                elif method == _MOVE:
                     moves += 1
                     args = _move_args(node)
                     if together is None and sum(not _is_retreat(a) for a in args) >= 2:

@@ -105,6 +105,27 @@ def test_both_arms_moved_together_is_two_arms():
     assert "together" in verdict.evidence
 
 
+@pytest.mark.parametrize(
+    "helper",
+    [
+        "self.together_close_gripper()",
+        "self.together_open_gripper(save_freq=None)",
+        "self.together_move_to_pose(self.left_pose, self.right_pose)",
+    ],
+)
+def test_a_base_helper_that_drives_both_arms_is_two_arms(helper):
+    # Base_Task's together_* helpers move both arms without going through self.move.
+    verdict = classify(
+        f"""
+        {helper}
+        self.move(self.grasp_actor(self.thing, arm_tag=ArmTag("left")))
+        """
+    )
+    assert verdict == arms.Verdict(arms.TWO, "both arms move together at line 9")
+    # On their own they are still a motion, so the expert is not read as moving nothing.
+    assert classify(helper).arms == arms.TWO
+
+
 def test_a_fixed_left_and_a_fixed_right_acting_in_turn_is_two_arms():
     verdict = classify(
         """
