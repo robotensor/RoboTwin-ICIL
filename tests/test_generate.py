@@ -1,17 +1,16 @@
 import numpy as np
 import pytest
 
-from fake_robotwin import FakeTaskEnv, FakeUnstable
+from fake_robotwin import QPOS_DIM, FakeTaskEnv, FakeUnstable
 from robotwin_icil import generate, robotwin
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, Frame
+from robotwin_icil.demo import Demonstration, Frame
 from robotwin_icil.generate import Attempt, Rejection
 from robotwin_icil.scene import SceneFingerprint
 
 
 def _demonstration() -> Demonstration:
     frames = tuple(
-        Frame(index=i, images={}, qpos=np.full(BIMANUAL_QPOS_DIM, float(i)), endpose={})
-        for i in range(3)
+        Frame(index=i, images={}, qpos=np.full(QPOS_DIM, float(i)), endpose={}) for i in range(3)
     )
     return Demonstration(frames=frames, frequency=15)
 
@@ -22,7 +21,7 @@ def _fingerprint() -> SceneFingerprint:
         articulations={},
         articulation_roots={},
         cameras={},
-        robot_qpos=np.zeros(BIMANUAL_QPOS_DIM),
+        robot_qpos=np.zeros(QPOS_DIM),
     )
 
 
@@ -92,3 +91,15 @@ def test_a_demonstrations_frequency_is_frames_per_second(monkeypatch):
     result, demonstration, _ = generate.attempt(FakeTaskEnv(), 0, {"save_freq": 5}, 5, 0)
     assert result.rejection is None
     assert demonstration.frequency == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_a_demonstration_is_as_wide_as_the_robot_that_made_it(qpos_dim, monkeypatch):
+    # Captured frames carry whatever `joint_action.vector` the scene's robot reports: 14 on
+    # aloha-agilex, 16 on a dual Franka. Nothing in the capture path assumes one of them.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(qpos_dim=qpos_dim)
+    result, demonstration, initial = generate.attempt(env, 0, {"save_freq": 1}, 1, 0)
+    assert result.rejection is None
+    assert demonstration.qpos_dim == qpos_dim and demonstration.qpos().shape[1] == qpos_dim
+    assert initial.robot_qpos.shape == (qpos_dim,)

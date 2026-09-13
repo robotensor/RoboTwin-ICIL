@@ -16,9 +16,6 @@ from typing import Any
 
 import numpy as np
 
-# RoboTwin's bimanual `joint_action.vector`: 6 arm joints + 1 gripper, per arm.
-BIMANUAL_QPOS_DIM = 14
-
 
 class DemonstrationError(ValueError):
     """A captured demonstration is not usable as policy context."""
@@ -31,6 +28,10 @@ class Frame:
     `qpos` is the robot's state when the frame was taken; the action that carried the robot from
     this frame to the next is `action`, which is the *next* frame's `qpos` for a position-controlled
     expert. The last frame has no action.
+
+    `qpos` is RoboTwin's `joint_action.vector`: the left arm's joints and gripper, then the right's.
+    Its width is the robot's — 14 on aloha-agilex, 16 on two Franka arms — so a frame only requires
+    a flat vector; the demonstration requires every frame to have the same one.
     """
 
     index: int
@@ -39,9 +40,9 @@ class Frame:
     endpose: dict[str, Any]
 
     def __post_init__(self) -> None:
-        if self.qpos.shape != (BIMANUAL_QPOS_DIM,):
+        if self.qpos.ndim != 1 or self.qpos.shape[0] == 0:
             raise DemonstrationError(
-                f"frame {self.index}: qpos has shape {self.qpos.shape}, expected ({BIMANUAL_QPOS_DIM},)"
+                f"frame {self.index}: qpos has shape {self.qpos.shape}, expected a flat joint vector"
             )
         for name, image in self.images.items():
             if image.ndim != 3 or image.shape[2] != 3:
@@ -76,6 +77,11 @@ class Demonstration:
                     f"frame {frame.index} has cameras {sorted(frame.images)}, "
                     f"expected {sorted(first)}"
                 )
+            if frame.qpos.shape[0] != self.qpos_dim:
+                raise DemonstrationError(
+                    f"frame {frame.index} has a {frame.qpos.shape[0]}-wide qpos, "
+                    f"expected {self.qpos_dim} like frame {self.frames[0].index}"
+                )
         if not self.cameras:
             object.__setattr__(self, "cameras", tuple(sorted(first)))
 
@@ -86,12 +92,17 @@ class Demonstration:
     def duration_s(self) -> float:
         return len(self.frames) / self.frequency
 
+    @property
+    def qpos_dim(self) -> int:
+        """Width of every frame's `qpos`: the robot's joint vector, 14 on aloha-agilex, 16 on Franka."""
+        return int(self.frames[0].qpos.shape[0])
+
     def qpos(self) -> np.ndarray:
-        """(T, 14) robot state over the demonstration."""
+        """(T, qpos_dim) robot state over the demonstration."""
         return np.stack([frame.qpos for frame in self.frames])
 
     def actions(self) -> np.ndarray:
-        """(T-1, 14) position targets, one per transition.
+        """(T-1, qpos_dim) position targets, one per transition.
 
         The expert is position-controlled through `take_dense_action`, so the action that produced a
         transition is the state it arrived at. A replay policy feeding these back through

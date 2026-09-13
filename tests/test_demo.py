@@ -1,10 +1,13 @@
 import numpy as np
 import pytest
 
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, DemonstrationError, Frame
+from robotwin_icil.demo import Demonstration, DemonstrationError, Frame
+
+# aloha-agilex's joint vector; a dual Franka's is 16. The container takes its width from its frames.
+QPOS_DIM = 14
 
 
-def frame(index: int, cameras=("head_camera",), qpos_dim=BIMANUAL_QPOS_DIM) -> Frame:
+def frame(index: int, cameras=("head_camera",), qpos_dim=QPOS_DIM) -> Frame:
     return Frame(
         index=index,
         images={name: np.full((4, 4, 3), index, dtype=np.uint8) for name in cameras},
@@ -13,15 +16,19 @@ def frame(index: int, cameras=("head_camera",), qpos_dim=BIMANUAL_QPOS_DIM) -> F
     )
 
 
-def demo(n=5, **kwargs) -> Demonstration:
-    return Demonstration(frames=tuple(frame(i) for i in range(n)), frequency=15, **kwargs)
+def demo(n=5, qpos_dim=QPOS_DIM, **kwargs) -> Demonstration:
+    return Demonstration(
+        frames=tuple(frame(i, qpos_dim=qpos_dim) for i in range(n)), frequency=15, **kwargs
+    )
 
 
-def test_shapes_and_derived_views():
-    d = demo(n=5)
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_shapes_and_derived_views(qpos_dim):
+    d = demo(n=5, qpos_dim=qpos_dim)
     assert len(d) == 5
     assert d.cameras == ("head_camera",)
-    assert d.qpos().shape == (5, BIMANUAL_QPOS_DIM)
+    assert d.qpos_dim == qpos_dim
+    assert d.qpos().shape == (5, qpos_dim)
     assert d.images("head_camera").shape == (5, 4, 4, 3)
     assert d.duration_s == pytest.approx(5 / 15)
 
@@ -31,7 +38,7 @@ def test_actions_are_the_next_state():
     # reproduces the trajectory. Off-by-one here would silently shift every replay rollout.
     d = demo(n=4)
     actions = d.actions()
-    assert actions.shape == (3, BIMANUAL_QPOS_DIM)
+    assert actions.shape == (3, QPOS_DIM)
     np.testing.assert_array_equal(actions, d.qpos()[1:])
 
 
@@ -45,9 +52,17 @@ def test_frequency_must_be_positive():
         Demonstration(frames=(frame(0), frame(1)), frequency=0)
 
 
-def test_frame_rejects_the_wrong_qpos_width():
+def test_frame_rejects_a_qpos_that_is_not_a_flat_vector():
     with pytest.raises(DemonstrationError):
-        frame(0, qpos_dim=7)
+        Frame(index=0, images={}, qpos=np.zeros((2, 7)), endpose={})
+    with pytest.raises(DemonstrationError):
+        Frame(index=0, images={}, qpos=np.zeros(0), endpose={})
+
+
+def test_qpos_width_must_not_change_mid_demonstration():
+    # A width is a robot; frames of two widths cannot be one robot's trajectory.
+    with pytest.raises(DemonstrationError, match="16-wide qpos, expected 14"):
+        Demonstration(frames=(frame(0), frame(1, qpos_dim=16)), frequency=15)
 
 
 def test_frame_rejects_a_non_rgb_image():
@@ -55,13 +70,13 @@ def test_frame_rejects_a_non_rgb_image():
         Frame(
             index=0,
             images={"head_camera": np.zeros((4, 4))},
-            qpos=np.zeros(BIMANUAL_QPOS_DIM),
+            qpos=np.zeros(QPOS_DIM),
             endpose={},
         )
 
 
 def test_cameras_must_not_change_mid_demonstration():
-    frames = (frame(0), Frame(index=1, images={}, qpos=np.zeros(BIMANUAL_QPOS_DIM), endpose={}))
+    frames = (frame(0), Frame(index=1, images={}, qpos=np.zeros(QPOS_DIM), endpose={}))
     with pytest.raises(DemonstrationError):
         Demonstration(frames=frames, frequency=15)
 

@@ -25,14 +25,16 @@ def spec(episode=0, attempts=5, global_seed=0):
     )
 
 
-def test_replay_succeeds_from_the_same_scene():
-    env = FakeTaskEnv()
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_replay_succeeds_from_the_same_scene(qpos_dim):
+    # 14 is aloha-agilex, 16 a dual Franka: the loop takes its widths from the robot it is given.
+    env = FakeTaskEnv(qpos_dim=qpos_dim)
     record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
     assert record.status is Status.SCORED and record.success
     assert record.evaluation_setting == SAME_SCENE and record.skill_category == "pick_and_place"
     assert record.steps == env.expert_steps and record.demonstration_frames == env.expert_steps + 1
     assert record.scene_seed == scene_seeds(0, 0, 5)[0]
-    assert robotwin.action_dims(env) == {"qpos": 14, "ee": 16}
+    assert robotwin.action_dims(env) == {"qpos": qpos_dim, "ee": 16}
 
 
 def test_the_rollout_starts_from_a_rebuilt_scene_not_the_experts_final_state():

@@ -84,15 +84,17 @@ def test_dummy_holds_the_current_state():
     )
 
 
-def test_actions_are_checked_against_the_robots_width():
-    # The width is the robot's, not a constant: an action of another robot's width is refused
-    # rather than mis-split by `take_action`.
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_actions_are_checked_against_the_robots_width(qpos_dim):
+    # The width is the robot's, not a constant: a dual Franka takes 16-wide qpos actions, and an
+    # action of the other robot's width is refused rather than mis-split by `take_action`.
+    dims = {"qpos": qpos_dim, "ee": 16}
     policy = ReplayPolicy()
     policy.reset()
-    policy.set_demonstration(demonstration())
-    assert policy.act(observation(), DIMS).shape == (1, QPOS_DIM)
-    with pytest.raises(PolicyError, match="expected \\(k, 16\\)"):
-        policy.act(observation(), {"qpos": 16, "ee": 16})
+    policy.set_demonstration(demonstration(qpos_dim=qpos_dim))
+    assert policy.act(observation(qpos_dim=qpos_dim), dims).shape == (1, qpos_dim)
+    with pytest.raises(PolicyError, match=f"expected \\(k, {30 - qpos_dim}\\)"):
+        policy.act(observation(qpos_dim=qpos_dim), {"qpos": 30 - qpos_dim, "ee": 16})
 
 
 class _WrongWidth(ICILPolicy):
