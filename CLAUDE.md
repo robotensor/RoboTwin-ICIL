@@ -80,8 +80,10 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   capture is a `_take_picture` override, not a patch to the submodule.
 - `robotwin.py` is the only module that may import from `vendor/RoboTwin`; every other module stays
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
-- Skill categories are data: `tasks.yml` maps every upstream task exactly once and a test fails when
-  `vendor/RoboTwin/envs/` and the table disagree. Suites are named there too; V1 is `v1`.
+- Skill categories and arm counts are data: `tasks.yml` maps every upstream task exactly once to a
+  `category` and an `arms` value (`1`, `switching`, `2`), and tests fail when
+  `vendor/RoboTwin/envs/` and the table disagree — on the task set, or on `arms` against `arms.py`'s
+  static read of `play_once`. Suites are named there too; V1 is `v1`.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,

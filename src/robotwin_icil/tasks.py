@@ -1,8 +1,10 @@
-"""The task table: which RoboTwin tasks the benchmark runs, and what skill each one exercises.
+"""The task table: which RoboTwin tasks the benchmark runs, what skill each one exercises, and how
+many arms its expert needs.
 
-The benchmark reports by manipulation skill category, so the mapping is data (``tasks.yml``) that
-every caller iterates, never a set of names spelled out in code. ``check_against_robotwin`` is what
-keeps the table honest when the pinned submodule moves.
+The benchmark reports by manipulation skill category and can restrict a run to one-arm tasks, so
+both are data (``tasks.yml``) that every caller iterates, never a set of names spelled out in
+code. ``check_against_robotwin`` and ``check_arms_against_robotwin`` are what keep the table
+honest when the pinned submodule moves.
 """
 
 from __future__ import annotations
@@ -13,10 +15,10 @@ from pathlib import Path
 
 import yaml
 
-TABLE_PATH = Path(__file__).with_name("tasks.yml")
+from . import arms as arms_
+from .arms import ARMS, NON_TASK_STEMS
 
-# Upstream files in `envs/` that are not tasks.
-_NON_TASK_STEMS = frozenset({"__init__", "_base_task", "_GLOBAL_CONFIGS"})
+TABLE_PATH = Path(__file__).with_name("tasks.yml")
 
 
 class TaskTableError(ValueError):
@@ -25,11 +27,13 @@ class TaskTableError(ValueError):
 
 @dataclass(frozen=True)
 class Task:
-    """One RoboTwin task and the skill category it is scored under."""
+    """One RoboTwin task, the skill category it is scored under, and the arms its expert uses."""
 
     name: str
     category: str
     category_label: str
+    # "1", "switching" or "2" (`arms.ARMS`), from a static read of the task's play_once.
+    arms: str
 
 
 @dataclass(frozen=True)
@@ -64,10 +68,21 @@ def load_table(path: Path = TABLE_PATH) -> TaskTable:
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     categories = dict(raw["categories"])
     tasks: dict[str, Task] = {}
-    for name, category in raw["tasks"].items():
+    for name, entry in raw["tasks"].items():
+        if not isinstance(entry, dict) or set(entry) != {"category", "arms"}:
+            raise TaskTableError(f"task {name!r} needs exactly `category` and `arms`")
+        category = entry["category"]
         if category not in categories:
             raise TaskTableError(f"task {name!r} has unknown category {category!r}")
-        tasks[name] = Task(name=name, category=category, category_label=categories[category])
+        # YAML reads `arms: 1` as an int; the table's vocabulary is the strings in ARMS.
+        arms = str(entry["arms"])
+        if arms not in ARMS:
+            raise TaskTableError(
+                f"task {name!r} has arms {entry['arms']!r}; expected one of {', '.join(ARMS)}"
+            )
+        tasks[name] = Task(
+            name=name, category=category, category_label=categories[category], arms=arms
+        )
 
     suites: dict[str, tuple[str, ...]] = {}
     for suite_name, members in raw["suites"].items():
@@ -94,7 +109,7 @@ def robotwin_task_names(robotwin_root: Path) -> frozenset[str]:
     envs = robotwin_root / "envs"
     if not envs.is_dir():
         raise TaskTableError(f"no RoboTwin checkout at {robotwin_root}; init the submodule")
-    return frozenset(path.stem for path in envs.glob("*.py") if path.stem not in _NON_TASK_STEMS)
+    return frozenset(path.stem for path in envs.glob("*.py") if path.stem not in NON_TASK_STEMS)
 
 
 def check_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None) -> None:
@@ -112,3 +127,22 @@ def check_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None)
         raise TaskTableError(
             f"{TABLE_PATH.name} names tasks RoboTwin does not ship: {', '.join(extra)}"
         )
+
+
+def check_arms_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None) -> None:
+    """Raise, naming the task, unless every task's ``arms`` matches a static read of its expert.
+
+    A one-arm run selects tasks by this value; a wrong one would score a two-arm expert as a
+    one-arm task, or hide a one-arm task from the run.
+    """
+    table_ = table_ or table()
+    check_against_robotwin(robotwin_root, table_)
+    verdicts = arms_.classify_all(robotwin_root / "envs")
+    disagreements = [
+        f"{name}: {TABLE_PATH.name} says {task.arms}, play_once says {verdicts[name].arms} "
+        f"({verdicts[name].evidence})"
+        for name, task in table_.tasks.items()
+        if task.arms != verdicts[name].arms
+    ]
+    if disagreements:
+        raise TaskTableError("arms disagree with RoboTwin:\n  " + "\n  ".join(disagreements))
