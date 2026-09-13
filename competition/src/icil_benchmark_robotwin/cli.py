@@ -62,6 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--no-video", action="store_true")
     run.set_defaults(func=cmd_run_unit)
 
+    ex = sub.add_parser(
+        "exhibit",
+        help="build the reference-measurement document for a run (no simulator)",
+    )
+    ex.add_argument("--run", required=True, help="the run directory to exhibit")
+    ex.add_argument("--oracle", default=None, help="a run to show as the ceiling, e.g. replay")
+    ex.add_argument("--prose", required=True, help="the sentences a person must write, as JSON")
+    ex.add_argument("--out", default=None, help="write here; sources are relative to it")
+    ex.set_defaults(func=cmd_exhibit)
+
     verify = sub.add_parser("verify", help="check a materialized prompt, with no simulator")
     verify.add_argument("--prompt", required=True)
     verify.add_argument("--task", default=None)
@@ -89,6 +99,36 @@ def cmd_units(args: Any) -> int:
         Path(args.out).write_text(text)
     else:
         print(text)
+    return 0
+
+
+def cmd_exhibit(args: Any) -> int:
+    """Rebuild a reference measurement's document from the run records.
+
+    Rebuilt rather than edited, so the published numbers follow the run as episodes land. Every
+    number comes from the records; every sentence comes from `--prose`, because a run cannot say
+    what the policy was *shown* and that is the one claim a reference exists to make.
+    """
+    from . import exhibit as exhibit_
+
+    out = Path(args.out) if args.out else None
+    try:
+        doc = exhibit_.build(
+            run_dir=args.run,
+            oracle_dir=args.oracle,
+            prose=exhibit_.load_prose(args.prose),
+            doc_dir=out.parent if out else None,
+        )
+    except exhibit_.ExhibitError as exc:
+        print(f"exhibit: {exc}", file=sys.stderr)
+        return 2
+    text = json.dumps(doc, indent=2) + "\n"
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(out)
+    else:
+        print(text, end="")
     return 0
 
 
