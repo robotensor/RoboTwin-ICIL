@@ -16,6 +16,12 @@ def test_a_survey_counts_successes_and_rejections_by_reason(monkeypatch):
     assert result.embodiment == "fake-arms" and result.to_json()["embodiment"] == "fake-arms"
 
 
+def test_a_survey_names_its_robot_even_with_nothing_measured():
+    # The robot is the config's, not a seed's: a row with no seeds still says which one.
+    result = survey.survey_task(FakeTaskEnv(), tasks.table()["click_bell"], [], FakeConfig())
+    assert result.seeds == 0 and result.embodiment == "fake-arms"
+
+
 def test_render_lists_every_task_with_its_rate(monkeypatch):
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
     table = tasks.table()

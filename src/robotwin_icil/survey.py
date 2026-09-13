@@ -52,11 +52,12 @@ class TaskSurvey:
 
 def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attempt) -> TaskSurvey:
     """Run the expert once per seed, exactly as an episode's generator would, and tally."""
-    result = TaskSurvey(task=task)
+    result = TaskSurvey(task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]))
     for index, seed in enumerate(seeds):
         started = time.monotonic()
+        # Resolved afresh per seed, as the generator does: nothing RoboTwin mutates while building
+        # one scene leaks into the next.
         args = config.resolve(task.name)
-        result.embodiment = str(args["embodiment_name"])
         outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
         result.seconds += time.monotonic() - started
         result.seeds += 1
