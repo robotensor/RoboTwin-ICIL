@@ -9,6 +9,11 @@
 
 This is `vendor/RoboTwin/scripts/eval_policy_xpolicylab.py:run_one_batch_episode` with the expert
 trajectory kept and handed to the policy instead of thrown away.
+
+The two halves are separate functions because they run in separate processes in a competition:
+`generate.attempt` builds the demonstration (and `unit.materialize` writes it to disk) and
+`evaluate` scores one from its fingerprint, whether that came from memory or from a file.
+`run_episode` is the two back to back.
 """
 
 from __future__ import annotations
@@ -20,10 +25,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .demo import Demonstration
 from .generate import Generated, generate, scene_seeds
 from .policy import ICILPolicy, Observation, PolicyError
 from .records import SAME_SCENE, EpisodeRecord, Status
-from .scene import compare, max_error
+from .scene import SceneFingerprint, compare, max_error
 from .tasks import Task
 from .video import EpisodeVideo
 
@@ -34,6 +40,23 @@ class EpisodeSpec:
     task: Task
     global_seed: int
     max_expert_attempts: int
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    """What evaluating one demonstration in its rebuilt scene found.
+
+    `valid` means the scene was rebuilt as the demonstration's and the policy acted in it;
+    `success` is then RoboTwin's verdict. Otherwise nothing was scored, `detail` says why, and
+    `success` is None.
+    """
+
+    valid: bool
+    success: bool | None
+    steps: int
+    step_limit: int | None
+    scene_max_error: float
+    detail: str
 
 
 def run_episode(
@@ -78,62 +101,105 @@ def run_episode(
             **fields,
         )
 
-    empty = dict(success=None, steps=0, step_limit=None, scene_max_error=0.0)
     if not generated.ok:
         return record(
             Status.REJECTED,
+            success=None,
+            steps=0,
+            step_limit=None,
+            scene_max_error=0.0,
             demonstration_frames=0,
             detail=f"no successful expert demonstration in {len(generated.attempts)} seeds",
-            **empty,
         )
 
     demonstration = generated.demonstration
     video_note = _film(video, lambda: video.demonstration(demonstration))
+    evaluation = evaluate(
+        task_env,
+        spec.task.name,
+        generated.seed,
+        config,
+        demonstration,
+        generated.initial,
+        policy,
+        video=video,
+        episode=spec.episode,
+    )
+    return record(
+        Status.SCORED if evaluation.valid else Status.INVALID,
+        success=evaluation.success,
+        steps=evaluation.steps,
+        step_limit=evaluation.step_limit,
+        scene_max_error=evaluation.scene_max_error,
+        demonstration_frames=len(demonstration),
+        detail=evaluation.detail + video_note,
+    )
+
+
+def evaluate(
+    task_env,
+    task_name: str,
+    seed: int,
+    config,
+    demonstration: Demonstration,
+    initial: SceneFingerprint,
+    policy: ICILPolicy,
+    video: EpisodeVideo | None = None,
+    episode: int = 0,
+) -> Evaluation:
+    """Rebuild the demonstration's scene, check it is the same one, and roll the policy out in it.
+
+    `initial` is the fingerprint taken when the demonstration was recorded; the rebuilt scene must
+    match it before the policy is even handed the demonstration. The env is closed on the way out
+    whatever happened. A `PolicyError` propagates, as in `run_episode`.
+    """
+    from . import robotwin
+
     try:
         task_env.setup_demo(
-            now_ep_num=spec.episode,
-            seed=generated.seed,
-            is_test=True,
-            **config.resolve(spec.task.name),
+            now_ep_num=episode, seed=seed, is_test=True, **config.resolve(task_name)
         )
     except Exception as exc:
         robotwin.close(task_env)
-        return record(
-            Status.INVALID,
-            demonstration_frames=len(demonstration),
-            detail=f"evaluation scene failed to build: {type(exc).__name__}: {exc}",
-            **empty,
-        )
+        return _not_scored(f"evaluation scene failed to build: {type(exc).__name__}: {exc}")
 
     try:
-        mismatches = compare(generated.initial, robotwin.fingerprint(task_env))
+        mismatches = compare(initial, robotwin.fingerprint(task_env))
         if mismatches:
             # The evaluation's first frame is the evidence for a reset bug; the episode is
             # already invalid, so observing it cannot change anything that is scored.
-            video_note += _film(video, lambda: _final_frame(video, task_env))
-            return record(
-                Status.INVALID,
-                demonstration_frames=len(demonstration),
-                detail="scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + video_note,
-                **{**empty, "scene_max_error": max_error(mismatches)},
+            note = _film(video, lambda: _final_frame(video, task_env))
+            return _not_scored(
+                "scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + note,
+                scene_max_error=max_error(mismatches),
             )
         policy.reset()
         policy.set_demonstration(demonstration)
         success, detail = rollout(
             task_env, policy, observe=video.observe if video is not None else None
         )
-        video_note += _film(video, lambda: _final_frame(video, task_env))
-        return record(
-            Status.SCORED,
+        note = _film(video, lambda: _final_frame(video, task_env))
+        return Evaluation(
+            valid=True,
             success=success,
             steps=int(task_env.take_action_cnt),
             step_limit=task_env.step_lim,
-            demonstration_frames=len(demonstration),
             scene_max_error=0.0,
-            detail=detail + video_note,
+            detail=detail + note,
         )
     finally:
         robotwin.close(task_env)
+
+
+def _not_scored(detail: str, scene_max_error: float = 0.0) -> Evaluation:
+    return Evaluation(
+        valid=False,
+        success=None,
+        steps=0,
+        step_limit=None,
+        scene_max_error=scene_max_error,
+        detail=detail,
+    )
 
 
 def rollout(
