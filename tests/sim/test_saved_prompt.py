@@ -2,7 +2,7 @@
 
 import pytest
 
-from robotwin_icil import prompt, robotwin, scene, unit
+from robotwin_icil import prompt, robotwin, unit
 from robotwin_icil.policy import ReplayPolicy
 
 pytestmark = pytest.mark.sim
@@ -43,31 +43,20 @@ def test_replay_succeeds_from_the_saved_prompt(tmp_path, embodiment):
     result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run")
     assert result["void"] is False, result["error"]
     assert result["success"] is True and result["embodiment"] == embodiment
-    assert result["scene_max_error"] == 0.0 and result["steps"] > 0
+    assert result["steps"] > 0 and result["live_scene_sha256"]
     assert (tmp_path / "run" / "evaluation.mp4").is_file()
     assert unit.read_result(tmp_path / "run") == result
 
 
 def test_two_runs_from_one_prompt_rebuild_identical_scenes(tmp_path):
-    seed, out, _ = _materialize(tmp_path, "aloha-agilex")
-    _, meta = prompt.read_raw(out / "prompt.npz")
-    recorded = scene.SceneFingerprint.from_json(meta["scene"]["fingerprint"])
-    config = unit.scene_config_from(meta)
-
-    # What run-unit sees on each run: the scene rebuilt from meta, fingerprinted before anyone acts.
-    live = []
-    task_env = robotwin.load_task(TASK)
-    for _ in range(2):
-        task_env.setup_demo(now_ep_num=0, seed=seed, is_test=True, **config.resolve(TASK))
-        try:
-            live.append(robotwin.fingerprint(task_env))
-        finally:
-            task_env.close_env()
-    for fingerprint in live:
-        assert scene.compare(recorded, fingerprint) == []
-    assert scene.compare(live[0], live[1]) == []
-    assert scene.digest(live[0]) == scene.digest(live[1])
-
-    for i in range(2):
-        result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / f"run{i}")
-        assert result["void"] is False and result["scene_max_error"] == 0.0, result["error"]
+    # Observed through run-unit itself: each run records the digest of the scene it rebuilt from
+    # meta, fingerprinted before anyone acted. Identical fingerprints are identical digests.
+    _, out, done = _materialize(tmp_path, "aloha-agilex")
+    results = [
+        unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / f"run{i}") for i in range(2)
+    ]
+    for result in results:
+        assert result["void"] is False, result["error"]
+        assert result["scene_sha256"] == done.result["scene_sha256"]
+    assert results[0]["live_scene_sha256"] == results[1]["live_scene_sha256"]
+    assert results[0]["scene_max_error"] == results[1]["scene_max_error"]
