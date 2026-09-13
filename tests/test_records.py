@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from robotwin_icil.records import (
     RunManifest,
     Status,
     git_commit,
+    write_json,
 )
 
 
@@ -169,3 +171,30 @@ def test_records_written_before_a_run_could_choose_its_robot_are_aloha():
     assert EpisodeRecord.from_json(data).embodiment == "franka-panda"
     data.pop("embodiment")
     assert EpisodeRecord.from_json(data).embodiment == "aloha-agilex"
+
+
+def test_write_json_replaces_the_file_whole_and_keeps_key_order(tmp_path):
+    path = tmp_path / "out.json"
+    path.write_text("old", encoding="utf-8")
+    write_json(path, [{"task": "click_bell", "seeds": 2, "arms": ["left"]}])
+    text = path.read_text(encoding="utf-8")
+    assert json.loads(text) == [{"task": "click_bell", "seeds": 2, "arms": ["left"]}]
+    assert text.index('"task"') < text.index('"seeds"') < text.index('"arms"')
+    assert text.endswith("\n") and not path.with_suffix(".json.tmp").exists()
+
+
+def test_write_json_torn_mid_write_leaves_the_previous_file(tmp_path, monkeypatch):
+    # A survey runs for hours and rewrites its json after every task; a kill that lands during
+    # the write must leave the last complete payload, not a truncated one.
+    path = tmp_path / "out.json"
+    path.write_text('{"complete": true}\n', encoding="utf-8")
+    original = Path.write_text
+
+    def torn(self, text, *args, **kwargs):
+        original(self, text[: len(text) // 2], *args, **kwargs)
+        raise OSError("killed mid-write")
+
+    monkeypatch.setattr(Path, "write_text", torn)
+    with pytest.raises(OSError):
+        write_json(path, {"complete": False, "more": list(range(50))})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"complete": True}

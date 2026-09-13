@@ -156,7 +156,7 @@ class RunDir:
                     f"{self.path} already holds a different run; choose a new --run-dir"
                 )
             return
-        _write_json(self.manifest_path, manifest.to_json())
+        write_json(self.manifest_path, manifest.to_json(), sort_keys=True)
 
     def manifest(self) -> RunManifest:
         if not self.manifest_path.exists():
@@ -195,9 +195,14 @@ class RunDir:
         return {record.episode for record in self.records()}
 
 
-def _write_json(path: Path, data: dict[str, Any]) -> None:
+def write_json(path: Path, data: Any, *, sort_keys: bool = False) -> None:
+    """Replace `path` with `data` as JSON, whole or not at all.
+
+    The text goes to a sibling `.tmp` and is renamed into place, so a process killed mid-write
+    leaves the previous file rather than a truncated one.
+    """
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=sort_keys) + "\n", encoding="utf-8")
     tmp.replace(path)
 
 
