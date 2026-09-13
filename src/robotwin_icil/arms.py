@@ -19,7 +19,9 @@ The rule, from a read of every expert at the pinned commit:
 An identity is what an arm expression resolves to through the expert's own assignments: the
 literal ``"left"`` or ``"right"``, ``opposite(...)`` of another identity, or the text of the
 expression that chooses it (``ArmTag("left" if x < 0 else "right")``). Two uses of the same
-choice are one arm; a second, different choice is another.
+choice are one arm; a second, different choice is another. A name is resolved in the function
+that uses it: a helper's parameter is whatever its call sites pass (or its default), and a
+nested def reads the function it is written in.
 """
 
 from __future__ import annotations
@@ -111,6 +113,8 @@ class _Unit:
     """One function the expert runs: a method or a nested def, and how often it is entered."""
 
     node: ast.FunctionDef
+    # The unit a nested def is written in, whose locals it reads; None for a method.
+    parent: str | None
     repeated: bool = False
     calls: int = 0
 
@@ -123,15 +127,23 @@ class _Use:
     line: int
 
 
+# Where a name is bound: the unit for a local, `self` for an attribute of the task.
+_Scope = tuple[str, str]
+_SELF = "self"
+
+
 class _Expert:
     def __init__(self, cls: ast.ClassDef, name: str) -> None:
         self.name = name
         self.methods = {n.name: n for n in cls.body if isinstance(n, ast.FunctionDef)}
+        self.nested: dict[str, str] = {}
         self.units: dict[str, _Unit] = {}
-        self.assignments: dict[str, list[ast.expr]] = {}
+        self.assignments: dict[_Scope, list[ast.expr]] = {}
+        # A helper's parameter, and what each call site passes for it: (caller unit, expression).
+        self.arguments: dict[_Scope, list[tuple[str, ast.expr]]] = {}
         self._collect("play_once", repeated=False)
-        for unit in self.units.values():
-            self._gather_assignments(unit.node)
+        for unit_name, unit in self.units.items():
+            self._gather_assignments(unit_name, unit.node)
 
     # -- collection -------------------------------------------------------------------------
 
@@ -144,15 +156,18 @@ class _Expert:
             if unit.repeated:
                 self._propagate(unit)
             return
-        unit = self.units[name] = _Unit(self.methods[name], repeated=repeated, calls=1)
+        unit = self.units[name] = _Unit(
+            self.methods[name], parent=self.nested.get(name), repeated=repeated, calls=1
+        )
         self._walk_calls(unit)
 
     def _walk_calls(self, unit: _Unit) -> None:
-        """Register every helper `unit` calls, and whether it is called from a loop."""
+        """Register every helper `unit` calls, what it passes, and whether it calls from a loop."""
         for node, _ in _iter_body(unit.node):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, ast.FunctionDef) and node.name not in self.methods:
                 # A nested def is its own unit; its call sites decide whether it repeats.
-                self.methods.setdefault(node.name, node)
+                self.methods[node.name] = node
+                self.nested[node.name] = unit.node.name
         for node, in_loop in _iter_body(unit.node):
             if not isinstance(node, ast.Call):
                 continue
@@ -161,7 +176,21 @@ class _Expert:
                 continue
             if callee in _MOTIONS or callee == _MOVE:
                 continue
+            self._bind_arguments(unit.node.name, callee, node)
             self._collect(callee, repeated=unit.repeated or in_loop)
+
+    def _bind_arguments(self, caller: str, callee: str, call: ast.Call) -> None:
+        """Record what `call` passes for each parameter of `callee`; its default otherwise."""
+        params, defaults = _parameters(self.methods[callee])
+        passed = {
+            **dict(zip(params, call.args, strict=False)),
+            **{kw.arg: kw.value for kw in call.keywords if kw.arg in params},
+        }
+        for param in params:
+            if param in passed:
+                self.arguments.setdefault((callee, param), []).append((caller, passed[param]))
+            elif param in defaults:
+                self.arguments.setdefault((callee, param), []).append((callee, defaults[param]))
 
     def _propagate(self, unit: _Unit) -> None:
         """A helper entered more than once repeats everything it calls."""
@@ -172,7 +201,7 @@ class _Expert:
                     self.units[callee].repeated = True
                     self._propagate(self.units[callee])
 
-    def _gather_assignments(self, function: ast.FunctionDef) -> None:
+    def _gather_assignments(self, unit_name: str, function: ast.FunctionDef) -> None:
         for node, _ in _iter_body(function):
             if not isinstance(node, ast.Assign):
                 continue
@@ -181,34 +210,51 @@ class _Expert:
                 if isinstance(target, ast.Tuple) and isinstance(node.value, ast.Tuple):
                     pairs = list(zip(target.elts, node.value.elts, strict=False))
                 for name, value in pairs:
-                    key = _key(name)
-                    if key is not None:
-                        self.assignments.setdefault(key, []).append(value)
+                    scope = _scope(unit_name, name)
+                    if scope is not None:
+                        self.assignments.setdefault(scope, []).append(value)
 
     # -- identities -------------------------------------------------------------------------
 
-    def identity(self, expr: ast.expr, seen: frozenset[str] = frozenset()) -> frozenset[str]:
+    def identity(
+        self, expr: ast.expr, unit_name: str, seen: frozenset[_Scope] = frozenset()
+    ) -> frozenset[str]:
+        """What `expr`, written in `unit_name`, resolves to."""
         if isinstance(expr, ast.Constant):
             return frozenset({expr.value}) if expr.value in _LITERALS else frozenset()
         if isinstance(expr, ast.Attribute) and expr.attr == "opposite":
-            return frozenset(f"opposite({i})" for i in self.identity(expr.value, seen))
+            return frozenset(f"opposite({i})" for i in self.identity(expr.value, unit_name, seen))
         if isinstance(expr, ast.Call) and _plain_name(expr) == _TAG_CLASS and expr.args:
             inner = expr.args[0]
             if isinstance(inner, ast.Constant | ast.Name | ast.Attribute):
-                return self.identity(inner, seen)
+                return self.identity(inner, unit_name, seen)
             return frozenset({f"chosen({ast.unparse(inner)})"})
-        key = _key(expr)
-        if key is not None:
-            if key in seen:
-                return frozenset()
-            values = self.assignments.get(key)
-            if not values:
-                return frozenset({key})
-            found: set[str] = set()
-            for value in values:
-                found |= self.identity(value, seen | {key})
-            return frozenset(found)
+        scope = _scope(unit_name, expr)
+        if scope is not None:
+            return self._resolve(scope, seen)
         return frozenset({f"chosen({ast.unparse(expr)})"})
+
+    def _resolve(self, scope: _Scope, seen: frozenset[_Scope]) -> frozenset[str]:
+        """Every identity a binding takes: its assignments, the arguments passed for it, or
+        the enclosing function's binding of the same name for a nested def."""
+        if scope in seen:
+            return frozenset()
+        seen = seen | {scope}
+        found: set[str] = set()
+        bound = False
+        for value in self.assignments.get(scope, ()):
+            bound = True
+            found |= self.identity(value, scope[0], seen)
+        for caller, argument in self.arguments.get(scope, ()):
+            bound = True
+            found |= self.identity(argument, caller, seen)
+        if bound:
+            return frozenset(found)
+        unit_name, name = scope
+        unit = self.units.get(unit_name)
+        if unit is not None and unit.parent is not None and name not in _parameters(unit.node)[0]:
+            return self._resolve((unit.parent, name), seen)
+        return frozenset({f"self.{name}" if unit_name == _SELF else name})
 
     # -- the rule ---------------------------------------------------------------------------
 
@@ -236,13 +282,13 @@ class _Expert:
                         together = node.lineno
                     for arg in args:
                         if isinstance(arg, ast.Tuple) and arg.elts:
-                            acting.append(_Use(self.identity(arg.elts[0]), node.lineno))
+                            acting.append(_Use(self.identity(arg.elts[0], unit_name), node.lineno))
                 elif method in _MOTIONS and method != _RETREAT:
                     arm = _arm_argument(node, _MOTIONS[method])
                     if arm is not None:
-                        acting.append(_Use(self.identity(arm), node.lineno))
+                        acting.append(_Use(self.identity(arm, unit_name), node.lineno))
                 elif _plain_name(node) == _ACTION_CLASS and node.args:
-                    acting.append(_Use(self.identity(node.args[0]), node.lineno))
+                    acting.append(_Use(self.identity(node.args[0], unit_name), node.lineno))
                 elif _plain_name(node) == _TAG_CLASS and node.args:
                     inner = node.args[0]
                     if (
@@ -306,17 +352,36 @@ def _plain_name(call: ast.Call) -> str | None:
     return call.func.id if isinstance(call.func, ast.Name) else None
 
 
-def _key(expr: ast.expr) -> str | None:
-    """The assignment key of a name or a `self.<attr>`; None for anything else."""
+def _scope(unit_name: str, expr: ast.expr) -> _Scope | None:
+    """Where a name written in `unit_name` is bound: the unit for a local, `self` for a
+    `self.<attr>`; None for anything that is not a binding."""
     if isinstance(expr, ast.Name):
-        return expr.id
+        return (unit_name, expr.id)
     if (
         isinstance(expr, ast.Attribute)
         and isinstance(expr.value, ast.Name)
-        and expr.value.id == "self"
+        and expr.value.id == _SELF
     ):
-        return f"self.{expr.attr}"
+        return (_SELF, expr.attr)
     return None
+
+
+def _parameters(function: ast.FunctionDef) -> tuple[list[str], dict[str, ast.expr]]:
+    """The parameter names of `function` (without `self`) and the defaults some of them carry."""
+    args = function.args
+    positional = args.posonlyargs + args.args
+    names = [arg.arg for arg in positional + args.kwonlyargs]
+    # Defaults belong to the last positional parameters.
+    with_default = positional[len(positional) - len(args.defaults) :]
+    defaults = dict(zip([arg.arg for arg in with_default], args.defaults, strict=True))
+    defaults.update(
+        (arg.arg, default)
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False)
+        if default is not None
+    )
+    if names and names[0] == _SELF:
+        names = names[1:]
+    return names, defaults
 
 
 def _move_args(call: ast.Call) -> list[ast.expr]:

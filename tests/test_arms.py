@@ -191,6 +191,85 @@ def test_a_helper_written_as_a_nested_function_is_read():
     assert verdict.arms == arms.TWO
 
 
+def test_a_nested_function_reads_the_arm_its_play_once_chose():
+    verdict = classify(
+        """
+        arm_tag = ArmTag("left" if self.tray.get_pose().p[0] < 0 else "right")
+        def hold():
+            self.move(self.grasp_actor(self.tray, arm_tag=arm_tag.opposite))
+        self.move(self.grasp_actor(self.thing, arm_tag=arm_tag))
+        hold()
+        """
+    )
+    assert verdict.arms == arms.TWO
+    assert "opposite(chosen(" in verdict.evidence
+
+
+def test_an_arm_handed_to_a_helper_is_read_at_each_call_site():
+    # The helper moves whatever arm it is given, and the call sites give it both.
+    verdict = classify(
+        """
+        arm_tag = ArmTag("left" if self.box.get_pose().p[0] < 0 else "right")
+        self.pick(self.box, arm_tag)
+        self.pick(self.tray, arm_tag.opposite)
+        """,
+        """
+            def pick(self, thing, arm):
+                self.move(self.grasp_actor(thing, arm_tag=arm, pre_grasp_dis=0.1))
+                self.move(self.move_by_displacement(arm, z=0.1))
+        """,
+    )
+    assert verdict.arms == arms.TWO
+    assert "opposite(chosen(" in verdict.evidence
+
+
+def test_a_helper_given_a_fixed_arm_at_each_call_site_is_two_arms():
+    verdict = classify(
+        """
+        self.pick(self.box, ArmTag("left"))
+        self.pick(self.tray, arm=ArmTag("right"))
+        """,
+        """
+            def pick(self, thing, arm):
+                self.move(self.grasp_actor(thing, arm_tag=arm))
+        """,
+    )
+    assert verdict.arms == arms.TWO
+    assert "left" in verdict.evidence and "right" in verdict.evidence
+
+
+def test_a_helper_parameter_default_counts_where_a_call_site_omits_it():
+    verdict = classify(
+        """
+        arm_tag = ArmTag("left" if self.box.get_pose().p[0] < 0 else "right")
+        self.pick(self.box, arm_tag)
+        self.pick(self.tray)
+        """,
+        """
+            def pick(self, thing, arm=ArmTag("left")):
+                self.move(self.grasp_actor(thing, arm_tag=arm))
+        """,
+    )
+    assert verdict.arms == arms.TWO
+
+
+def test_a_helper_given_the_same_arm_at_each_call_site_is_one_arm():
+    verdict = classify(
+        """
+        arm_tag = ArmTag("left" if self.box.get_pose().p[0] < 0 else "right")
+        self.pick(self.box, arm_tag)
+        self.pick(self.tray, arm=arm_tag)
+        """,
+        """
+            def pick(self, thing, arm=ArmTag("left")):
+                self.move(self.grasp_actor(thing, arm_tag=arm))
+                for _ in range(2):
+                    self.move(self.move_by_displacement(arm, z=0.02))
+        """,
+    )
+    assert verdict.arms == arms.ONE
+
+
 # --- switching --------------------------------------------------------------------------------
 
 
