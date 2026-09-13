@@ -263,6 +263,8 @@ def test_a_prompt_from_another_scene_is_caught_by_the_live_fingerprint(tmp_path)
         (lambda meta: meta.__setitem__("scene_seed", "11"), "not an integer"),
         (lambda meta: meta.__setitem__("save_freq", "fifteen"), "malformed"),
         (lambda meta: meta["scene"].__setitem__("fingerprint", {"actors": {}}), "malformed"),
+        (lambda meta: meta.__setitem__("task", "nope"), "task 'nope' is not one"),
+        (lambda meta: meta.__setitem__("task", 5), "task 5 is not one"),
     ],
 )
 def test_a_malformed_meta_voids_the_unit_before_any_scene(tmp_path, edit, reason):
@@ -271,6 +273,21 @@ def test_a_malformed_meta_voids_the_unit_before_any_scene(tmp_path, edit, reason
     env = FakeTaskEnv()
     result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
     assert result["void"] and result["success"] is None and reason in result["error"]
+    assert env.setups == []
+
+
+def test_a_config_the_simulator_refuses_voids_the_unit(tmp_path, monkeypatch):
+    # A meta whose config RoboTwin will not take (an unknown robot, an override it refuses) is
+    # the prompt's fault, not a harness error that ends the command.
+    _, out = materialized(tmp_path)
+
+    def refuse(**fields):
+        raise robotwin.RoboTwinError("unknown embodiment 'ur5-wsg'")
+
+    monkeypatch.setattr(robotwin, "SceneConfig", refuse)
+    env = FakeTaskEnv()
+    result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
+    assert result["void"] and "unknown embodiment 'ur5-wsg'" in result["error"]
     assert env.setups == []
 
 

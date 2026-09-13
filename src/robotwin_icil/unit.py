@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import generate
+from . import generate, tasks
 from .demo import Demonstration
 from .episode import evaluate
 from .policy import ICILPolicy
@@ -205,12 +205,21 @@ def build_meta(
 def recorded_scene(meta: dict[str, Any]) -> SceneFingerprint:
     """The fingerprint `meta` carries, once its digest has been shown to be that fingerprint's.
 
-    A meta edited after it was written — a seed, a pose, the digest itself — no longer digests
-    to what it claims, and is refused before any scene is built.
+    The digest covers the fingerprint alone: an edited pose, fingerprint or digest no longer
+    matches and is refused here, before any scene is built. An edited seed, task config or robot
+    leaves the digest intact and is caught instead by the rebuilt scene's fingerprint, which then
+    differs from the recorded one. Neither is tamper-proof against someone who rewrites both;
+    the prompt's sha256, published before either side runs, is what a third party checks.
     """
     for key in ("task", "scene_seed", "task_config", "save_freq", "embodiment", "scene"):
         if key not in meta:
             raise PromptError(f"prompt meta has no {key!r}")
+    try:
+        tasks.table()[meta["task"]]
+    except (tasks.TaskTableError, TypeError):
+        raise PromptError(
+            f"prompt meta's task {meta['task']!r} is not one this benchmark has"
+        ) from None
     if not isinstance(meta["embodiment"], dict) or "name" not in meta["embodiment"]:
         raise PromptError("prompt meta's embodiment has no name")
     if isinstance(meta["scene_seed"], bool) or not isinstance(meta["scene_seed"], int):
@@ -321,6 +330,8 @@ def run_unit(
         config = scene_config_from(meta)
     except PromptError as exc:
         return void(str(exc))
+    except robotwin.RoboTwinError as exc:
+        return void(f"prompt meta's scene config is refused: {exc}")
     except (KeyError, TypeError, ValueError) as exc:
         return void(f"prompt meta is malformed: {type(exc).__name__}: {exc}")
 
