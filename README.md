@@ -154,7 +154,7 @@ src/robotwin_icil/
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
-  survey.py                 the expert's own success rate per task
+  survey.py                 the expert's own success rate per task, and which arms it moved
   robotwin.py               the only module that imports RoboTwin
   cli.py
 docs/                       installation, policy adapters, the expert survey

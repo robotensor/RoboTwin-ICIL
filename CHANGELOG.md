@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- (feat): the survey records every seed, and for every demonstration which arms moved. Each task's
+  JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection), frames, `arms_moved`,
+  seconds — and the counts `one_arm_demonstrations`, `two_arm_demonstrations` and
+  `no_arm_demonstrations`; the table gains a *one-arm* column. `demo.arms_moved` reads the arms
+  from the joint trajectory: the qpos row splits into a left and a right half on every embodiment
+  RoboTwin ships, and an arm moved if any of its joints or its gripper left its first-frame value
+  by more than 0.05 at any frame. A task's `arms: 1` is thereby measured on what the expert did,
+  not only read from its source (#83).
 - (feat): every task declares how many arms its expert needs. `tasks.yml` entries become
   `{category, arms}` with `arms: 1 | switching | 2` (26 / 6 / 18 tasks), `arms.py` re-derives the
   value from a static read of each `play_once` in the pinned checkout, and a test fails naming any

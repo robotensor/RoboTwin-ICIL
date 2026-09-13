@@ -45,6 +45,13 @@ the table, and remains the harness's smoke-test task.
 
 **Reading the table.**
 
+- *one-arm* (in `robotwin-icil survey`'s own table; the V1 survey above predates it): of the
+  successful demonstrations, how many moved exactly one arm. An arm moved if any of its joints
+  or its gripper left its first-frame value by more than 0.05 at any frame of the demonstration.
+  The JSON carries the same per seed (`seeds_detail[].arms_moved`, `["left"]`, `["right"]`,
+  both, or `[]`) and as counts: `one_arm_demonstrations`, `two_arm_demonstrations` and
+  `no_arm_demonstrations`, which partition the successes. A task belongs in a one-arm suite
+  only when every one of its successful demonstrations moved exactly one arm.
 - *missed*: the expert ran to completion and RoboTwin's success check said no.
 - *plan failed*: motion planning reported failure (`plan_success` false).
 - *error*: `play_once()` raised — typically "target_pose cannot be None", no feasible grasp.
