@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .arms import TWO
+from .arms import ONE, TWO
 
 SAME_SCENE = "same_scene"
 
@@ -108,6 +108,12 @@ class RunManifest:
     # "1" when the run asked for one-arm tasks only. Runs recorded before the field existed ran
     # whatever they named, which is what "2" means, so they load unchanged.
     arms: str = TWO
+
+    def __post_init__(self) -> None:
+        if self.arms not in (ONE, TWO):
+            raise RecordError(
+                f"a run asks for arms {ONE} or {TWO}; the manifest says {self.arms!r}"
+            )
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
