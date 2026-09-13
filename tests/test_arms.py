@@ -6,22 +6,26 @@ import pytest
 
 from robotwin_icil import arms
 
+SCENE = 'self.arm_tag = ArmTag("left" if self.thing.get_pose().p[0] < 0 else "right")'
 
-def expert(play_once: str, helpers: str = "") -> str:
+
+def expert(play_once: str, helpers: str = "", load_actors: str = SCENE) -> str:
     """A task module with `play_once` (and helper methods) in RoboTwin's shape.
 
-    `play_once` is the method body, `helpers` further methods; both are dedented first, so the
-    fixtures read naturally. The first body line lands on line 9.
+    `play_once` is the method body, `helpers` further methods, `load_actors` the scene builder's
+    body; each is dedented first, so the fixtures read naturally. The first line of `play_once`
+    lands on line 9 when `load_actors` is the default one line.
     """
     body = indent(dedent(play_once).strip("\n"), " " * 8)
     extra = indent(dedent(helpers).strip("\n"), " " * 4)
+    scene = indent(dedent(load_actors).strip("\n"), " " * 8)
     return (
         "from ._base_task import Base_Task\n"
         "from .utils import ArmTag, Action\n"
         "\n"
         "class Fixture(Base_Task):\n"
         "    def load_actors(self):\n"
-        '        self.arm_tag = ArmTag("left" if self.thing.get_pose().p[0] < 0 else "right")\n'
+        f"{scene}\n"
         "\n"
         "    def play_once(self):\n"
         f"{body}\n"
@@ -33,8 +37,8 @@ def expert(play_once: str, helpers: str = "") -> str:
     )
 
 
-def classify(play_once: str, helpers: str = "") -> arms.Verdict:
-    return arms.classify_source(expert(play_once, helpers), "fixture")
+def classify(play_once: str, helpers: str = "", load_actors: str = SCENE) -> arms.Verdict:
+    return arms.classify_source(expert(play_once, helpers, load_actors), "fixture")
 
 
 # --- one arm ----------------------------------------------------------------------------------
@@ -96,6 +100,7 @@ def test_an_arm_bound_in_both_branches_of_an_if_per_object_is_switching():
 
 
 def test_an_arm_chosen_in_load_actors_is_one_arm():
+    # move_can_pot chooses its arm while building the scene and keeps it on self.
     verdict = classify(
         """
         self.move(self.grasp_actor(self.thing, arm_tag=self.arm_tag))
@@ -103,7 +108,45 @@ def test_an_arm_chosen_in_load_actors_is_one_arm():
         """
     )
     assert verdict.arms == arms.ONE
-    assert "self.arm_tag" in verdict.evidence
+    assert "chosen(" in verdict.evidence
+
+
+def test_two_attributes_set_to_the_same_arm_in_load_actors_are_one_arm():
+    verdict = classify(
+        """
+        self.move(self.grasp_actor(self.thing, arm_tag=self.arm_tag))
+        self.move(self.move_by_displacement(self.grasp_arm, z=0.1))
+        """,
+        load_actors=f"""
+        {SCENE}
+        self.grasp_arm = self.arm_tag
+        """,
+    )
+    assert verdict.arms == arms.ONE
+
+
+def test_an_arm_the_scene_builder_chose_per_object_is_still_one_arm():
+    # load_actors runs before the expert; what play_once sees is the last value it left.
+    verdict = classify(
+        """
+        self.move(self.grasp_actor(self.thing, arm_tag=self.arm_tag))
+        """,
+        load_actors="""
+        for thing in self.things:
+            self.arm_tag = ArmTag("left" if thing.get_pose().p[0] < 0 else "right")
+        """,
+    )
+    assert verdict.arms == arms.ONE
+
+
+def test_an_attribute_no_method_sets_is_its_own_arm():
+    verdict = classify(
+        """
+        self.move(self.grasp_actor(self.thing, arm_tag=self.default_arm))
+        """,
+        load_actors="pass",
+    )
+    assert verdict == arms.Verdict(arms.ONE, "one arm, self.default_arm (line 9)")
 
 
 def test_a_raw_action_on_the_chosen_arm_is_still_one_arm():

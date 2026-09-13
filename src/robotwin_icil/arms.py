@@ -23,7 +23,9 @@ literal ``"left"`` or ``"right"``, ``opposite(...)`` of another identity, or the
 expression that chooses it (``ArmTag("left" if x < 0 else "right")``). Two uses of the same
 choice are one arm; a second, different choice is another. A name is resolved in the function
 that uses it: a helper's parameter is whatever its call sites pass (or its default), and a
-nested def reads the function it is written in.
+nested def reads the function it is written in. An attribute of the task resolves through every
+method the expert reaches and through ``load_actors``, where an expert may choose its arm while
+building the scene.
 """
 
 from __future__ import annotations
@@ -134,6 +136,7 @@ class _Use:
 # Where a name is bound: the unit for a local, `self` for an attribute of the task.
 _Scope = tuple[str, str]
 _SELF = "self"
+_SCENE = "load_actors"
 
 
 class _Expert:
@@ -150,6 +153,10 @@ class _Expert:
         self._collect("play_once", repeated=False)
         for unit_name, unit in self.units.items():
             self._scan(unit_name, unit)
+        # The scene builder runs once, before the expert, and may leave the chosen arm on self.
+        # What the expert sees is its last value, so nothing it does is a per-object choice.
+        if _SCENE in self.methods and _SCENE not in self.units:
+            self._scan(_SCENE, _Unit(self.methods[_SCENE], parent=None), choices=False)
 
     # -- collection -------------------------------------------------------------------------
 
@@ -207,12 +214,12 @@ class _Expert:
                     self.units[callee].repeated = True
                     self._propagate(self.units[callee])
 
-    def _scan(self, unit_name: str, unit: _Unit) -> None:
+    def _scan(self, unit_name: str, unit: _Unit, choices: bool = True) -> None:
         """Gather the unit's assignments, and note every expression it evaluates per object —
         inside a loop, or anywhere in a unit that is entered more than once."""
         merged: set[int] = set()
         for node, in_loop in _iter_body(unit.node):
-            per_object = in_loop or unit.repeated
+            per_object = choices and (in_loop or unit.repeated)
             if (
                 per_object
                 and isinstance(node, ast.expr)
