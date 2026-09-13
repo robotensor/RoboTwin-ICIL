@@ -125,6 +125,7 @@ class FakeTaskEnv:
         qpos_dim=QPOS_DIM,
         moves=("left", "right"),
         physics_per_action=1,
+        rebuild_raises=False,
     ):
         self.unstable_seeds = set(unstable_seeds)
         self.plan_fails_on = set(plan_fails_on)
@@ -142,6 +143,8 @@ class FakeTaskEnv:
         self.qpos_dim = qpos_dim
         self.moves = set(moves)  # the arms the expert drives; the others stay at their start
         self.physics_per_action = physics_per_action
+        # The evaluation's rebuild of a seed fails where its first build did not.
+        self.rebuild_raises = rebuild_raises
         self.save_data = False
         self.save_freq = None
         self.get_obs_calls = 0  # each one would ray-trace every camera
@@ -160,6 +163,8 @@ class FakeTaskEnv:
             raise FakeUnstable(f"objects unstable in seed {seed}")
         if self.broken_setup or seed in self.setup_raises_on:
             raise RuntimeError(f"planner failed to construct for seed {seed}")
+        if self.rebuild_raises and seed in self.builds:
+            raise RuntimeError(f"planner failed to rebuild seed {seed}")
         self.builds[seed] = self.builds.get(seed, 0) + 1
         rng = np.random.default_rng(seed)
         self.target = rng.uniform(-1.0, 1.0, self.qpos_dim)

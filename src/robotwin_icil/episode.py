@@ -124,6 +124,7 @@ def run_episode(
         policy,
         video=video,
         episode=spec.episode,
+        note=video_note,
     )
     return record(
         Status.SCORED if evaluation.valid else Status.INVALID,
@@ -132,7 +133,7 @@ def run_episode(
         step_limit=evaluation.step_limit,
         scene_max_error=evaluation.scene_max_error,
         demonstration_frames=len(demonstration),
-        detail=evaluation.detail + video_note,
+        detail=evaluation.detail,
     )
 
 
@@ -147,12 +148,14 @@ def evaluate(
     video: EpisodeVideo | None = None,
     episode: int = 0,
     score_policy_faults: bool = False,
+    note: str = "",
 ) -> Evaluation:
     """Rebuild the demonstration's scene, check it is the same one, and roll the policy out in it.
 
     `initial` is the fingerprint taken when the demonstration was recorded; the rebuilt scene must
     match it before the policy is even handed the demonstration. The env is closed on the way out
-    whatever happened.
+    whatever happened. `note` — in a benchmark run, what writing the demonstration clip said — is
+    appended to the detail of a scene that was built, ahead of the evaluation clip's own note.
 
     A `PolicyError`, and anything `reset` or `set_demonstration` raises, propagates, as in
     `run_episode`: in a run of the benchmark an adapter at fault is a bug to fix. With
@@ -175,9 +178,9 @@ def evaluate(
         if mismatches:
             # The evaluation's first frame is the evidence for a reset bug; the episode is
             # already invalid, so observing it cannot change anything that is scored.
-            note = _film(video, lambda: _final_frame(video, task_env))
+            final_note = _film(video, lambda: _final_frame(video, task_env))
             return _not_scored(
-                "scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + note,
+                "scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + note + final_note,
                 scene_max_error=max_error(mismatches),
             )
         try:
@@ -196,14 +199,14 @@ def evaluate(
                 if not score_policy_faults:
                     raise
                 success, detail = bool(task_env.eval_success), f"policy broke the protocol: {exc}"
-        note = _film(video, lambda: _final_frame(video, task_env))
+        final_note = _film(video, lambda: _final_frame(video, task_env))
         return Evaluation(
             valid=True,
             success=success,
             steps=int(task_env.take_action_cnt),
             step_limit=task_env.step_lim,
             scene_max_error=0.0,
-            detail=detail + note,
+            detail=detail + note + final_note,
         )
     finally:
         robotwin.close(task_env)

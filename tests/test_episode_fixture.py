@@ -24,6 +24,19 @@ def _fake_unstable(monkeypatch):
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
 
 
+class _FailingVideo:
+    """A clip writer whose every write fails, so a record carries both video notes."""
+
+    def demonstration(self, demonstration):
+        raise OSError("disk full writing the demonstration")
+
+    def observe(self, images):
+        pass
+
+    def finish(self):
+        raise OSError("disk full writing the evaluation")
+
+
 def _spec(attempts=5):
     return EpisodeSpec(
         episode=0,
@@ -61,6 +74,23 @@ def _cases():
         ),
         "rollout_error": lambda: run_episode(
             _spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(rollout_raises_at=2)
+        ),
+        "video_fails_scored": lambda: run_episode(
+            _spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(), video=_FailingVideo()
+        ),
+        "video_fails_drift": lambda: run_episode(
+            _spec(),
+            ReplayPolicy(),
+            FakeConfig(),
+            task_env=FakeTaskEnv(drift=True),
+            video=_FailingVideo(),
+        ),
+        "video_fails_rebuild": lambda: run_episode(
+            _spec(),
+            ReplayPolicy(),
+            FakeConfig(),
+            task_env=FakeTaskEnv(rebuild_raises=True),
+            video=_FailingVideo(),
         ),
     }
 
