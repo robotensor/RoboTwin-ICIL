@@ -1,7 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from robotwin_icil.demo import Demonstration, DemonstrationError, Frame
+from robotwin_icil.demo import Demonstration, DemonstrationError, Frame, arms_moved
 
 # aloha-agilex's joint vector; a dual Franka's is 16. The container takes its width from its frames.
 QPOS_DIM = 14
@@ -89,3 +91,51 @@ def test_frame_indices_must_increase():
 def test_unknown_camera_is_rejected():
     with pytest.raises(DemonstrationError):
         demo().images("wrist_camera")
+
+
+def trajectory(*rows) -> Demonstration:
+    frames = tuple(
+        Frame(index=i, images={}, qpos=np.asarray(row, dtype=float), endpose={})
+        for i, row in enumerate(rows)
+    )
+    return Demonstration(frames=frames, frequency=15)
+
+
+def moved(*joints: tuple[int, float]) -> np.ndarray:
+    row = np.zeros(QPOS_DIM)
+    for joint, value in joints:
+        row[joint] = value
+    return row
+
+
+REST = np.zeros(QPOS_DIM)
+
+
+def test_arms_moved_names_the_half_of_the_row_that_left_its_first_frame():
+    # Left arm is joints 0-5 plus gripper 6; right arm is 7-12 plus gripper 13.
+    assert arms_moved(trajectory(REST, moved((9, 0.3)), REST)) == ("right",)
+    assert arms_moved(trajectory(REST, moved((2, -0.3)))) == ("left",)
+    assert arms_moved(trajectory(REST, moved((2, 0.3), (9, 0.3)))) == ("left", "right")
+
+
+def test_arms_moved_counts_a_gripper_that_opens():
+    assert arms_moved(trajectory(REST, moved((6, 1.0)))) == ("left",)
+    assert arms_moved(trajectory(REST, moved((13, 1.0)))) == ("right",)
+
+
+def test_arms_moved_ignores_motion_within_the_threshold():
+    assert arms_moved(trajectory(REST, moved((3, 0.04), (10, -0.04)))) == ()
+    assert arms_moved(trajectory(REST, moved((3, 0.3))), threshold_rad=0.5) == ()
+
+
+def test_arms_moved_measures_from_the_first_frame_not_from_rest():
+    # An arm that starts away from zero and stays there has not moved.
+    start = moved((0, 1.2), (7, -0.9))
+    assert arms_moved(trajectory(start, start, start)) == ()
+    assert arms_moved(trajectory(start, start + moved((7, 0.3)))) == ("right",)
+
+
+def test_arms_moved_refuses_a_row_that_does_not_split_into_two_arms():
+    odd = SimpleNamespace(qpos=lambda: np.zeros((3, 15)))
+    with pytest.raises(DemonstrationError, match="two equal arms"):
+        arms_moved(odd)

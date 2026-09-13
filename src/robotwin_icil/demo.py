@@ -16,6 +16,9 @@ from typing import Any
 
 import numpy as np
 
+# The order of the two halves of a qpos row, and of what `arms_moved` reports.
+ARMS = ("left", "right")
+
 
 class DemonstrationError(ValueError):
     """A captured demonstration is not usable as policy context."""
@@ -115,3 +118,26 @@ class Demonstration:
         if camera not in self.cameras:
             raise DemonstrationError(f"no camera {camera!r}; have {list(self.cameras)}")
         return np.stack([frame.images[camera] for frame in self.frames])
+
+
+def arms_moved(demonstration: Demonstration, threshold_rad: float = 0.05) -> tuple[str, ...]:
+    """Which arms the expert drove, in `ARMS` order, read from the joint trajectory.
+
+    Assumes RoboTwin's `joint_action.vector` layout, which holds for every embodiment it ships:
+    the left arm's joints then its gripper, followed by the right arm's joints then its gripper,
+    both halves the same width (7+7 on aloha-agilex, 8+8 on two Franka Pandas). The row is split
+    into two equal halves; an odd width is refused rather than guessed at. An arm moved if any of
+    its values, the gripper included, departs from its first-frame value by more than
+    `threshold_rad` at any frame. Arm joints are commanded angles in radians; the gripper is
+    upstream's normalised [0, 1] opening, so an open-close swing clears the same threshold by a
+    wide margin.
+
+    The survey uses this to measure a task's `arms` entry against what its expert actually did.
+    """
+    qpos = demonstration.qpos()
+    width = qpos.shape[1]
+    if width % 2:
+        raise DemonstrationError(f"qpos width {width} does not split into two equal arms")
+    excursion = np.abs(qpos - qpos[0]).max(axis=0)
+    halves = np.split(excursion, 2)
+    return tuple(arm for arm, half in zip(ARMS, halves, strict=True) if half.max() > threshold_rad)
