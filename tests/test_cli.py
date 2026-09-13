@@ -1,8 +1,13 @@
 import json
 
+import pytest
+
 from robotwin_icil import cli
 from robotwin_icil.records import RunDir
 from test_records import manifest, record
+
+EVAL = ["eval", "--policy", "replay", "--task", "click_bell", "--episodes", "1", "--run-dir", "r"]
+SURVEY = ["survey", "--task", "click_bell"]
 
 
 def test_tasks_lists_categories_and_suite_membership(capsys):
@@ -35,3 +40,16 @@ def test_eval_rejects_bad_arguments_before_touching_the_simulator(tmp_path, caps
     assert cli.main([*base, "--suite", "v1", "--episodes", "0"]) == 2
     assert cli.main([*base, "--suite", "no_such_suite", "--episodes", "1"]) == 1
     assert "unknown suite" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [EVAL, SURVEY])
+def test_a_run_chooses_its_robot_and_defaults_to_aloha(command, capsys):
+    parser = cli.build_parser()
+    assert parser.parse_args(command).embodiment == "aloha-agilex"
+    assert parser.parse_args([*command, "--embodiment", "franka-panda"]).embodiment == (
+        "franka-panda"
+    )
+    # A robot the benchmark cannot form is refused by the parser, before any simulator import.
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*command, "--embodiment", "ur5-wsg"])
+    assert exc.value.code == 2 and "aloha-agilex" in capsys.readouterr().err

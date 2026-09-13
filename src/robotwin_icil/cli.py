@@ -15,7 +15,9 @@ from . import report as report_
 from . import tasks as tasks_
 from .policy import PolicyError, make_policy
 from .records import RecordError, RunDir
-from .robotwin import RoboTwinError
+from .robotwin import EMBODIMENTS, RoboTwinError
+
+DEFAULT_EMBODIMENT = "aloha-agilex"
 
 
 def _eval(args: argparse.Namespace) -> int:
@@ -36,7 +38,9 @@ def _eval(args: argparse.Namespace) -> int:
         max_expert_attempts=args.max_expert_attempts,
         video=args.video,
     )
-    config = SceneConfig(task_config=args.task_config, save_freq=args.save_freq)
+    config = SceneConfig(
+        task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
+    )
     try:
         records = run(spec, make_policy(args.policy), config)
     except RoboTwinError as exc:
@@ -68,7 +72,9 @@ def _survey(args: argparse.Namespace) -> int:
     selected = (table[args.task],) if args.task else table.suite(args.suite)
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     out = Path(args.json).resolve() if args.json else None
-    config = robotwin.SceneConfig(task_config=args.task_config, save_freq=args.save_freq)
+    config = robotwin.SceneConfig(
+        task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
+    )
     seeds = scene_seeds(args.seed, 0, args.seeds)
     results = []
     for task in selected:
@@ -117,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--task-config", default="demo_clean", help="RoboTwin env_cfg/task_config name"
     )
+    _add_embodiment(run)
     run.add_argument(
         "--save-freq", type=int, default=15, help="control steps per demonstration frame"
     )
@@ -144,12 +151,23 @@ def build_parser() -> argparse.ArgumentParser:
     sur.add_argument("--seed", type=int, default=0, help="global seed for the seed stream")
     sur.add_argument("--json", help="also write the per-task results to this file")
     sur.add_argument("--task-config", default="demo_clean")
+    _add_embodiment(sur)
     sur.add_argument("--save-freq", type=int, default=15)
     sur.set_defaults(handler=_survey)
 
     lst = commands.add_parser("tasks", help="list the task table and suite membership")
     lst.set_defaults(handler=_tasks)
     return parser
+
+
+def _add_embodiment(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--embodiment",
+        choices=sorted(EMBODIMENTS),
+        default=DEFAULT_EMBODIMENT,
+        help="the robot: aloha-agilex (one dual-arm URDF, 14-wide qpos) or franka-panda "
+        "(two Franka arms 0.8 m apart, 16-wide qpos); overrides the task config's",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

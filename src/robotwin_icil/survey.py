@@ -20,6 +20,8 @@ from .tasks import Task
 @dataclass
 class TaskSurvey:
     task: Task
+    # The robot the expert ran on: its success rate is the pair's, not the task's alone.
+    embodiment: str | None = None
     seeds: int = 0
     successes: int = 0
     rejections: Counter = field(default_factory=Counter)
@@ -38,6 +40,7 @@ class TaskSurvey:
         return {
             "task": self.task.name,
             "skill_category": self.task.category,
+            "embodiment": self.embodiment,
             "seeds": self.seeds,
             "successes": self.successes,
             "success_rate": self.success_rate,
@@ -52,9 +55,9 @@ def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attem
     result = TaskSurvey(task=task)
     for index, seed in enumerate(seeds):
         started = time.monotonic()
-        outcome, demonstration, _ = attempt_fn(
-            task_env, seed, config.resolve(task.name), config.save_freq, index
-        )
+        args = config.resolve(task.name)
+        result.embodiment = str(args["embodiment_name"])
+        outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
         result.seconds += time.monotonic() - started
         result.seeds += 1
         if outcome.rejection is None:

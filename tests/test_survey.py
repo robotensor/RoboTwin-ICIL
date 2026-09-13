@@ -12,6 +12,8 @@ def test_a_survey_counts_successes_and_rejections_by_reason(monkeypatch):
     assert dict(result.rejections) == {"unstable": 1, "plan_failed": 1}
     assert result.frames == [env.expert_steps + 1] * 2
     assert result.to_json()["rejections"] == {"plan_failed": 1, "unstable": 1}
+    # The expert's rate is measured on one robot; the result says which.
+    assert result.embodiment == "fake-arms" and result.to_json()["embodiment"] == "fake-arms"
 
 
 def test_render_lists_every_task_with_its_rate(monkeypatch):
