@@ -139,10 +139,42 @@ def test_a_wrong_arms_value_fails_naming_the_task():
         tasks.check_arms_against_robotwin(ROBOTWIN_ROOT, altered)
 
 
-@needs_robotwin
+# The set a --arms 1 run draws from: issue #82's list, corrected from the experts' source —
+# put_bottles_dustbin hands right-side bottles to the left arm (2), shake_bottle_horizontally
+# drives one arm like shake_bottle (1). Spelled out so a swap that keeps the count (one task's
+# 1 becoming 2 while another's 2 becomes 1) cannot pass on the count alone; that every member's
+# play_once drives one arm is test_arms_match_a_static_read_of_every_expert's job.
+ONE_ARM_TASKS = (
+    "adjust_bottle",
+    "beat_block_hammer",
+    "click_alarmclock",
+    "click_bell",
+    "move_can_pot",
+    "move_pillbottle_pad",
+    "move_playingcard_away",
+    "move_stapler_pad",
+    "open_laptop",
+    "open_microwave",
+    "place_a2b_left",
+    "place_a2b_right",
+    "place_container_plate",
+    "place_empty_cup",
+    "place_fan",
+    "place_mouse_pad",
+    "place_object_scale",
+    "place_object_stand",
+    "place_phone_stand",
+    "place_shoe",
+    "press_stapler",
+    "rotate_qrcode",
+    "shake_bottle",
+    "shake_bottle_horizontally",
+    "stamp_seal",
+    "turn_switch",
+)
+
+
 def test_one_arm_tasks_are_the_twenty_six_the_experts_show():
-    # The set a --arms 1 run draws from; each member's play_once drives exactly one arm.
     one_arm = sorted(task.name for task in tasks.table().tasks.values() if task.arms == arms.ONE)
-    assert len(one_arm) == 26
-    assert "put_bottles_dustbin" not in one_arm  # hands right-side bottles to the left arm
-    assert "shake_bottle_horizontally" in one_arm  # one arm, like shake_bottle
+    assert one_arm == sorted(ONE_ARM_TASKS)
+    assert len(ONE_ARM_TASKS) == 26
