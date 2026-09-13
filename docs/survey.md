@@ -10,6 +10,9 @@ generator uses — over a fixed seed stream per task, and reports how often it s
 robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v1-seed0.json
 ```
 
+The expert's rate is a property of the task *and* the robot: `--embodiment franka-panda` surveys
+the same seeds on two Franka arms, and the JSON names the robot each row was measured on.
+
 ## V1 survey
 
 20 seeds per task from global seed 0, `demo_clean` config, aloha-agilex, on the reference machine
