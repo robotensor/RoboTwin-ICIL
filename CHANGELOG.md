@@ -2,14 +2,23 @@
 
 ## Unreleased
 
-- (feat): the survey records every seed, and for every demonstration which arms moved. Each task's
-  JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection), frames, `arms_moved`,
-  seconds — and the counts `one_arm_demonstrations`, `two_arm_demonstrations` and
-  `no_arm_demonstrations`; the table gains a *one-arm* column. `demo.arms_moved` reads the arms
-  from the joint trajectory: the qpos row splits into a left and a right half on every embodiment
-  RoboTwin ships, and an arm moved if any of its joints or its gripper left its first-frame value
-  by more than 0.05 at any frame. A task's `arms: 1` is thereby measured on what the expert did,
-  not only read from its source (#83).
+- (feat): the survey records every seed, and for every demonstration which arms moved and by how
+  much. Each task's JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection),
+  frames, `arms_moved`, `displacement`, seconds — and the counts `one_arm_demonstrations`,
+  `two_arm_demonstrations` and `no_arm_demonstrations`; the table gains a *one-arm* column.
+  `demo.arm_displacements` reads each arm's largest departure from its first-frame value off the
+  joint trajectory (the qpos row splits into a left and a right half on every embodiment RoboTwin
+  ships), and `demo.arms_moved` calls an arm moved when that exceeds 0.05 — radians for a joint,
+  a fraction of full travel for the gripper's normalised opening. A task's `arms: 1` is thereby
+  measured on what the expert did, not only read from its source, and the threshold can be
+  re-judged from the JSON after the run (#83).
+- (fix): the survey's `--json` file is rewritten whole after every task — written beside itself
+  and renamed into place — so a kill that lands mid-write leaves the previous complete file, not
+  a torn one; and a survey on an embodiment whose qpos does not split into two equal arms stops
+  with one line on stderr instead of a traceback (#83).
+- (fix): a frame whose qpos holds NaN or inf is refused, so such a seed is an `expert_error`
+  rejection with the reason on record rather than a demonstration in which the arm would have
+  read as still (#83).
 - (feat): every task declares how many arms its expert needs. `tasks.yml` entries become
   `{category, arms}` with `arms: 1 | switching | 2` (26 / 6 / 18 tasks), `arms.py` re-derives the
   value from a static read of each `play_once` in the pinned checkout, and a test fails naming any
