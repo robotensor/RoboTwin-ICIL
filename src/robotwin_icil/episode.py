@@ -48,7 +48,8 @@ class Evaluation:
 
     `valid` means the scene was rebuilt as the demonstration's and the policy acted in it;
     `success` is then RoboTwin's verdict. Otherwise nothing was scored, `detail` says why, and
-    `success` is None.
+    `success` is None. `live` is the rebuilt scene's fingerprint, taken before anyone acted; None
+    when the scene did not build.
     """
 
     valid: bool
@@ -57,6 +58,7 @@ class Evaluation:
     step_limit: int | None
     scene_max_error: float
     detail: str
+    live: SceneFingerprint | None = None
 
 
 def run_episode(
@@ -174,7 +176,8 @@ def evaluate(
         return _not_scored(f"evaluation scene failed to build: {type(exc).__name__}: {exc}")
 
     try:
-        mismatches = compare(initial, robotwin.fingerprint(task_env))
+        live = robotwin.fingerprint(task_env)
+        mismatches = compare(initial, live)
         if mismatches:
             # The evaluation's first frame is the evidence for a reset bug; the episode is
             # already invalid, so observing it cannot change anything that is scored.
@@ -182,6 +185,7 @@ def evaluate(
             return _not_scored(
                 "scene drift: " + "; ".join(str(m) for m in mismatches[:5]) + note + final_note,
                 scene_max_error=max_error(mismatches),
+                live=live,
             )
         try:
             policy.reset()
@@ -207,12 +211,15 @@ def evaluate(
             step_limit=task_env.step_lim,
             scene_max_error=0.0,
             detail=detail + note + final_note,
+            live=live,
         )
     finally:
         robotwin.close(task_env)
 
 
-def _not_scored(detail: str, scene_max_error: float = 0.0) -> Evaluation:
+def _not_scored(
+    detail: str, scene_max_error: float = 0.0, live: SceneFingerprint | None = None
+) -> Evaluation:
     return Evaluation(
         valid=False,
         success=None,
@@ -220,6 +227,7 @@ def _not_scored(detail: str, scene_max_error: float = 0.0) -> Evaluation:
         step_limit=None,
         scene_max_error=scene_max_error,
         detail=detail,
+        live=live,
     )
 
 

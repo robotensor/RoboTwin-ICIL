@@ -135,6 +135,7 @@ def test_a_policy_that_fails_is_a_failure_not_a_void(tmp_path):
 
 def test_two_runs_from_one_prompt_rebuild_the_same_scene(tmp_path):
     _, out = materialized(tmp_path)
+    _, meta = prompt.read_raw(out / "prompt.npz")
     results = [
         unit.run_unit(
             out / "prompt.npz", ReplayPolicy(), tmp_path / f"run{i}", task_env=FakeTaskEnv()
@@ -142,6 +143,29 @@ def test_two_runs_from_one_prompt_rebuild_the_same_scene(tmp_path):
         for i in range(2)
     ]
     assert all(r["success"] and not r["void"] and r["scene_max_error"] == 0.0 for r in results)
+    # What each run saw is on its result: the rebuilt scene's digest, not only the verdict.
+    recorded = meta["scene"]["sha256"]
+    assert [r["scene_sha256"] for r in results] == [recorded, recorded]
+    assert [r["live_scene_sha256"] for r in results] == [recorded, recorded]
+
+
+def test_a_rebuild_within_tolerance_reports_how_far_it_was(tmp_path):
+    # Not bit-identical but inside the tolerance: scored, and the result says by how much rather
+    # than a hard-coded 0.0, with the rebuilt scene's own digest.
+    _, out = materialized(tmp_path)
+
+    def nudge(meta):
+        meta["scene"]["fingerprint"]["actors"]["cube"][0] += 3e-6
+        recorded = scene.SceneFingerprint.from_json(meta["scene"]["fingerprint"])
+        meta["scene"]["sha256"] = scene.digest(recorded)
+
+    _retag(out / "prompt.npz", nudge)
+    result = unit.run_unit(
+        out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=FakeTaskEnv()
+    )
+    assert result["void"] is False and result["success"] is True
+    assert result["scene_max_error"] == pytest.approx(3e-6, rel=1e-3)
+    assert result["live_scene_sha256"] != result["scene_sha256"]
 
 
 def _retag(path, edit):
@@ -190,6 +214,7 @@ def test_run_unit_voids_on_scene_drift(tmp_path):
     assert result["void"] is True and result["success"] is None and result["steps"] is None
     assert result["error"].startswith("scene drift") and "cube" in result["error"]
     assert result["scene_max_error"] == pytest.approx(0.01 * np.sqrt(3))
+    assert result["live_scene_sha256"] not in (None, result["scene_sha256"])
     assert policy._demonstration is None
     assert result["video"] == "evaluation.mp4"  # the drifted first frame, as evidence
 

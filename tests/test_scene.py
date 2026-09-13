@@ -86,6 +86,14 @@ def test_float_noise_below_tolerance_passes():
     assert scene.compare(fingerprint(), noisy) == []
 
 
+def test_deviation_measures_what_the_tolerance_lets_through():
+    assert scene.deviation(fingerprint(), fingerprint()) == 0.0
+    noisy = fingerprint(robot_qpos=np.full(QPOS_DIM, 2e-6))
+    assert scene.compare(fingerprint(), noisy) == []
+    assert scene.deviation(fingerprint(), noisy) == pytest.approx(2e-6)
+    assert scene.deviation(fingerprint(), fingerprint(actors={})) is None  # not one scene at all
+
+
 def test_repeated_names_are_keyed_by_scene_order():
     assert scene.unique_names(["table", "block", "block", "wall"]) == [
         "table",

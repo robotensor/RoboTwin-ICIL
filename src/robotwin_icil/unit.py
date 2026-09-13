@@ -33,7 +33,7 @@ from .episode import evaluate
 from .policy import ICILPolicy
 from .prompt import PROMPT_FILE, PROMPT_SCHEMA, PromptError, read_prompt, sha256_of, write_prompt
 from .records import SAME_SCENE, git_commit
-from .scene import SceneFingerprint, digest
+from .scene import SceneFingerprint, deviation, digest
 from .video import DEMONSTRATION_CLIP, EpisodeVideo
 
 #: Written by both commands into their `--out` directory.
@@ -258,13 +258,15 @@ def run_unit(
         "step_limit": None,
         "error": None,
         "detail": "",
-        "scene_max_error": 0.0,
+        "scene_max_error": None,
         "model": str(describe.get("model", describe["policy"])),
         "embodiment": None,
         "task": None,
         "scene_seed": None,
         "evaluation_setting": SAME_SCENE,
         "prompt_sha256": None,
+        "scene_sha256": None,
+        "live_scene_sha256": None,
         "video": None,
     }
 
@@ -291,6 +293,7 @@ def run_unit(
     )
     try:
         initial = recorded_scene(meta)
+        result["scene_sha256"] = digest(initial)
         config = scene_config_from(meta)
     except PromptError as exc:
         return void(str(exc))
@@ -321,8 +324,14 @@ def run_unit(
     finally:
         robotwin.free_gpu()
 
+    # What the rebuilt scene was, on the result itself: two runs of one prompt can then be shown
+    # to have started from the identical scene, not only to have passed the tolerant check.
+    seen: dict[str, Any] = {}
+    if evaluation.live is not None:
+        seen["live_scene_sha256"] = digest(evaluation.live)
+        seen["scene_max_error"] = deviation(initial, evaluation.live)
     if not evaluation.valid:
-        return void(evaluation.detail, scene_max_error=evaluation.scene_max_error)
+        return void(evaluation.detail, **seen)
     return finish(
         success=bool(evaluation.success),
         void=False,
@@ -330,7 +339,7 @@ def run_unit(
         step_limit=evaluation.step_limit,
         error=None,
         detail=evaluation.detail,
-        scene_max_error=0.0,
+        **seen,
     )
 
 

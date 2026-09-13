@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -198,6 +199,24 @@ def compare(
 def max_error(mismatches: list[Mismatch]) -> float:
     """The largest measured deviation, for the episode record; 0.0 for an exact match."""
     return max((m.error for m in mismatches), default=0.0)
+
+
+def deviation(demonstration: SceneFingerprint, evaluation: SceneFingerprint) -> float | None:
+    """How far two fingerprints are apart, however small: `compare` with every tolerance at zero.
+
+    What a scene that passed `compare` still differed by, 0.0 for a bit-identical rebuild; None
+    when no distance is defined — an entity or an extra present in only one of them.
+    """
+    found = compare(
+        demonstration,
+        evaluation,
+        position_tol=0.0,
+        rotation_tol=0.0,
+        joint_tol=0.0,
+        camera_tol=0.0,
+    )
+    error = max_error(found)
+    return error if math.isfinite(error) else None
 
 
 def unique_names(names: list[str]) -> list[str]:
