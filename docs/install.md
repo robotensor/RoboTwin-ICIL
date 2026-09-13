@@ -99,9 +99,11 @@ What the script produced on the machine the V1 numbers come from:
   changes no pixel there (renders compared on the RTX 5090); set `ROBOTWIN_ICIL_DENOISER=oidn` or
   `none` to override. With the denoiser off a render still hangs occasionally on a long,
   render-heavy run: an end-effector replay stopped after nine episodes with the GPU otherwise idle,
-  in the same camera read. So run long jobs under a watchdog that kills them when their output goes
-  quiet for several minutes, and rerun. A stopped `robotwin-icil eval` resumes from
-  `episodes.jsonl`, so the same command picks up where it stopped.
+  in the same camera read, and with a training job holding the GPU a one-episode click_bell smoke
+  hung twice in the expert's first frames before a third attempt scored in 51 s. So run long jobs
+  under `scripts/simwatch.py`, which kills an attempt whose CPU time stops advancing or that
+  outlives a wall-clock cap, and reruns it. A stopped `robotwin-icil eval` resumes from
+  `episodes.jsonl`, so the rerun picks up where it stopped.
 - **`ModuleNotFoundError: pkg_resources`.** setuptools is too new; rerun the script, which pins it.
 - **Embodiment `config.yml` or `curobo_left.yml` missing.** The asset stage did not finish; rerun
   the script.
