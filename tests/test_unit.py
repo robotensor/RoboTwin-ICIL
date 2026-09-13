@@ -193,6 +193,25 @@ def test_a_prompt_from_another_scene_is_caught_by_the_live_fingerprint(tmp_path)
     assert result["scene_max_error"] == pytest.approx(0.05)
 
 
+@pytest.mark.parametrize(
+    ("edit", "reason"),
+    [
+        (lambda meta: meta.pop("scene"), "no 'scene'"),
+        (lambda meta: meta.__setitem__("embodiment", "aloha-agilex"), "embodiment has no name"),
+        (lambda meta: meta.__setitem__("scene_seed", "11"), "not an integer"),
+        (lambda meta: meta.__setitem__("save_freq", "fifteen"), "malformed"),
+        (lambda meta: meta["scene"].__setitem__("fingerprint", {"actors": {}}), "malformed"),
+    ],
+)
+def test_a_malformed_meta_voids_the_unit_before_any_scene(tmp_path, edit, reason):
+    _, out = materialized(tmp_path)
+    _retag(out / "prompt.npz", edit)
+    env = FakeTaskEnv()
+    result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
+    assert result["void"] and result["success"] is None and reason in result["error"]
+    assert env.setups == []
+
+
 def test_an_unreadable_prompt_voids_the_unit(tmp_path):
     result = unit.run_unit(tmp_path / "missing.npz", ReplayPolicy(), tmp_path / "run")
     assert result["void"] and result["error"].startswith("unreadable prompt")

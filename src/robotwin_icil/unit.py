@@ -171,6 +171,10 @@ def recorded_scene(meta: dict[str, Any]) -> SceneFingerprint:
     for key in ("task", "scene_seed", "task_config", "save_freq", "embodiment", "scene"):
         if key not in meta:
             raise PromptError(f"prompt meta has no {key!r}")
+    if not isinstance(meta["embodiment"], dict) or "name" not in meta["embodiment"]:
+        raise PromptError("prompt meta's embodiment has no name")
+    if isinstance(meta["scene_seed"], bool) or not isinstance(meta["scene_seed"], int):
+        raise PromptError(f"prompt meta's scene_seed is {meta['scene_seed']!r}, not an integer")
     scene = meta["scene"]
     if not isinstance(scene, dict) or "fingerprint" not in scene or "sha256" not in scene:
         raise PromptError("prompt meta has no scene fingerprint and digest")
@@ -258,18 +262,21 @@ def run_unit(
         demonstration, meta = read_prompt(prompt_path)
     except PromptError as exc:
         return void(f"unreadable prompt: {exc}")
+    embodiment = meta.get("embodiment")
     result.update(
         task=meta.get("task"),
         scene_seed=meta.get("scene_seed"),
-        embodiment=(meta.get("embodiment") or {}).get("name"),
+        embodiment=embodiment.get("name") if isinstance(embodiment, dict) else None,
         prompt_sha256=sha256_of(prompt_path),
     )
     try:
         initial = recorded_scene(meta)
+        config = scene_config_from(meta)
     except PromptError as exc:
         return void(str(exc))
+    except (KeyError, TypeError, ValueError) as exc:
+        return void(f"prompt meta is malformed: {type(exc).__name__}: {exc}")
 
-    config = scene_config_from(meta)
     task_env = task_env if task_env is not None else robotwin.load_task(str(meta["task"]))
     clip = (
         EpisodeVideo(out, evaluation_clip=EVALUATION_CLIP, fps=demonstration.frequency)
