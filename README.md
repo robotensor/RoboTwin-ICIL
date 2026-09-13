@@ -151,12 +151,13 @@ runs it: both policies in a duel are handed the identical `prompt.npz`, and a th
 check it by hash. `materialize` writes `prompt.npz`, `demonstration.mp4` and `result.json`, and
 exits 3 when the expert was rejected on the seed. `run-unit` rebuilds the scene from the prompt's
 privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
-rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 whether the policy
-succeeded or not, and 1 only on a harness error. Both commands' `result.json` carry `success`,
-`void`, `steps` and `error`; a policy that raises or returns an invalid action fails its unit, and
-only what the harness could not give it (a prompt, a scene, a GPU) voids one. `prompt.npz` holds `frames_<camera>`, `qpos`,
-`endpose`, `actions`, `times` and `frequency` under the channel map `prompt.CHANNELS` publishes,
-plus `meta`, which never reaches a policy.
+rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
+result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a
+policy that will not load). Both commands' `result.json` carry `success`, `void`, `steps` and
+`error`; a policy that raises or returns an invalid action fails its unit, and only what the
+harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids one. `prompt.npz`
+holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
+map `prompt.CHANNELS` publishes, plus `meta`, which never reaches a policy.
 
 ## Layout
 

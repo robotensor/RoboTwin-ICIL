@@ -33,6 +33,8 @@ stream of zero scores.
 ## A minimal adapter
 
 ```python
+from pathlib import Path
+
 import torch
 
 from robotwin_icil.policy import ICILPolicy
@@ -44,8 +46,10 @@ class MyPolicy(ICILPolicy):
 
     def __init__(self, checkpoint: str = "checkpoints/model.pt"):
         super().__init__()
-        self.checkpoint = checkpoint
-        self.model = torch.load(checkpoint).eval().requires_grad_(False)
+        # Absolute now: the harness then runs from vendor/RoboTwin, where a relative path opened
+        # later (in reset, say) would be looked up.
+        self.checkpoint = str(Path(checkpoint).resolve())
+        self.model = torch.load(self.checkpoint).eval().requires_grad_(False)
 
     def _reset(self):
         self.context = None  # clear KV cache, history, recurrent state
@@ -148,13 +152,17 @@ evaluate from the file — the competition runs adapters this way:
 ```bash
 robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
 robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz \
-    --policy mypkg.adapters:MyPolicy --policy-arg checkpoint=checkpoints/model.pt --out runs/unit/run
+    --policy mypkg.adapters:MyPolicy --policy-arg checkpoint="$PWD/checkpoints/model.pt" --out runs/unit/run
 ```
 
-`--policy-arg key=value` reaches the adapter's constructor as a string. `run-unit` writes
+`--policy-arg key=value` reaches the adapter's constructor as a string. The constructor runs in
+the directory you ran the command from, but the simulator then moves the process into
+`vendor/RoboTwin`: pass absolute paths, or resolve them in `__init__` as the adapter above does,
+never in `reset` or later. `run-unit` writes
 `result.json` (`success`, `void`, `steps`, `error`, ...) and `evaluation.mp4` into a directory of
 its own; the adapter is handed the `Demonstration` read from the file and nothing of the prompt's
 `meta`. An adapter at fault — raising from `reset` or `set_demonstration`, or returning an action
 of the wrong width or a non-finite one — fails the unit, with the reason in `detail`; it is never
 void, which is kept for what the harness could not give the policy (an unreadable prompt, a scene
-that drifted, a GPU that failed). `eval` raises instead, so the bug surfaces.
+that drifted, a GPU that failed, a fault of the harness's own). `eval` raises instead, so the bug
+surfaces.

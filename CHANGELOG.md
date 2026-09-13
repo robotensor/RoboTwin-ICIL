@@ -14,9 +14,12 @@
   fields the orchestrator reads: a rejected seed is a void materialize. In `run-unit` a policy at
   fault — raising from `reset` or `set_demonstration`, or a wrong-width or non-finite action —
   fails its unit and never voids it; void is kept for an unreadable, mistyped or tampered prompt,
-  scene drift, a config RoboTwin refuses and a GPU lost or full mid-rollout, which in `eval` now
-  stops the run as it does in the expert. Both commands clear their outputs before anything can
-  fail, and `run-unit` refuses to write into its prompt's directory. `prompt.npz` holds
+  scene drift, a config RoboTwin refuses, any other harness fault while evaluating (traceback to
+  stderr) and a GPU lost or full mid-rollout, which in `eval` now stops the run as it does in the
+  expert. `run-unit` exits 1 only when the unit cannot start. Both commands clear their outputs
+  before anything can fail, and `run-unit` refuses to write into its prompt's directory; an
+  adapter's paths are resolved in its constructor or passed absolute, since the simulator runs
+  from `vendor/RoboTwin`. `prompt.npz` holds
   `frames_<camera>`, `qpos`, `endpose` (per arm, left then right: pose then gripper, 16 wide),
   `actions`, `times`, `frequency` and `meta`; `prompt.CHANNELS` publishes which arrays are video,
   proprioception and actions. Every frame records the simulated time it was taken at
