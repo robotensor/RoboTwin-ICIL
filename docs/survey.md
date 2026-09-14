@@ -12,7 +12,13 @@ robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v
 
 The expert's rate is a property of the task *and* the robot: `--embodiment franka-panda` surveys
 the same seeds on two Franka arms, and the table's `robot` column and the JSON's `embodiment`
-field name the robot each row was measured on.
+field name the robot each row was measured on. `--arms 1` keeps only the tasks whose expert uses
+one arm, and the two combine — every one-arm task, on two Frankas:
+
+```bash
+robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --seed 0 \
+  --json docs/results/survey-franka-1arm.json
+```
 
 ## V1 survey
 
@@ -46,8 +52,10 @@ the table, and remains the harness's smoke-test task.
 **Reading the table.**
 
 - *one-arm* (in `robotwin-icil survey`'s own table; the V1 survey above predates it): of the
-  successful demonstrations, how many moved exactly one arm. An arm moved if any of its joints
-  or its gripper left its first-frame value by more than 0.05 at any frame of the demonstration
+  successful demonstrations, how many moved exactly one arm. Each qpos row is split at half its
+  width into the left arm and the right — 7 + 7 on aloha-agilex, 8 + 8 on two Frankas — and an
+  arm moved if any of its joints or its gripper left its first-frame value by more than 0.05 at
+  any frame of the demonstration
   — 0.05 rad for a joint, 0.05 of full travel for the gripper, whose value is RoboTwin's
   normalised [0, 1] opening. The JSON carries the verdict per seed (`seeds_detail[].arms_moved`,
   `["left"]`, `["right"]`, both, or `[]`) next to the number it was read from

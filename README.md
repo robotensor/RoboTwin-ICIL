@@ -133,6 +133,9 @@ robotwin-icil report runs/v1
 
 # one-arm robots: only the tasks whose expert uses one arm (26 of 50; `tasks --arms 1` lists them)
 robotwin-icil eval --policy <adapter> --suite v1 --arms 1 --episodes 500 --seed 42 --run-dir runs/v1-one-arm
+
+# the robot and the task selection combine: every one-arm task's expert, on two Franka arms
+robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka-1arm.json
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
@@ -178,8 +181,8 @@ See [`docs/policies.md`](docs/policies.md).
 ## Reproducibility
 
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
-git commits, both configs, whether it asked for one-arm tasks only (`arms`), and per episode: the
-task, skill category, scene seed, number of expert
+git commits, both configs, the robot (`embodiment`), whether it asked for one-arm tasks only
+(`arms`), and per episode: the task, skill category, scene seed, robot, number of expert
 generation attempts, rollout length and outcome. In the manifest, `suite` is what was asked for
 and `tasks` what ran: a `--arms 1` run of `v1` records `suite: v1`, `arms: "1"` and the seven
 one-arm tasks, so read `arms` or `tasks` with `suite`, never `suite` alone. With `--video`, demonstration and evaluation clips
