@@ -106,6 +106,8 @@ class RoboTwinBenchmark:
             "catalogue_sha256": units.catalogue_sha256(table),
             "pinned_catalogue_sha256": units.CATALOGUE_SHA256,
             "derivation": units.DERIVATION,
+            # Which categories of the one-arm track have no one-arm task, and what stands in.
+            "franka_1arm": catalogue_.franka_1arm_basis(table),
             "void_causes": list(prompts.VOID_CAUSES),
             # What run-unit gives a served policy unless `extra` says otherwise. A unit's
             # `unit_timeout_s` must leave the harness its own time beyond the policy's budget.
