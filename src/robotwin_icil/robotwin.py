@@ -61,6 +61,13 @@ def use_env_render_manifests() -> None:
             os.environ.setdefault(variable, str(manifest))
 
 
+#: The environment variable that overrides the ray-tracing denoiser (`denoiser_for`), and what it
+#: takes. `materialize` and `run-unit` also take it as `--denoiser`, for callers that pass a
+#: command only allow-listed variables.
+DENOISER_ENV = "ROBOTWIN_ICIL_DENOISER"
+DENOISERS = ("oidn", "none")
+
+
 def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> str | None:
     """The ray-tracing denoiser to use where RoboTwin asks for "oidn", or None to keep its request.
 
@@ -70,10 +77,8 @@ def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> st
     while another process loads the GPU. `ROBOTWIN_ICIL_DENOISER` (`oidn` or `none`) overrides.
     """
     if override:
-        if override not in ("oidn", "none"):
-            raise RoboTwinError(
-                f"ROBOTWIN_ICIL_DENOISER must be 'oidn' or 'none', not {override!r}"
-            )
+        if override not in DENOISERS:
+            raise RoboTwinError(f"{DENOISER_ENV} must be 'oidn' or 'none', not {override!r}")
         return None if override == "oidn" else "none"
     if capability is not None and capability[0] >= 10:
         return "none"
@@ -109,7 +114,7 @@ def use_supported_denoiser() -> None:
     current = render.set_ray_tracing_denoiser
     if getattr(current, "robotwin_icil_denoiser", None) is not None:
         return
-    choice = denoiser_for(_gpu_capability(), os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+    choice = denoiser_for(_gpu_capability(), os.environ.get(DENOISER_ENV))
     if choice is None:
         return
 

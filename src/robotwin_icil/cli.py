@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,7 +24,7 @@ from .policy import PolicyError, make_policy
 from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
 from .remote import ACT_TIMEOUT_S, POLICY_BUDGET_S, RESULT_RESERVE_S
-from .robotwin import EMBODIMENTS, RoboTwinError
+from .robotwin import DENOISER_ENV, DENOISERS, EMBODIMENTS, RoboTwinError
 from .unit import UnitError
 
 
@@ -276,6 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
     mat.add_argument(
         "--save-freq", type=int, default=15, help="control steps per demonstration frame"
     )
+    _add_denoiser(mat)
     _add_expect_source(mat)
     mat.set_defaults(handler=_materialize)
 
@@ -336,6 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="the served policy's log file, whose tail ends the error of a unit it voided",
     )
     unit.add_argument("--out", required=True, help="directory the result and clip are written into")
+    _add_denoiser(unit)
     _add_expect_source(unit)
     unit.set_defaults(handler=_run_unit)
 
@@ -365,6 +368,15 @@ def _add_expect_source(parser: argparse.ArgumentParser) -> None:
         metavar="HEX",
         help="refuse to run, exit 1, unless this benchmark's source digests to HEX "
         "(robotwin_icil.source_sha256); the competition plugin passes its own",
+    )
+
+
+def _add_denoiser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--denoiser",
+        choices=DENOISERS,
+        help=f"the ray-tracing denoiser, as ${DENOISER_ENV} sets it, for a caller that passes "
+        "the command no such variable (default: none on GPUs OIDN cannot run on, else RoboTwin's)",
     )
 
 
@@ -425,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if getattr(args, "denoiser", None):
+        # Read by the RoboTwin seam when it sets a scene up, which is after this.
+        os.environ[DENOISER_ENV] = args.denoiser
     try:
         return args.handler(args)
     except (

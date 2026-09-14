@@ -215,6 +215,28 @@ def test_a_command_built_for_another_benchmark_source_refuses_to_run(tmp_path, f
     assert json.loads(capsys.readouterr().out)["source_sha256"] == robotwin_icil.source_sha256()
 
 
+def test_the_denoiser_is_a_flag_that_reaches_the_simulator_seam(tmp_path, fake_sim, monkeypatch):
+    # The orchestrator hands a benchmark subprocess only allow-listed variables, so the override
+    # for a denoiser that hangs camera reads travels as an argument.
+    from fake_robotwin import FakeTaskEnv
+
+    monkeypatch.setenv("ROBOTWIN_ICIL_DENOISER", "")
+    seen = []
+
+    def load_task(name):
+        seen.append(os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+        return FakeTaskEnv()
+
+    fake_sim["next"] = load_task
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p"), "--denoiser", "none"]) == 0
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), "--denoiser", "oidn"]) == 0
+    assert seen == ["none", "oidn"]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*MATERIALIZE, "--out", str(tmp_path / "q"), "--denoiser", "fast"])
+    assert refused.value.code == 2
+
+
 def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
     tmp_path, fake_sim, capsys
 ):
