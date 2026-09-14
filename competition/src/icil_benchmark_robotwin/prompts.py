@@ -16,7 +16,10 @@ from typing import Any
 
 import robotwin_icil
 from robotwin_icil import prompt as prompt_
+from robotwin_icil.records import SAME_SCENE
 from robotwin_icil.scene import SceneFingerprint, digest
+
+from . import commands
 
 #: The files the two commands write, as `robotwin_icil.unit` names them.
 PROMPT_FILE = prompt_.PROMPT_FILE
@@ -28,6 +31,16 @@ QPOS_DIMS = {"aloha-agilex": 14, "franka-panda": 16}
 
 #: Whose a void is, in a result: `void_cause` as `robotwin-icil` writes it.
 VOID_CAUSES = ("harness", "policy")
+
+#: The scene config every unit is materialized with, as a prompt's `meta` records it: the argv's
+#: task config and frame spacing, no head camera or override, the Same Scene setting.
+SCENE_CONFIG: dict[str, Any] = {
+    "task_config": commands.TASK_CONFIG,
+    "save_freq": commands.SAVE_FREQ,
+    "head_camera": None,
+    "overrides": {},
+    "evaluation_setting": SAME_SCENE,
+}
 
 
 def sha256_of(path: Path) -> str:
@@ -43,9 +56,10 @@ def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
 
     Reads the file itself, never a manifest, and never unpickles it (`allow_pickle=False`): its
     `meta` must name the unit's task, one of its candidate scene seeds and its robot, as that robot
-    was chosen; every array must belong to the published channel map and together hold a
-    demonstration of the robot's width; and the recorded scene fingerprint must digest to the
-    digest beside it. Returns `{"ok", "sha256", "problems"}`, where `sha256` is the file's bytes'
+    was chosen, and the scene config every unit is built with (`SCENE_CONFIG`), which run-unit
+    rebuilds the scene from; every array must belong to the published channel map and together
+    hold a demonstration of the robot's width; and the recorded scene fingerprint must digest to
+    the digest beside it. Returns `{"ok", "sha256", "problems"}`, where `sha256` is the file's bytes'
     (None if it cannot be read), plus the `task`, `scene_seed` and `embodiment` it found.
     """
     file = Path(path)
@@ -94,6 +108,14 @@ def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
         problems.append(
             f"the prompt was built on {name!r} (chosen as {choice!r}); the unit asks for {wanted!r}"
         )
+
+    # run-unit rebuilds and scores the scene from exactly these, so a prompt built under another
+    # config is another unit however its task, seed and robot read.
+    for key, value in SCENE_CONFIG.items():
+        if key not in meta or meta[key] != value or type(meta[key]) is not type(value):
+            problems.append(
+                f"the prompt's {key} is {meta.get(key)!r}; every unit is built with {value!r}"
+            )
 
     unclaimed = sorted(a for a in arrays if prompt_.channel_of(a) in (None, "privileged"))
     if unclaimed:

@@ -84,6 +84,35 @@ def test_a_prompt_whose_arrays_or_meta_do_not_hold_up_is_refused(
     assert verdict["ok"] is False and any(reason in p for p in verdict["problems"]), verdict
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("task_config", "demo_randomized"),
+        ("save_freq", 5),
+        ("save_freq", 15.0),
+        ("overrides", {"step_lim": 100000}),
+        ("head_camera", "D435"),
+        ("evaluation_setting", "different_object_pose"),
+        ("task_config", None),
+    ],
+)
+def test_a_prompt_built_under_another_scene_config_is_refused(make_prompt, franka_unit, key, value):
+    # run-unit rebuilds and scores the scene from these: its task, seed and robot can all be the
+    # unit's and it still be another unit.
+    path = make_prompt()
+    _rewrite(path, meta=lambda m: {**m, key: value})
+    verdict = BENCHMARK.verify_prompt(path=str(path), unit=franka_unit)
+    assert verdict["ok"] is False
+    assert any(f"the prompt's {key} is {value!r}" in p for p in verdict["problems"]), verdict
+
+
+def test_a_prompt_whose_meta_leaves_out_its_scene_config_is_refused(make_prompt, franka_unit):
+    path = make_prompt()
+    _rewrite(path, meta=lambda m: {k: v for k, v in m.items() if k != "overrides"})
+    verdict = BENCHMARK.verify_prompt(path=str(path), unit=franka_unit)
+    assert verdict["ok"] is False and any("overrides is None" in p for p in verdict["problems"])
+
+
 def test_an_unreadable_prompt_is_refused(tmp_path, franka_unit):
     missing = BENCHMARK.verify_prompt(path=str(tmp_path / "missing.npz"), unit=franka_unit)
     assert missing["ok"] is False and missing["sha256"] is None
