@@ -110,6 +110,33 @@ def test_any_other_failure_ends_the_watch_with_its_exit_code(tmp_path):
     )
 
 
+def test_what_a_lost_gpu_attempt_left_running_cannot_mark_the_next_attempt(tmp_path):
+    # Attempt 1 loses the GPU, leaving a worker that reports it again later. Attempt 2 fails for a
+    # real reason while that worker would still be running: its own exit code must end the watch.
+    flag = tmp_path / "crashed-once"
+    source = (
+        "import pathlib, subprocess, sys, time\n"
+        "flag = pathlib.Path(sys.argv[1])\n"
+        "if not flag.exists():\n"
+        "    flag.touch()\n"
+        "    late = 'import time; time.sleep(1); print(\"late: ErrorDeviceLost\", flush=True)'\n"
+        "    worker = subprocess.Popen([sys.executable, '-c', late])\n"
+        "    print(f'worker={worker.pid}', flush=True)\n"
+        "    print('RuntimeError: ErrorDeviceLost', flush=True)\n"
+        "    sys.exit(1)\n"
+        "time.sleep(2)\n"
+        "print('AssertionError: a real failure', flush=True)\n"
+        "sys.exit(3)\n"
+    )
+    code, log, _ = watch(tmp_path, "--retries", "1", "--poll", "0.1", *python(source, flag))
+
+    # The log also holds each attempt's command line, which quotes the source; only output counts.
+    assert code == 3 and not re.search(r"^late: ", log, re.MULTILINE)
+    assert "attempt 1/2 exited 1 (killed 1 process it left running), output matches" in log
+    assert "attempt 2/2 exited 3, no --rerun-on match; exiting 3" in log
+    assert [pid for pid in pids(log, "worker") if alive(pid)] == []
+
+
 def test_only_this_attempts_output_is_searched_for_the_marker(tmp_path):
     # An earlier run left ErrorDeviceLost in the shared log; a plain failure now must not match it.
     (tmp_path / "run.log").write_text("old run\nvk::ErrorDeviceLost\n")

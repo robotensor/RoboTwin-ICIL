@@ -116,7 +116,9 @@ What the script produced on the machine the V1 numbers come from:
   - *Lost the GPU.* The attempt exited non-zero and a `--rerun-on` pattern (default
     `ErrorDeviceLost` and `VK_ERROR_DEVICE_LOST`, the two spellings of Vulkan's device-lost error
     that `robotwin_icil` stops a run on) matches anything that attempt wrote to `--log`, however
-    much output follows it. Any other exit ends the watch with that exit code.
+    much output follows it. Any other exit ends the watch with that exit code. Whatever the
+    attempt left running when its command exited is killed before its output is searched, so a
+    straggler cannot mark the next attempt's output or share the GPU with it.
 
   Each attempt's end and its reason are logged; once the retries are spent the watch exits 124. A
   stopped `robotwin-icil eval` resumes from `episodes.jsonl`, so the rerun picks up where it

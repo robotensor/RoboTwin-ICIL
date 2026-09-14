@@ -14,6 +14,9 @@ three ways:
               spelling, ErrorDeviceLost or VK_ERROR_DEVICE_LOST). It is rerun.
   final       Any other exit. The watch ends with the attempt's exit code (128+N for signal N).
 
+An attempt ends when its command exits. Anything it left running is killed first, so it can neither
+write a marker into the next attempt's output nor share the GPU with it.
+
 At most --retries reruns follow the first attempt. When the last allowed attempt also stalls or
 exits transiently, the watch gives up with exit code 124. `robotwin-icil eval` and `survey` resume
 from what they already wrote, so a rerun costs only the episode or seed that failed.
@@ -190,7 +193,13 @@ def run_once(
     while True:
         code = proc.poll()
         if code is not None:
-            return exit_status(code), f"exited {exit_status(code)}"
+            # What it left running could still write to the shared log, a marker landing in the
+            # next attempt's part of it, or hold the GPU; it goes before the output is searched.
+            left = kill_attempt(proc, start, grace)
+            why = f"exited {exit_status(code)}"
+            if left:
+                why += f" (killed {left} process{'es' if left > 1 else ''} it left running)"
+            return exit_status(code), why
         # A child reaped inside the tree moves into its parent's cutime, so the sum keeps it.
         total = sum(p.cpu for p in attempt_procs(proc.pid, start, read_procs()).values())
         now = time.monotonic()
