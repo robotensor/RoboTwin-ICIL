@@ -25,6 +25,11 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   `get_obs()` returns per-camera rgb, `endpose`, and `joint_action` (`vector` is the left arm's
   joint state followed by the right's — joints then a gripper per arm, so 14-dim on aloha-agilex
   and 16-dim on two Frankas). We capture frames in memory instead of via that cache.
+  `capture(images=False)`, the survey's default, reads that `vector` and `endpose` straight from
+  the robot (`robot_state`) and never calls `get_obs`, so no camera ray-traces: no expert at the
+  pinned commit reads an observation or a camera, and the one `get_obs` side effect an expert
+  could see, `_update_render`'s `crazy_random_light` RNG draw, is kept. A policy's demonstration
+  always captures with images.
 - `env_cfg/task_config/_embodiment_config.yml` names the embodiments, and `robot.py:_init_robot_`
   always builds a left and a right arm: a one-entry `embodiment` (`[aloha-agilex]`) is one URDF
   holding both arms (`dual_arm_embodied`); a single-arm robot such as franka-panda must be given
@@ -55,6 +60,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets. One simulator
   process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
 - Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval` and `survey` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks, and combines with `--embodiment` (`survey --suite all --embodiment franka-panda --arms 1`).
+  `survey` renders no camera unless given `--images`, and its JSON records which.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules

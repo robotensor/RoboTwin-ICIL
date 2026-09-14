@@ -10,6 +10,20 @@ generator uses — over a fixed seed stream per task, and reports how often it s
 robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v1-seed0.json
 ```
 
+**No camera renders.** Everything the survey keeps is read from the robot's joints, so by default
+it records its demonstrations without images: each frame reads the joint vector and the endpose
+straight from the robot, from the accessors `get_obs` uses, and `get_obs` is never called.
+RoboTwin ray-traces every camera at 32 samples per pixel for each frame, which is most of a seed's
+cost, and SAPIEN's camera read is where a run hangs on a shared GPU. Nothing the survey measures
+changes: at the pinned commit no expert (`play_once`, `check_success` or a helper they call) reads
+an observation, an image or a camera, and the one side effect of `get_obs` an expert could see —
+the light colours `crazy_random_light` draws from numpy's RNG — is kept (`robotwin.robot_state`
+says how this was checked). `tests/sim/test_capture_without_images.py` runs the check on two
+Frankas: with and without images, a seed ends the same way, in as many frames, with the same
+joints and the same arms moved. `--images` renders every frame as `eval` does; `eval` always
+renders, since the demonstration it hands a policy needs its images. The JSON says which: it is
+`{"images": false, "tasks": [...]}`, and every task entry carries `images` too.
+
 The expert's rate is a property of the task *and* the robot: `--embodiment franka-panda` surveys
 the same seeds on two Franka arms, and the table's `robot` column and the JSON's `embodiment`
 field name the robot each row was measured on. `--arms 1` keeps only the tasks whose expert uses
@@ -24,7 +38,10 @@ robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 -
 
 20 seeds per task from global seed 0, `demo_clean` config, aloha-agilex, on the reference machine
 in [install.md](install.md) (RTX A6000, CuRobo 0.7.8). Raw results:
-[`results/survey-v1-seed0.json`](results/survey-v1-seed0.json).
+[`results/survey-v1-seed0.json`](results/survey-v1-seed0.json), a plain list of task entries
+from before the file said whether it rendered. It did: that survey predates capturing without
+images, so its *s / seed* includes rendering every camera at every frame and does not compare
+with a survey run without `--images`.
 
 | task | category | expert success | demo frames | s / seed | rejections |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -57,10 +74,11 @@ the table, and remains the harness's smoke-test task.
   arm moved if any of its joints or its gripper left its first-frame value by more than 0.05 at
   any frame of the demonstration
   — 0.05 rad for a joint, 0.05 of full travel for the gripper, whose value is RoboTwin's
-  normalised [0, 1] opening. The JSON carries the verdict per seed (`seeds_detail[].arms_moved`,
-  `["left"]`, `["right"]`, both, or `[]`) next to the number it was read from
-  (`seeds_detail[].displacement`, each arm's largest departure, e.g. `{"left": 0.012, "right":
-  1.43}`), so a borderline seed can be told from an idle one without re-running the expert; and
+  normalised [0, 1] opening. The JSON carries the verdict per seed
+  (`tasks[].seeds_detail[].arms_moved`, `["left"]`, `["right"]`, both, or `[]`) next to the
+  number it was read from (`tasks[].seeds_detail[].displacement`, each arm's largest departure,
+  e.g. `{"left": 0.012, "right": 1.43}`), so a borderline seed can be told from an idle one
+  without re-running the expert; and
   as counts: `one_arm_demonstrations`, `two_arm_demonstrations` and `no_arm_demonstrations`,
   which partition the successes. A task belongs in a one-arm suite only when every one of its
   successful demonstrations moved exactly one arm.

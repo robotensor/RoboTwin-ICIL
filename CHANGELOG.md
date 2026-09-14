@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- (feat): the survey renders no camera unless asked. Every frame called `get_obs`, which
+  ray-traces every camera, although the survey reads only joints; `robotwin.capture(images=False)`
+  now reads the joint vector and endpose straight from the robot (`robot_state`) and never calls
+  `get_obs`, `attempt` and `survey_task` pass the choice through, and `survey --images` renders
+  as before. The survey JSON becomes an object, `{"images": …, "tasks": [...]}`, and every task
+  entry records `images`. At the pinned RoboTwin no expert reads an observation or a camera, and
+  the one `get_obs` side effect an expert could see, the `crazy_random_light` RNG draw, is kept;
+  a sim test compares attempts with and without images on dual Franka. `eval` always renders
+  (#83).
 - (feat): the survey records every seed, and for every demonstration which arms moved and by how
   much. Each task's JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection),
   frames, `arms_moved`, `displacement`, seconds — and the counts `one_arm_demonstrations`,
