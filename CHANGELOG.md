@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- (feat): the simulator installs and runs on Blackwell GPUs. `scripts/install_robotwin.sh` picks
+  a GPU path from the compute capability — the reference torch 2.4.1 + CUDA 12.1 below 10.0, torch
+  2.8 + CUDA 12.8 from 10.0 up — builds CuRobo for it, and makes SAPIEN render in containers that
+  ship no glvnd manifests; `robotwin_icil` turns off the OIDN denoiser where it cannot run and
+  stops a run when the renderer loses the GPU. `scripts/simwatch.py` reruns a job whose camera
+  read hangs. Verified on an RTX 5090: `pytest -m sim` passes and the click_bell replay smoke
+  scores (#80).
 - (docs): the README reports V1's status — the replay oracle scores 18/18 on the nine-task
   suite — points at the survey, and uses click_bell, the fastest expert, as its smoke task.
 - (fix): a multi-task run no longer collapses once the GPU fills up. The runner keeps one RoboTwin

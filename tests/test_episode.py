@@ -148,6 +148,13 @@ def test_running_out_of_gpu_memory_stops_the_run():
         run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
 
 
+def test_losing_the_gpu_in_the_expert_stops_the_run():
+    # Recorded as a rejection, a device loss once turned one run into 40 bogus expert_errors.
+    env = FakeTaskEnv(device_lost_on_play={scene_seeds(0, 0, 5)[0]})
+    with pytest.raises(robotwin.RoboTwinError, match="lost the GPU"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
 def test_an_expert_that_raises_is_still_a_rejected_seed():
     env = FakeTaskEnv(expert_raises_on={scene_seeds(0, 0, 5)[0]})
     record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
