@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- (fix): a served policy can no longer void the units it is losing, or reach past its socket. All
+  of a unit's calls to it share `run-unit --policy-budget-s` (300 s): the call it runs out in is
+  cut short and the unit is void on the policy, where a policy answering every call just in time
+  used to run its unit into the orchestrator's kill, void for both sides. `--unit-timeout-s` gives
+  run-unit its caller's kill: no call runs within 30 s of it, and one cut short there while the
+  policy is within its budget is void on the harness, written before the kill. `close` gets 5 s,
+  not whatever its last call had. `--policy-log` is opened at the path given, never resolved, so a
+  log the policy swapped for a link to a host file stays refused. An action's width and dtype are
+  checked before it is copied, and rows past 4096 dropped, so a gigabyte of booleans no longer
+  costs run-unit eight. What a server says is bounded before it reaches `result.json`: a
+  200-character name, a failure's first 4000 and last 8192 characters. `result.json` records
+  `policy_wall_s` and `policy_budget_s`, and after a GPU failure every process `nvidia-smi` saw
+  holding GPU memory (`gpu_processes`) and `run_unit_pid`, since a policy sharing the GPU could
+  have filled it (#85).
+- (feat): the plugin and the benchmark code it runs are held to each other. `materialize` and
+  `run-unit` take `--expect-source-sha256` and exit 1 before writing anything unless
+  `robotwin_icil.source_sha256()` is that digest, and both results record theirs; the plugin passes
+  its own, reports it in `info()` and voids a result other source wrote. `derive_units` refuses a
+  task catalogue whose digest is not the pinned `units.CATALOGUE_SHA256`, and `robotwin-icil` is
+  pinned to the plugin's version. `verify_prompt` also holds a prompt's scene config (`demo_clean`,
+  `save_freq` 15, no head camera or override, `same_scene`), its cameras (head and wrists only) and
+  its expert record (the unit's candidates tried in order up to the scene seed) to the unit. A
+  commit is recorded only for the top of a git checkout, never for a repository a wheel sits in.
+  `run_command` passes `policy_budget_s` and `unit_timeout_s` on and refuses a time limit run-unit
+  would refuse; `--denoiser` carries `ROBOTWIN_ICIL_DENOISER`, which the orchestrator does not hand
+  a benchmark subprocess (#86).
 - (feat): the benchmark plugs into the competition orchestrator as its own distribution.
   `competition/` is `robotwin-icil-competition`, package `icil_benchmark_robotwin`, found through
   the `icil.benchmarks` entry point `robotwin` and never importing the orchestrator. Its pure half
@@ -26,10 +52,11 @@
   `frames_<camera>`, `qpos` and `endpose`, `meta` never; `reset` gets a seed drawn from the prompt's
   bytes, never the scene seed. An error reply to `reset`, `prompt` or `act` fails the unit; any
   other remote failure — nothing listening, `hello` refused or unanswered, a timeout, a hang-up, a
-  malformed reply — is `PolicyUnreachable` and voids it with `void_cause` "policy" and the server
-  log's tail in `error`. Every other void of either command carries `void_cause` "harness", a field
-  added to both results. Every policy is now reset with a public `EpisodeInfo` (robot, live action
-  widths, seed) and closed once its unit is over (#85).
+  malformed reply — is `PolicyUnreachable` and voids it with `void_cause` "policy", its `error`
+  ending with the server log's tail when `--policy-log` names the log. Every other void of either
+  command carries `void_cause` "harness", a field added to both results. Every policy is now reset
+  with a public `EpisodeInfo` (robot, live action widths, seed) and closed once its unit is over
+  (#85).
 - (feat): a demonstration is built once and saved, and an episode is evaluated from the saved file.
   `robotwin-icil materialize --task T --scene-seed S [--scene-seed S2 ...] --out DIR` tries the
   candidate seeds in order — one scene built and one expert run each — and writes `prompt.npz` and
@@ -37,21 +64,21 @@
   chosen `scene_seed` and every attempt (seed, rejection, detail), which the prompt's `meta`
   records too; every candidate rejected is a void result with `void_cause` "harness", and a seed
   given twice is refused. It exits 0 whenever `result.json` was written, a rejection included, so
-  the caller reads the reason instead of a log tail; `robotwin-icil run-unit --prompt DIR/prompt.npz --policy P --out
-  DIR` rebuilds the scene from the prompt's privileged `meta`, refuses a meta whose digest is not
-  its own fingerprint's, voids on scene drift with the mismatches, rolls the policy out and writes
-  `result.json` (`success` and `steps` null exactly when `void`, the rebuilt scene's
-  `live_scene_sha256` and its `scene_max_error`, the checkpoint and both commits) and
-  `evaluation.mp4`. Both commands' `result.json` carry `success`, `void`, `steps` and `error`, the
-  fields the orchestrator reads: every candidate rejected is a void materialize. In `run-unit` a policy at
-  fault — raising from `reset` or `set_demonstration`, or a wrong-width or non-finite action —
-  fails its unit and never voids it; void is kept for an unreadable, mistyped or tampered prompt,
-  scene drift, a config RoboTwin refuses, any other harness fault while evaluating (traceback to
-  stderr) and a GPU lost or full mid-rollout, which in `eval` now stops the run as it does in the
-  expert. `run-unit` exits 1 only when the unit cannot start. Both commands clear their outputs
-  before anything can fail, and `run-unit` refuses to write into its prompt's directory; an
-  adapter's paths are resolved in its constructor or passed absolute, since the simulator runs
-  from `vendor/RoboTwin`. `prompt.npz` holds
+  the caller reads the reason instead of a log tail. `robotwin-icil run-unit --prompt
+  DIR/prompt.npz --policy P --out DIR` rebuilds the scene from the prompt's privileged `meta`,
+  refuses a meta whose digest is not its own fingerprint's, voids on scene drift with the
+  mismatches, rolls the policy out and writes `result.json` (`success` and `steps` null exactly
+  when `void`, the rebuilt scene's `live_scene_sha256` and its `scene_max_error`, the checkpoint
+  and both commits) and `evaluation.mp4`. Both commands' `result.json` carry `success`, `void`,
+  `steps` and `error`, the fields the orchestrator reads: every candidate rejected is a void
+  materialize. In `run-unit` a policy at fault — raising from `reset` or `set_demonstration`, or a
+  wrong-width or non-finite action — fails its unit and never voids it; void is kept for an
+  unreadable, mistyped or tampered prompt, scene drift, a config RoboTwin refuses, any other
+  harness fault while evaluating (traceback to stderr) and a GPU lost or full mid-rollout, which in
+  `eval` now stops the run as it does in the expert. `run-unit` exits 1 only when the unit cannot
+  start. Both commands clear their outputs before anything can fail, and `run-unit` refuses to
+  write into its prompt's directory; an adapter's paths are resolved in its constructor or passed
+  absolute, since the simulator runs from `vendor/RoboTwin`. `prompt.npz` holds
   `frames_<camera>`, `qpos`, `endpose` (per arm, left then right: pose then gripper, 16 wide),
   `actions`, `times`, `frequency` and `meta`; `prompt.CHANNELS` publishes which arrays are video,
   proprioception and actions. Every frame records the simulated time it was taken at
