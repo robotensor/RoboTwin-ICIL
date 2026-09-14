@@ -54,6 +54,11 @@ ACTION_TYPES = ("qpos", "ee")
 POLICY_OPS = ("reset", "prompt", "act")
 #: The shortest key the policy wire accepts.
 MIN_AUTHKEY_BYTES = 16
+#: The dtype kinds an action may have: bool, signed and unsigned integers, floats.
+NUMERIC_KINDS = ("b", "i", "u", "f")
+#: The most rows of one action chunk that are kept. More than any task's step limit (the longest
+#: in RoboTwin's `_eval_step_limit.yml` is 1700), so a row dropped here could never have run.
+MAX_ACTION_ROWS = 4096
 #: How long reaching the address and authenticating may take. The orchestrator runs run-unit once
 #: the policy listens, so a server that is not there by then is not coming.
 CONNECT_TIMEOUT_S = 60.0
@@ -213,8 +218,31 @@ class RemotePolicy(ICILPolicy):
         except PromptError as exc:
             raise Unscorable(f"the observation cannot be sent: {exc}") from exc
         reply = self._call("act", self.act_timeout_s, arrays)
+        return self._rows(reply.get("action"))
+
+    def _rows(self, action: Any) -> np.ndarray:
+        """The reply's action as rows of float64, checked before anything is copied.
+
+        The client bounds a reply at a gigabyte, so an action converted first and checked after
+        would cost run-unit up to eight times that (a bool or uint8 array of any shape): its width
+        and dtype are held to the robot's here, as `ICILPolicy.act` holds them afterwards, and
+        rows past `MAX_ACTION_ROWS`, which no episode can execute, are dropped.
+        """
+        episode = self.episode
+        width = None if episode is None else episode.action_dims.get(self.action_type)
+        shape = tuple(getattr(action, "shape", ()))
+        rows_shape = (1, *shape) if len(shape) == 1 else shape
+        kind = getattr(getattr(action, "dtype", None), "kind", None)
+        if len(shape) not in (1, 2) or 0 in shape or shape[-1] != width:
+            raise PolicyError(
+                f"{self.name}: act() returned shape {rows_shape}, expected (k, {width}) "
+                f"for action_type {self.action_type!r}"
+            )
+        if kind not in NUMERIC_KINDS:
+            raise PolicyError(f"{self.name}: act() returned a {action.dtype} action, not numbers")
+        rows = action.reshape(1, -1) if len(shape) == 1 else action[:MAX_ACTION_ROWS]
         # A copy: the client's arrays are read-only views of the reply's bytes.
-        return np.array(reply["action"], dtype=np.float64)
+        return np.array(rows, dtype=np.float64)
 
     def _connect(self) -> None:
         try:

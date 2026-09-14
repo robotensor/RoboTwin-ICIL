@@ -7,13 +7,15 @@ exception types skip without it (the benchmark's CI cannot install it); the rest
 
 import subprocess
 import sys
+import tracemalloc
 
 import numpy as np
 import pytest
+import yaml
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import prompt, remote, robotwin, unit
-from robotwin_icil.policy import EpisodeInfo, PolicyError, Unscorable
+from robotwin_icil.policy import EpisodeInfo, Observation, PolicyError, Unscorable
 
 TASK = "click_bell"
 SEED = 11
@@ -258,6 +260,50 @@ def test_an_action_of_the_wrong_width_fails_the_unit(tmp_path, errors, hello, re
     _, _, result = run(tmp_path, Script(hello=hello, reshape=reshape))
     assert result["success"] is False and result["void"] is False
     assert reason in result["detail"]
+
+
+def acting(tmp_path, script):
+    """A served policy reset and handed its demonstration, and an observation to act on."""
+    policy = remote.RemotePolicy("/run/policy.sock", KEY, client_factory=script.factory)
+    demonstration, _ = prompt.read_prompt(materialized(tmp_path))
+    env = FakeTaskEnv()
+    env.setup_demo(seed=SEED)
+    raw = robotwin.observation(env)
+    dims = {"qpos": 14, "ee": 16}
+    policy.reset(EpisodeInfo(embodiment="fake-arms", action_dims=dims, seed=1))
+    policy.set_demonstration(demonstration)
+    observation = Observation(
+        step=0, images=raw["images"], qpos=raw["qpos"], endpose=raw["endpose"]
+    )
+    return policy, observation, dims
+
+
+def test_an_oversized_action_is_refused_before_it_is_copied(tmp_path, errors):
+    # 8 MiB on the wire, 64 MiB as float64: converted first, it would cost run-unit eight times
+    # what the policy paid to send it, up to the client's gigabyte reply bound.
+    huge = np.zeros((1, 1 << 23), dtype=bool)
+    policy, observation, dims = acting(tmp_path, Script(reshape=lambda action: huge))
+    tracemalloc.start()
+    try:
+        with pytest.raises(PolicyError, match=r"shape \(1, 8388608\), expected \(k, 14\)"):
+            policy.act(observation, dims)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 4 << 20
+
+
+def test_rows_no_episode_can_execute_are_dropped_before_the_copy(tmp_path, errors):
+    chunk = Script(reshape=lambda action: np.tile(action, (100_000, 1)))
+    policy, observation, dims = acting(tmp_path, chunk)
+    assert policy.act(observation, dims).shape == (remote.MAX_ACTION_ROWS, 14)
+
+
+def test_no_task_runs_more_steps_than_an_action_chunk_keeps():
+    limits = robotwin.ROBOTWIN_ROOT / "env_cfg" / "task_config" / "_eval_step_limit.yml"
+    if not limits.is_file():
+        pytest.skip(f"no RoboTwin checkout at {robotwin.ROBOTWIN_ROOT}")
+    assert max(yaml.safe_load(limits.read_text()).values()) < remote.MAX_ACTION_ROWS
 
 
 def test_a_message_the_client_refuses_to_send_voids_on_the_harness(tmp_path, errors):
