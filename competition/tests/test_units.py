@@ -2,6 +2,7 @@
 
 import ast
 import collections
+import dataclasses
 import hashlib
 import json
 import os
@@ -87,6 +88,34 @@ def test_derivation_is_pinned_across_python_versions():
 PINNED_TASKS = ["stack_bowls_two", "place_empty_cup", "click_alarmclock"]
 PINNED_SEEDS = [1911900973, 111348362, 833122392, 158406989]
 PINNED_SHA256 = "252476905dd8bc77004693c44457673dbf45ef7ecb861fbe866595864f37d8c7"
+
+
+def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
+    # The plugin's wheel is pinned; robotwin-icil's table is not in it. A table that changed
+    # under the same pin would derive other units, so the digest is pinned with the derivation.
+    assert units.catalogue_sha256(tasks.table()) == units.CATALOGUE_SHA256
+
+
+def _changed_tables():
+    table = tasks.table()
+    moved = dict(table.tasks)
+    moved["click_bell"] = dataclasses.replace(moved["click_bell"], category="pick_and_place")
+    reordered = {**table.suites, "v1": tuple(reversed(table.suites["v1"]))}
+    return {
+        "a task moved to another category": dataclasses.replace(table, tasks=moved),
+        "a suite in another order": dataclasses.replace(table, suites=reordered),
+        "a suite with a task less": dataclasses.replace(
+            table, suites={**table.suites, "v1": table.suites["v1"][1:]}
+        ),
+    }
+
+
+@pytest.mark.parametrize("change", sorted(_changed_tables()))
+def test_units_are_not_derived_from_a_catalogue_they_were_not_pinned_on(change):
+    table = _changed_tables()[change]
+    assert units.catalogue_sha256(table) != units.CATALOGUE_SHA256
+    with pytest.raises(ValueError, match="units were pinned on"):
+        units.derive_units(seed_material=MATERIAL, count=1, suite="v1", table=table)
 
 
 @pytest.mark.parametrize(

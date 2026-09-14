@@ -10,8 +10,10 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 # Neither is on a package index: the host installs both beside this plugin (see README.md). The
-# plugin never imports icil-orchestrator; the orchestrator imports it.
-dependencies = ["robotwin-icil", "icil-policy"]
+# plugin never imports icil-orchestrator; the orchestrator imports it. robotwin-icil is pinned to
+# the version released with this plugin: its task table and prompt format are what the plugin's
+# units and checks read, and `units.CATALOGUE_SHA256` refuses a table that is not.
+dependencies = ["robotwin-icil==0.1.0.dev0", "icil-policy"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff==0.16.7"]

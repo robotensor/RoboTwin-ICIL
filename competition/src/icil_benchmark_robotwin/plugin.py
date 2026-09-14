@@ -103,6 +103,11 @@ class RoboTwinBenchmark:
             "task_config": commands.TASK_CONFIG,
             "save_freq": commands.SAVE_FREQ,
             "scene_seed_candidates": units.SCENE_SEED_CANDIDATES,
+            # What units are drawn from, and what it was when the derivation was pinned: a
+            # different table derives no units.
+            "catalogue_sha256": units.catalogue_sha256(table),
+            "pinned_catalogue_sha256": units.CATALOGUE_SHA256,
+            "derivation": units.DERIVATION,
             "void_causes": list(prompts.VOID_CAUSES),
             # What run-unit gives a served policy unless `extra` says otherwise. A unit's
             # `unit_timeout_s` must leave the harness its own time beyond the policy's budget.

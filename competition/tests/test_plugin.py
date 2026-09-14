@@ -66,7 +66,12 @@ def test_the_entry_point_names_the_plugin_object():
     assert project["entry-points"]["icil.benchmarks"] == {
         "robotwin": "icil_benchmark_robotwin:BENCHMARK"
     }
-    assert set(project["dependencies"]) == {"robotwin-icil", "icil-policy"}
+    # The benchmark it wraps is pinned to the version released with it; icil-policy is not
+    # imported by the plugin at all.
+    assert set(project["dependencies"]) == {
+        f"robotwin-icil=={robotwin_icil.__version__}",
+        "icil-policy",
+    }
     installed = [
         ep for ep in metadata.entry_points(group="icil.benchmarks") if ep.name == "robotwin"
     ]
@@ -158,6 +163,8 @@ def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
     assert info["action_types"] == ["qpos", "ee"] and info["cameras"]
     assert set(info["commits"]) == {"benchmark", "robotwin"}
     assert info["benchmark"]["source_sha256"] == robotwin_icil.source_sha256()
+    assert info["catalogue_sha256"] == info["pinned_catalogue_sha256"]
+    assert info["derivation"] == "robotwin-icil-competition/units/1"
     assert info["cli"]["module"] == "robotwin_icil.cli"
     assert info["cli"]["python_env"] == "ROBOTWIN_ICIL_PYTHON"
     assert json.loads(json.dumps(info)) == info

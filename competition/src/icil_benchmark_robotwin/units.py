@@ -9,6 +9,7 @@ then each unit's candidates in turn, so a smaller duel's units are the first uni
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 from robotwin_icil import tasks
@@ -29,6 +30,12 @@ SEED_BOUND = 2**31 - 1
 #: Hashed ahead of the seed material, so these draws are this derivation's and no other's. A change
 #: to how units are drawn changes this label, and with it every unit.
 DERIVATION = "robotwin-icil-competition/units/1"
+
+#: What `catalogue_sha256` gave when the derivation was pinned. The orchestrator pins this plugin
+#: by its wheel's sha256, but the tasks units are drawn from are robotwin-icil's: another table
+#: would derive other units under the same pin, so `derive_units` refuses one. A change to the
+#: catalogue that is meant updates this, with `DERIVATION` and the pinned test if units change.
+CATALOGUE_SHA256 = "dbcb2422aad65f947f29d281df0db2544e684761c8e12b052e25d41a4a7f8d8d"
 
 
 class Sha256Counter:
@@ -52,6 +59,26 @@ class Sha256Counter:
             value = self.next_u64()
             if value < limit:
                 return value % bound
+
+
+def catalogue_sha256(table: tasks.TaskTable) -> str:
+    """sha256 of everything a unit is drawn from or carries: every suite's tasks in order, each
+    suite's robot, and each task's category, arms and label."""
+    known = catalogue.suites(table)
+    payload = {
+        "suites": {name: list(members) for name, members in known.items()},
+        "embodiments": {name: catalogue.embodiment_of(name) for name in known},
+        "tasks": {
+            name: {
+                "category": task.category,
+                "arms": catalogue.arms_of(task),
+                "label": catalogue.task_label(name),
+            }
+            for name, task in table.tasks.items()
+        },
+    }
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def suite_tasks(table: tasks.TaskTable, suite: str, category: str | None) -> list[str]:
@@ -91,6 +118,12 @@ def derive_units(
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         raise ValueError(f"count must be a non-negative integer, not {count!r}")
     table = table or tasks.table()
+    found = catalogue_sha256(table)
+    if found != CATALOGUE_SHA256:
+        raise ValueError(
+            f"the task catalogue digests to {found}, not the {CATALOGUE_SHA256} units were pinned "
+            "on: this robotwin-icil's table would derive other units under the same plugin"
+        )
     members = suite_tasks(table, suite, category)
     embodiment = catalogue.embodiment_of(suite)
 
