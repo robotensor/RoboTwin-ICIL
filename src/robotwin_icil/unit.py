@@ -20,6 +20,7 @@ the `Demonstration` and nothing else.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
@@ -33,7 +34,7 @@ from typing import Any
 from . import generate, tasks
 from .demo import Demonstration
 from .episode import evaluate
-from .policy import ICILPolicy
+from .policy import ICILPolicy, Unscorable
 from .prompt import PROMPT_FILE, PROMPT_SCHEMA, PromptError, read_prompt, sha256_of, write_prompt
 from .records import SAME_SCENE, git_commit
 from .scene import SceneFingerprint, deviation, digest
@@ -350,6 +351,23 @@ def scene_config_from(meta: dict[str, Any]):
     )
 
 
+#: The label a policy's episode seed is hashed under, so the seed carries no bits of the digest.
+EPISODE_SEED_LABEL = "robotwin-icil episode seed"
+
+
+def episode_seed(prompt_sha256: str) -> int:
+    """The seed a policy is reset with for the prompt whose bytes hash to `prompt_sha256`.
+
+    Never the scene seed, which is privileged: a policy that held it could rebuild the scene it is
+    scored in. Drawn from the prompt's own bytes instead, so every policy handed one prompt (both
+    sides of a duel) gets the same seed; hashed again under `EPISODE_SEED_LABEL`, so it holds no
+    bits of the prompt sha256 a duel publishes. In [0, 2**31): every RNG a policy may seed with it
+    takes that, numpy's legacy `np.random.seed` included.
+    """
+    digest = hashlib.sha256(f"{EPISODE_SEED_LABEL}|{prompt_sha256}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+
+
 def run_unit(
     prompt_path: str | Path,
     policy: ICILPolicy,
@@ -370,7 +388,14 @@ def run_unit(
     drifted or would not build, a GPU lost or full during the rollout, or any other fault of the
     harness while it evaluated (its traceback is printed to stderr). `success` and `steps` are
     None exactly when the unit is void, and `void_cause` says whose the void is: "harness" for
-    every reason above; None when the unit was scored.
+    every reason above; "policy" when the policy could not be spoken to — a served policy that
+    never listened, refused or did not answer `hello`, timed out, hung up or answered nonsense
+    (`PolicyUnreachable`) — with the reason and the server's log tail in `error`; None when the
+    unit was scored. A served policy that answers a call with an error has failed, not voided.
+
+    The policy is reset with `episode_seed` of the prompt's sha256, never the scene seed, and
+    `policy`, `model`, `checkpoint` and `served_policy` are what `describe` said once the unit
+    was over (a served policy names itself only once it has answered `hello`).
 
     A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
     prompt raises `UnitError`: neither is a unit's outcome, and no result is written for them.
@@ -381,7 +406,16 @@ def run_unit(
     # Absolute before the RoboTwin seam moves the working directory into the checkout.
     prompt_path = Path(prompt_path).resolve()
     out = clear_outputs(out_dir, RUN_UNIT_OUTPUTS, prompt=prompt_path)
-    describe = policy.describe()
+
+    def described() -> dict[str, Any]:
+        describe = policy.describe()
+        return {
+            "policy": str(describe["policy"]),
+            "model": str(describe.get("model", describe["policy"])),
+            "checkpoint": describe.get("checkpoint"),
+            "served_policy": describe.get("served_policy"),
+        }
+
     result: dict[str, Any] = {
         "success": None,
         "void": True,
@@ -391,8 +425,7 @@ def run_unit(
         "error": None,
         "detail": "",
         "scene_max_error": None,
-        "model": str(describe.get("model", describe["policy"])),
-        "checkpoint": describe.get("checkpoint"),
+        **described(),
         "benchmark_commit": git_commit(robotwin.REPO_ROOT),
         "robotwin_commit": git_commit(robotwin.ROBOTWIN_ROOT),
         "embodiment": None,
@@ -407,16 +440,17 @@ def run_unit(
 
     def finish(**fields: Any) -> dict[str, Any]:
         result.update(fields)
+        result.update(described())
         result["video"] = EVALUATION_CLIP if (out / EVALUATION_CLIP).is_file() else None
         result["duration_s"] = round(time.monotonic() - started, 3)
         _write_json(out / RESULT_FILE, result)
         return result
 
-    def void(error: str, **fields: Any) -> dict[str, Any]:
+    def void(error: str, cause: str = "harness", **fields: Any) -> dict[str, Any]:
         return finish(
             success=None,
             void=True,
-            void_cause="harness",
+            void_cause=cause,
             steps=None,
             step_limit=None,
             error=error,
@@ -462,7 +496,12 @@ def run_unit(
             policy,
             video=clip,
             score_policy_faults=True,
+            policy_seed=episode_seed(result["prompt_sha256"]),
         )
+    except Unscorable as exc:
+        # Not what the policy did, so not its failure: a policy that could not be spoken to voids
+        # on the policy, anything else on the harness. Either way the reason is the error.
+        return void(str(exc), cause=exc.void_cause)
     except robotwin.RoboTwinError as exc:
         # The simulator failed under the policy (the GPU lost or full): nothing to score.
         return void(f"simulator failed: {exc}")

@@ -9,7 +9,13 @@ import pytest
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import prompt, robotwin, scene, unit
 from robotwin_icil.demo import Demonstration
-from robotwin_icil.policy import ICILPolicy, ReplayPolicy
+from robotwin_icil.policy import (
+    EpisodeInfo,
+    ICILPolicy,
+    PolicyUnreachable,
+    ReplayPolicy,
+    Unscorable,
+)
 from robotwin_icil.records import git_commit
 
 pytest.importorskip("imageio_ffmpeg")
@@ -199,6 +205,7 @@ def test_run_unit_succeeds_with_replay_from_the_file(tmp_path):
     assert result["success"] is True and result["void"] is False and result["error"] is None
     assert result["steps"] == env.expert_steps and result["step_limit"] == env.step_lim
     assert result["scene_max_error"] == 0.0 and result["model"] == "replay"
+    assert result["policy"] == "replay" and result["served_policy"] is None
     assert result["embodiment"] == "fake-arms" and result["task"] == TASK
     assert result["scene_seed"] == SEED and result["evaluation_setting"] == "same_scene"
     assert result["prompt_sha256"] == prompt.sha256_of(out / "prompt.npz")
@@ -498,6 +505,86 @@ def test_a_policy_at_fault_fails_the_unit_rather_than_voiding_it(tmp_path, where
     assert result["success"] is False and result["void"] is False and result["error"] is None
     assert result["steps"] == steps and result["detail"].startswith(reason)
     assert unit.read_result(tmp_path / "run") == result and env.closed == 1
+
+
+class _Unreachable(ReplayPolicy):
+    """A replay policy whose connection fails in one named place, with `error`."""
+
+    name = "unreachable"
+
+    def __init__(self, where, error=PolicyUnreachable):
+        super().__init__()
+        self.where, self.error = where, error
+
+    def _reset(self):
+        super()._reset()
+        if self.where == "reset":
+            raise self.error("the policy is unreachable: connect: nothing listened")
+
+    def _set_demonstration(self, demonstration):
+        if self.where == "set_demonstration":
+            raise self.error("the policy is unreachable: prompt: no answer within 1s")
+        super()._set_demonstration(demonstration)
+
+    def _act(self, observation):
+        action = super()._act(observation)
+        if self.where == "act" and self._cursor == 3:
+            raise self.error("the policy is unreachable: act: the policy went away")
+        return action
+
+
+@pytest.mark.parametrize("where", ["reset", "set_demonstration", "act"])
+def test_a_policy_that_cannot_be_reached_voids_the_unit_on_the_policy(tmp_path, where):
+    # Wherever the connection is lost, nothing the policy did was scored and the harness did
+    # nothing wrong: void, charged to the policy, with the reason.
+    _, out = materialized(tmp_path)
+    env = FakeTaskEnv()
+    result = unit.run_unit(out / "prompt.npz", _Unreachable(where), tmp_path / "run", task_env=env)
+    assert_read_result_shape(result)
+    assert result["void"] is True and result["void_cause"] == "policy"
+    assert result["success"] is None and result["steps"] is None
+    assert result["error"].startswith("the policy is unreachable: ")
+    assert unit.read_result(tmp_path / "run") == result and env.closed == 1
+
+
+def test_an_unscorable_harness_fault_in_a_policy_call_voids_on_the_harness(tmp_path):
+    _, out = materialized(tmp_path)
+    policy = _Unreachable("act", error=Unscorable)
+    result = unit.run_unit(out / "prompt.npz", policy, tmp_path / "run", task_env=FakeTaskEnv())
+    assert_read_result_shape(result)
+    assert result["void"] is True and result["void_cause"] == "harness"
+
+
+class _Told(ReplayPolicy):
+    """Keeps the episode info each reset handed it."""
+
+    name = "told"
+
+    def __init__(self):
+        super().__init__()
+        self.told = []
+
+    def _reset(self):
+        super()._reset()
+        self.told.append(self.episode)
+
+
+def test_the_policy_is_reset_with_public_facts_and_a_seed_drawn_from_the_prompt(tmp_path):
+    _, out = materialized(tmp_path)
+    policy = _Told()
+    result = unit.run_unit(out / "prompt.npz", policy, tmp_path / "run", task_env=FakeTaskEnv())
+    assert result["success"] is True
+    [told] = policy.told
+    seed = unit.episode_seed(prompt.sha256_of(out / "prompt.npz"))
+    assert told == EpisodeInfo(
+        embodiment="fake-arms", action_dims={"qpos": 14, "ee": 16}, seed=seed
+    )
+    assert {f.name for f in dataclasses.fields(told)} == {"embodiment", "action_dims", "seed"}
+    # The same prompt gives every policy the same seed; it is not the scene seed, nor bits of the
+    # digest a duel publishes.
+    assert unit.episode_seed(result["prompt_sha256"]) == seed and 0 <= seed < 2**31
+    assert seed != SEED and f"{seed:08x}" not in result["prompt_sha256"]
+    assert unit.episode_seed("0" * 64) != unit.episode_seed("1" * 64)
 
 
 class _Recorder(ReplayPolicy):

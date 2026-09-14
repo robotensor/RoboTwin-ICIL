@@ -10,7 +10,14 @@ from robotwin_icil import robotwin, tasks
 from robotwin_icil.demo import Demonstration, Frame
 from robotwin_icil.episode import EpisodeSpec, rollout, run_episode
 from robotwin_icil.generate import scene_seeds
-from robotwin_icil.policy import DummyPolicy, ICILPolicy, PolicyError, ReplayPolicy
+from robotwin_icil.policy import (
+    DummyPolicy,
+    EpisodeInfo,
+    ICILPolicy,
+    PolicyError,
+    PolicyUnreachable,
+    ReplayPolicy,
+)
 from robotwin_icil.records import SAME_SCENE, Status
 
 
@@ -90,10 +97,12 @@ class _Spy(ReplayPolicy):
     def __init__(self):
         super().__init__()
         self.calls = []
+        self.episodes = []
 
-    def reset(self):
+    def reset(self, episode=None):
         self.calls.append("reset")
-        super().reset()
+        self.episodes.append(episode)
+        super().reset(episode)
 
     def set_demonstration(self, demonstration):
         self.calls.append("demonstration")
@@ -103,8 +112,28 @@ class _Spy(ReplayPolicy):
 def test_each_episode_resets_the_policy_then_gives_it_one_demonstration():
     policy = _Spy()
     run_episode(spec(0), policy, FakeConfig(), task_env=FakeTaskEnv())
-    run_episode(spec(1), policy, FakeConfig(), task_env=FakeTaskEnv())
+    run_episode(spec(1), policy, FakeConfig(), task_env=FakeTaskEnv(qpos_dim=16))
     assert policy.calls == ["reset", "demonstration", "reset", "demonstration"]
+    # Told the robot and its live widths; a benchmark run draws no seed for the policy.
+    assert policy.episodes == [
+        EpisodeInfo(embodiment="fake-arms", action_dims={"qpos": 14, "ee": 16}, seed=None),
+        EpisodeInfo(embodiment="fake-arms", action_dims={"qpos": 16, "ee": 16}, seed=None),
+    ]
+
+
+class _GoneAway(ReplayPolicy):
+    name = "gone-away"
+
+    def _act(self, observation):
+        raise PolicyUnreachable("the policy is unreachable: act: the policy went away")
+
+
+def test_a_policy_that_cannot_be_reached_is_never_a_failed_rollout():
+    # Nobody's result: a benchmark run stops on it rather than record the episode as failed.
+    env = FakeTaskEnv()
+    with pytest.raises(PolicyUnreachable, match="went away"):
+        run_episode(spec(), _GoneAway(), FakeConfig(), task_env=env)
+    assert env.closed == 2
 
 
 class _Broken(ICILPolicy):

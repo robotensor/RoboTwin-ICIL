@@ -35,6 +35,49 @@ class PolicyError(RuntimeError):
     """A policy was driven outside the reset -> demonstrate -> act lifecycle, or returned junk."""
 
 
+class Unscorable(RuntimeError):
+    """Raised from inside a policy call when its episode cannot be scored, for a reason that is not
+    what the policy did.
+
+    In `run-unit`, whatever else a policy raises is scored as its own failure: a policy must not
+    be able to throw out the episodes it is losing. This one `evaluate` and `rollout` re-raise, and
+    `unit.run_unit` records the unit void with `void_cause`. The base class is the harness's fault
+    (an adapter that could not encode the benchmark's own observation); `PolicyUnreachable` is the
+    policy's.
+    """
+
+    #: Whose the void is, as `result.json`'s `void_cause` names it.
+    void_cause: ClassVar[str] = "harness"
+
+
+class PolicyUnreachable(Unscorable):
+    """The policy could not be spoken to: nothing listened, it refused or did not answer `hello`, a
+    call ran past its timeout, the connection dropped, or a reply was malformed.
+
+    Nothing the policy did was scored, and it was not the harness's doing either: the unit is void
+    with `void_cause` "policy". An error *reply* is not this: a policy that answers a call by
+    raising has failed, like a local policy that raises.
+    """
+
+    void_cause: ClassVar[str] = "policy"
+
+
+@dataclass(frozen=True)
+class EpisodeInfo:
+    """What a policy is told at `reset` about its episode, besides the demonstration.
+
+    Public facts only, what a robot's operator would know: `embodiment`, the robot's name;
+    `action_dims`, its action widths per action type, read off the live arms; `seed`, a number a
+    stochastic policy may seed itself with. In `run-unit` the seed is drawn from the prompt's
+    bytes (`unit.episode_seed`), so every policy handed one prompt gets the same one, and it is
+    never the scene seed; a benchmark run draws none.
+    """
+
+    embodiment: str
+    action_dims: Mapping[str, int]
+    seed: int | None = None
+
+
 @dataclass(frozen=True)
 class Observation:
     """What the policy sees at one control step: the same modalities as a demonstration frame.
@@ -62,11 +105,15 @@ class ICILPolicy:
     def __init__(self) -> None:
         self._demonstration: Demonstration | None = None
         self._was_reset = False
+        #: The episode this policy was last reset for; the harness always passes one.
+        self.episode: EpisodeInfo | None = None
 
-    def reset(self) -> None:
-        """Forget everything from the previous episode, its demonstration included."""
+    def reset(self, episode: EpisodeInfo | None = None) -> None:
+        """Forget everything from the previous episode, its demonstration included, and start
+        `episode`, which `_reset` and every later call read from `self.episode`."""
         self._demonstration = None
         self._was_reset = True
+        self.episode = episode
         self._reset()
 
     def set_demonstration(self, demonstration: Demonstration) -> None:
@@ -110,6 +157,12 @@ class ICILPolicy:
     def describe(self) -> dict[str, Any]:
         """What the run manifest records about this policy: its name, model and checkpoint."""
         return {"policy": self.name, "action_type": self.action_type}
+
+    def close(self) -> None:
+        """Release what the policy holds (a connection, a device) once its unit is over.
+
+        `run-unit` calls it however the unit ended. The base class holds nothing.
+        """
 
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
