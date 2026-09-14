@@ -190,6 +190,31 @@ def test_materialize_takes_every_candidate_seed_in_order(tmp_path, fake_sim, cap
     assert sorted(p.name for p in tmp_path.iterdir()) == []
 
 
+def test_a_command_built_for_another_benchmark_source_refuses_to_run(tmp_path, fake_sim, capsys):
+    # The plugin builds its argv against the robotwin_icil it imports; an interpreter running
+    # another one may read the same flags differently (one --scene-seed kept of four, say).
+    import robotwin_icil
+
+    other = "0" * 64
+    out = tmp_path / "p"
+    assert cli.main([*MATERIALIZE, "--out", str(out), "--expect-source-sha256", other]) == 1
+    err = capsys.readouterr().err
+    assert f"digests to {robotwin_icil.source_sha256()}, not the {other}" in err
+    assert not out.exists()
+
+    argv = ["run-unit", "--prompt", str(out / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), "--expect-source-sha256", other]) == 1
+    assert "another robotwin_icil" in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()
+
+    # Its own digest runs, and the result says which source wrote it.
+    mine = ["--expect-source-sha256", robotwin_icil.source_sha256()]
+    assert cli.main([*MATERIALIZE, "--out", str(out), *mine]) == 0
+    assert json.loads(capsys.readouterr().out)["source_sha256"] == robotwin_icil.source_sha256()
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), *mine]) == 0
+    assert json.loads(capsys.readouterr().out)["source_sha256"] == robotwin_icil.source_sha256()
+
+
 def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
     tmp_path, fake_sim, capsys
 ):

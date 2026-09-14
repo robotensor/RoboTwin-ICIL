@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import report as report_
+from . import source_sha256
 from . import tasks as tasks_
 from .arms import LABELS, ONE, TWO
 from .demo import DemonstrationError
@@ -275,6 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
     mat.add_argument(
         "--save-freq", type=int, default=15, help="control steps per demonstration frame"
     )
+    _add_expect_source(mat)
     mat.set_defaults(handler=_materialize)
 
     unit = commands.add_parser(
@@ -334,6 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="the served policy's log file, whose tail ends the error of a unit it voided",
     )
     unit.add_argument("--out", required=True, help="directory the result and clip are written into")
+    _add_expect_source(unit)
     unit.set_defaults(handler=_run_unit)
 
     lst = commands.add_parser(
@@ -353,6 +356,15 @@ def _add_embodiment(parser: argparse.ArgumentParser) -> None:
         help="the robot: aloha-agilex (one dual-arm URDF, 14-wide qpos) or franka-panda "
         "(two Franka arms 0.8 m apart, 16-wide qpos); without it, the task config's own, "
         "aloha-agilex in every shipped config",
+    )
+
+
+def _add_expect_source(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--expect-source-sha256",
+        metavar="HEX",
+        help="refuse to run, exit 1, unless this benchmark's source digests to HEX "
+        "(robotwin_icil.source_sha256); the competition plugin passes its own",
     )
 
 
@@ -403,6 +415,16 @@ def main(argv: list[str] | None = None) -> int:
     if usage is not None:
         print(f"robotwin-icil: {usage}", file=sys.stderr)
         return 2
+    expected = getattr(args, "expect_source_sha256", None)
+    if expected is not None and expected != source_sha256():
+        # Before anything is cleared or written: the command line was built for other code, and
+        # its flags may not mean here what its builder meant.
+        print(
+            f"robotwin-icil: this benchmark's source digests to {source_sha256()}, not the "
+            f"{expected} the command was built for: the interpreter runs another robotwin_icil",
+            file=sys.stderr,
+        )
+        return 1
     try:
         return args.handler(args)
     except (

@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import generate, tasks
+from . import generate, source_sha256, tasks
 from .demo import Demonstration
 from .episode import evaluate
 from .policy import ICILPolicy, Unscorable
@@ -181,6 +181,7 @@ def materialize(
             "attempts": attempts,
             "rejections": rejections,
             **fields,
+            "source_sha256": source_sha256(),
             "duration_s": round(time.monotonic() - started, 3),
         }
         _write_json(out / RESULT_FILE, result)
@@ -433,6 +434,7 @@ def run_unit(
         "detail": "",
         "scene_max_error": None,
         **described(),
+        "source_sha256": source_sha256(),
         "benchmark_commit": git_commit(robotwin.REPO_ROOT),
         "robotwin_commit": git_commit(robotwin.ROBOTWIN_ROOT),
         "embodiment": None,
