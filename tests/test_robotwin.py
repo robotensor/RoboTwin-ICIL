@@ -387,3 +387,41 @@ def test_a_scene_that_cannot_be_shadowed_is_refused():
     with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
         with robotwin.clock(types.SimpleNamespace(scene=Frozen())):
             pass
+
+
+def _primitive(env, physics_steps, save_freq):
+    """One motion primitive, recording as `Base_Task.take_dense_action` does: a frame before its
+    first physics step, one after every `save_freq`-th step from the first, one after its last."""
+    env._take_picture()
+    for control_idx in range(physics_steps):
+        env.scene.step()
+        if control_idx % save_freq == 0:
+            env._take_picture()
+    env._take_picture()
+
+
+def _recorded(primitives, clocked):
+    env = built()
+    if clocked:
+        with robotwin.clock(env) as ticks, robotwin.capture(env, 2, ticks) as frames:
+            for steps in primitives:
+                _primitive(env, steps, 2)
+    else:
+        with robotwin.capture(env, 2) as frames:
+            for steps in primitives:
+                _primitive(env, steps, 2)
+    return frames
+
+
+@pytest.mark.parametrize(
+    ("primitives", "physics_steps"),
+    [((4, 4), [0, 1, 3, 4, 4, 5, 7, 8]), ((4, 5), [0, 1, 3, 4, 4, 5, 7, 9, 9])],
+)
+def test_the_clock_times_upstreams_frames_and_never_adds_one(primitives, physics_steps):
+    # The clock only says when each frame was taken; how many there are is upstream's recording.
+    # Two frames share a time where one primitive hands over to the next, and one physics step
+    # more in a primitive can add a frame: why one scene's expert, whose CuRobo trajectories are
+    # not the same length every run, can record 77 frames in one run and 78 in the next.
+    timed = _recorded(primitives, clocked=True)
+    assert len(_recorded(primitives, clocked=False)) == len(timed) == len(physics_steps)
+    assert [frame.time_s for frame in timed] == pytest.approx([s / 250 for s in physics_steps])
