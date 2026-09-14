@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import icil_benchmark_robotwin
-from icil_benchmark_robotwin import BENCHMARK, catalogue
+from icil_benchmark_robotwin import BENCHMARK, catalogue, plugin
 from robotwin_icil import remote, tasks
 
 try:
@@ -169,3 +169,21 @@ def test_info_names_the_time_limits_a_served_policy_gets_and_the_extra_that_sets
     assert info["run_extra"] == ["act_timeout_s", "policy_budget_s", "unit_timeout_s", "policy_log"]
     for flag in ("--act-timeout-s", "--policy-budget-s", "--unit-timeout-s", "--policy-log"):
         assert flag in info["cli"]["run"]
+
+
+def test_the_robotwin_commit_is_read_from_the_benchmarks_checkout_never_one_around_it(tmp_path):
+    # Installed from a wheel, REPO_ROOT is <venv>/lib/python3.X, which may sit in any repository,
+    # even one with a gitlink at vendor/RoboTwin; `HEAD:path` reads from its root whatever -C says.
+    repo = tmp_path / "unrelated"
+    site = repo / ".venv" / "lib" / "python3.10"
+    site.mkdir(parents=True)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    gitlink = "0123456789abcdef0123456789abcdef01234567"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        [*git, "update-index", "--add", "--cacheinfo", f"160000,{gitlink},vendor/RoboTwin"],
+        check=True,
+    )
+    subprocess.run([*git, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "c"], check=True)
+    assert plugin.robotwin_commit(repo) == gitlink
+    assert plugin.robotwin_commit(site) is None

@@ -18,7 +18,7 @@ from typing import Any
 import robotwin_icil
 from robotwin_icil import prompt as prompt_
 from robotwin_icil import remote, tasks
-from robotwin_icil.records import git_commit
+from robotwin_icil.records import git_commit, is_checkout_top
 from robotwin_icil.robotwin import EE_ACTION_DIM, EMBODIMENTS, REPO_ROOT
 
 from . import catalogue as catalogue_
@@ -43,7 +43,10 @@ ACTION_TYPES = ("qpos", "ee")
 
 def robotwin_commit(repo_root: Path = REPO_ROOT) -> str | None:
     """The RoboTwin commit the benchmark pins: its submodule's gitlink, readable without the
-    submodule checked out. None outside a git checkout of the benchmark."""
+    submodule checked out. None unless `repo_root` is the top of a checkout: a wheel installed
+    inside some other repository must not report that repository's gitlink."""
+    if not is_checkout_top(repo_root):
+        return None
     try:
         done = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "HEAD:vendor/RoboTwin"],
