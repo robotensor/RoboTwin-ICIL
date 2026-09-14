@@ -62,6 +62,8 @@ class TaskSurvey:
     records: list[SeedRecord] = field(default_factory=list)
     # The robot the expert ran on: its success rate is the pair's, not the task's alone.
     embodiment: str | None = None
+    # Whether every frame rendered its cameras. The survey reads only joints, so by default none do.
+    images: bool = False
 
     @property
     def seeds(self) -> int:
@@ -105,6 +107,7 @@ class TaskSurvey:
             "task": self.task.name,
             "skill_category": self.task.category,
             "embodiment": self.embodiment,
+            "images": self.images,
             "seeds": self.seeds,
             "successes": self.successes,
             "success_rate": self.success_rate,
@@ -118,15 +121,26 @@ class TaskSurvey:
         }
 
 
-def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attempt) -> TaskSurvey:
-    """Run the expert once per seed, exactly as an episode's generator would, and record each."""
-    result = TaskSurvey(task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]))
+def survey_task(
+    task_env, task: Task, seeds: list[int], config, attempt_fn=attempt, images: bool = False
+) -> TaskSurvey:
+    """Run the expert once per seed, exactly as an episode's generator would, and record each.
+
+    Everything recorded is read from the joints, so by default no camera renders a frame
+    (`robotwin.capture`): ray tracing every camera is most of a seed's cost, and no expert reads
+    an image. `images=True` renders them as an episode does.
+    """
+    result = TaskSurvey(
+        task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]), images=images
+    )
     for index, seed in enumerate(seeds):
         started = time.monotonic()
         # Resolved afresh per seed, as the generator does: nothing RoboTwin mutates while building
         # one scene leaks into the next.
         args = config.resolve(task.name)
-        outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
+        outcome, demonstration, _ = attempt_fn(
+            task_env, seed, args, config.save_freq, index, images=images
+        )
         seconds = time.monotonic() - started
         if outcome.rejection is None:
             record = SeedRecord(

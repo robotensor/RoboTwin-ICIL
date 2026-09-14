@@ -199,3 +199,56 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     assert [r["arms_moved"] for r in detail] == [["left"], None, ["left"]]
     assert detail[0]["displacement"]["left"] > 0.05 and detail[0]["displacement"]["right"] == 0.0
     assert detail[1]["displacement"] is None
+
+
+def test_a_survey_renders_no_camera_unless_asked_and_measures_the_same(monkeypatch):
+    # Every number the survey keeps comes from the joints; rendering changes none of them.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    task = tasks.table()["click_bell"]
+    plain_env = FakeTaskEnv(moves=("right",), plan_fails_on={2})
+    rendered_env = FakeTaskEnv(moves=("right",), plan_fails_on={2})
+    plain = survey.survey_task(plain_env, task, [1, 2, 3], FakeConfig())
+    rendered = survey.survey_task(rendered_env, task, [1, 2, 3], FakeConfig(), images=True)
+
+    assert plain_env.get_obs_calls == 0 and rendered_env.get_obs_calls == 2 * (
+        rendered_env.expert_steps + 1
+    )
+    assert (plain.images, rendered.images) == (False, True)
+    assert (plain.to_json()["images"], rendered.to_json()["images"]) == (False, True)
+    measured = ("seed", "outcome", "frames", "arms_moved", "displacement")
+    assert [{k: r[k] for k in measured} for r in plain.to_json()["seeds_detail"]] == [
+        {k: r[k] for k in measured} for r in rendered.to_json()["seeds_detail"]
+    ]
+
+
+def _counting_envs(monkeypatch):
+    """Every env the survey command builds, so a test can count what they rendered."""
+    envs = []
+
+    def load_task(name):
+        envs.append(FakeTaskEnv(moves=("left",)))
+        return envs[-1]
+
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
+    monkeypatch.setattr(robotwin, "load_task", load_task)
+    return envs
+
+
+def test_the_survey_command_renders_nothing_by_default(tmp_path, monkeypatch, capsys):
+    envs = _counting_envs(monkeypatch)
+    out = tmp_path / "survey.json"
+    assert cli.main(["survey", "--task", "click_bell", "--seeds", "2", "--json", str(out)]) == 0
+    assert "click_bell: expert solved 2/2" in capsys.readouterr().out
+    assert len(envs) == 1 and envs[0].get_obs_calls == 0
+    assert [entry["images"] for entry in json.loads(out.read_text(encoding="utf-8"))] == [False]
+
+
+def test_the_survey_command_renders_every_frame_with_images(tmp_path, monkeypatch, capsys):
+    envs = _counting_envs(monkeypatch)
+    out = tmp_path / "survey.json"
+    argv = ["survey", "--task", "click_bell", "--seeds", "2", "--json", str(out), "--images"]
+    assert cli.main(argv) == 0
+    assert "click_bell: expert solved 2/2" in capsys.readouterr().out
+    assert envs[0].get_obs_calls == 2 * (envs[0].expert_steps + 1)
+    assert [entry["images"] for entry in json.loads(out.read_text(encoding="utf-8"))] == [True]

@@ -76,7 +76,7 @@ def _survey(args: argparse.Namespace) -> int:
     seeds = scene_seeds(args.seed, 0, args.seeds)
     results = []
     for task in selected:
-        result = survey_task(robotwin.load_task(task.name), task, seeds, config)
+        result = survey_task(robotwin.load_task(task.name), task, seeds, config, images=args.images)
         results.append(result)
         print(
             f"{task.name}: expert solved {result.successes}/{result.seeds}, "
@@ -169,6 +169,12 @@ def build_parser() -> argparse.ArgumentParser:
     sur.add_argument("--task-config", default="demo_clean")
     _add_embodiment(sur)
     sur.add_argument("--save-freq", type=int, default=15)
+    sur.add_argument(
+        "--images",
+        action="store_true",
+        help="render every camera at every frame, as eval does; the survey reads only joints, "
+        "so without this no camera renders",
+    )
     _add_arms(sur)
     sur.set_defaults(handler=_survey)
 
