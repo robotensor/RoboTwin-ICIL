@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 
@@ -174,9 +172,23 @@ def test_arms_moved_is_the_displacement_over_the_threshold():
     assert arms_moved(d) == ("right",)
 
 
+def test_a_dual_franka_row_splits_eight_and_eight():
+    # Two seven-joint Frankas report 16 values: joints 0-6 and gripper 7 on the left, joints 8-14
+    # and gripper 15 on the right. Index 7 is the left gripper here, not the right arm's first joint.
+    rest = np.zeros(16)
+    left_gripper, right_joint = rest.copy(), rest.copy()
+    left_gripper[7] = 1.0
+    right_joint[8] = 0.3
+    assert arms_moved(trajectory(rest, left_gripper)) == ("left",)
+    assert arms_moved(trajectory(rest, right_joint)) == ("right",)
+    displacement = arm_displacements(trajectory(rest, left_gripper, right_joint))
+    assert displacement == {"left": pytest.approx(1.0), "right": pytest.approx(0.3)}
+
+
 def test_arms_moved_refuses_a_row_that_does_not_split_into_two_arms():
-    odd = SimpleNamespace(qpos=lambda: np.zeros((3, 15)))
-    with pytest.raises(DemonstrationError, match="two equal arms"):
+    # A frame takes any flat width, so an odd one reaches the split, which refuses to guess.
+    odd = trajectory(np.zeros(15), np.ones(15))
+    with pytest.raises(DemonstrationError, match="width 15 does not split"):
         arms_moved(odd)
     with pytest.raises(DemonstrationError, match="two equal arms"):
         arm_displacements(odd)

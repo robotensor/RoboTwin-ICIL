@@ -135,13 +135,14 @@ def arm_displacements(demonstration: Demonstration) -> dict[str, float]:
     Assumes RoboTwin's `joint_action.vector` layout, which holds for every embodiment it ships:
     the left arm's joints then its gripper, followed by the right arm's joints then its gripper,
     both halves the same width (7+7 on aloha-agilex, 8+8 on two Franka Pandas). The row is split
-    into two equal halves; an odd width is refused rather than guessed at. The value is in
+    at half of `Demonstration.qpos_dim`, the width the robot's frames carry, so the split follows
+    the robot the run chose; an odd width is refused rather than guessed at. The value is in
     radians when a joint set it and a fraction of full travel when the gripper did, since the
     gripper is upstream's normalised [0, 1] opening; the survey records it per seed so the
     `arms_moved` threshold can be judged from the json without re-running the expert.
     """
     qpos = demonstration.qpos()
-    width = qpos.shape[1]
+    width = demonstration.qpos_dim
     if width % 2:
         raise DemonstrationError(f"qpos width {width} does not split into two equal arms")
     excursion = np.abs(qpos - qpos[0]).max(axis=0)
