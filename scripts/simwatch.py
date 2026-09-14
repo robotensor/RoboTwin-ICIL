@@ -354,8 +354,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=DEFAULT_MIN_CPU_RATE,
         metavar="CORES",
-        help="an attempt whose process tree averaged fewer cores than this over the last --stall "
-        "seconds is stalled; 1.0 is one core busy (default: %(default)g)",
+        help="an attempt whose processes averaged fewer cores than this over the last --stall "
+        "seconds is stalled; 1.0 is one core busy. A blocking wait, or work done outside the "
+        "attempt (a remote policy server, a download), is idle, so lower this or lengthen --stall "
+        "for a job that mostly waits (default: %(default)g)",
     )
     parser.add_argument(
         "--max-wall",

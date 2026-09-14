@@ -6,8 +6,10 @@
   process tree averaged under `--min-cpu-rate` cores (default 0.25) over the last `--stall`
   seconds, so a camera-read hang that still trickles CPU is caught after the window instead of at
   `--max-wall`; an attempt that exits non-zero with `ErrorDeviceLost` or `VK_ERROR_DEVICE_LOST`
-  (or any `--rerun-on` regex) in its own output is rerun, and any other exit ends the watch with
-  its code (#89).
+  (or any `--rerun-on` regex) anywhere in its own output is rerun, and any other exit ends the
+  watch with its code. Every process of an attempt, workers it orphaned included, is killed and
+  gone before its output is searched or the next attempt starts; a `--log` that is not a regular
+  file is refused (#89).
 - (feat): the simulator installs and runs on Blackwell GPUs. `scripts/install_robotwin.sh` picks
   a GPU path from the compute capability — the reference torch 2.4.1 + CUDA 12.1 below 10.0, torch
   2.8 + CUDA 12.8 from 10.0 up — builds CuRobo for it, and makes SAPIEN render in containers that
