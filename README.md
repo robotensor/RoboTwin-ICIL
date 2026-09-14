@@ -162,7 +162,11 @@ exits 0 whenever it wrote `result.json`. `run-unit` rebuilds the scene from the 
 privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
 rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
 result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a
-policy that will not load). Both commands' `result.json` carry `success`, `void`, `steps` and
+policy that will not load, a served policy whose `--authkey-env` holds no usable key, icil-policy
+not installed). Given `--expect-source-sha256`, either command exits 1 before writing anything
+unless the benchmark's own source (`robotwin_icil.source_sha256()`) digests to it, and both
+results record `source_sha256`; `--denoiser oidn|none` sets `ROBOTWIN_ICIL_DENOISER` for a caller
+that passes no such variable. Both commands' `result.json` carry `success`, `void`, `steps` and
 `error`; a policy that raises or returns an invalid action fails its unit, and only what the
 harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids one. `prompt.npz`
 holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
@@ -173,8 +177,10 @@ NAME` drives one served by `python -m icil_policy.serve` in a process of its own
 demonstration crosses the socket as `prompt.npz`'s own arrays, each observation as
 `frames_<camera>`, `qpos` and `endpose`, and nothing of `meta`. A served policy that answers a
 call with an error fails its unit; one that cannot be spoken to (nothing listening, `hello`
-refused, a timeout, a hang-up, a malformed reply) voids it with `void_cause` "policy", and every
-other void carries "harness" — see [`docs/policies.md`](docs/policies.md).
+refused, a timeout, a hang-up, a malformed reply) or whose calls use up its time budget for the
+unit (`--policy-budget-s`, 300 s) voids it with `void_cause` "policy". A unit that runs out of
+`--unit-timeout-s` while the policy is within its budget, and every other void, carries "harness"
+— see [`docs/policies.md`](docs/policies.md).
 
 The competition orchestrator runs the benchmark through [`competition/`](competition/README.md),
 a distribution of its own that it imports without a simulator: the catalogue, the unit list of

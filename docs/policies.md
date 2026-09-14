@@ -201,20 +201,41 @@ handed named arrays, never the benchmark's types:
 | `act(observation)` | `frames_<camera>` `(h, w, 3)`, `qpos` `(D,)`, `endpose` `(16,)`; it answers `{"action": ...}`, `(A,)` or `(H, A)` |
 
 The policy declares `action_type` (`qpos` or `ee`) when it answers `hello`, and every action's
-width is checked against `info["action_dims"][action_type]`, as for a local adapter. The key is
-only ever the *name* of a variable on a command line. `--act-timeout-s` bounds one `act` (60 s by
-default); connecting gets 60 s, and `hello`, `reset` and `prompt` 300 s each, since building a
-policy and encoding a demonstration are work, not a hang.
+width and dtype are checked against `info["action_dims"][action_type]` before it is copied, as for
+a local adapter; rows of a chunk past 4096, more than any task's step limit, are dropped. The key
+is only ever the *name* of a variable on a command line.
+
+How long a served policy may take is bounded three ways. Each call has its own timeout:
+`--act-timeout-s` for one `act` (60 s by default), 60 s to connect, 300 s each for `hello`, `reset`
+and `prompt`, since building a policy and encoding a demonstration are work, not a hang, and 5 s
+for `close`. All the calls of a unit together get `--policy-budget-s` (300 s by default): the call
+in flight when it runs out is cut short, and the unit is void on the policy, so a policy that
+answers every call just in time cannot run its unit into its caller's kill. And
+`--unit-timeout-s`, the seconds whoever started `run-unit` gives it, stops every call 30 s short of
+that: a call cut short there while the policy was within its budget means the harness took the
+time, and the unit is void on the harness, with how long each took in `error`. `result.json`
+records `policy_wall_s` and `policy_budget_s`.
 
 What a remote failure costs the unit, in `result.json`:
 
 | what happened | `success` | `void` | `void_cause` |
 | --- | --- | --- | --- |
 | the policy answered `reset`, `prompt` or `act` with an error (it raised), or returned an action of the wrong width or a non-finite one | false | false | null |
-| nothing listened, the key or `hello` was refused (an error reply to `hello` is a policy the server could not build), the declared `action_type` is neither `qpos` nor `ee`, a call ran past its timeout, the connection dropped, a reply was malformed | null | true | `"policy"` |
-| what the harness could not give the policy: a prompt, a scene, a GPU, a fault of its own | null | true | `"harness"` |
+| nothing listened, the key or `hello` was refused (an error reply to `hello` is a policy the server could not build), the declared `action_type` is neither `qpos` nor `ee`, a call ran past its timeout, the unit's calls ran past `--policy-budget-s`, the connection dropped, a reply was malformed | null | true | `"policy"` |
+| what the harness could not give the policy: a prompt, a scene, a GPU, the time (`--unit-timeout-s` ran out while the policy was within its budget), a fault of its own | null | true | `"harness"` |
 
 A void unit's `error` names the call and the reason, and ends with the tail of `--policy-log` when
-it is given. `result.json` names `"policy": "remote"` and, once the policy has answered `hello`,
-the policy the server reported as `served_policy`. `run-unit` closes the connection however the
-unit ended, and the server exits with it.
+it is given. The log is opened at the path given, never through a link the policy swapped in, but
+only its last path component is guarded: give a copy in a directory the policy cannot write. What
+the server says is bounded before it reaches `result.json`: its name to 200 characters, a
+failure's text to its first 4000 and last 8192. `result.json` names `"policy": "remote"` and, once
+the policy has answered `hello`, the policy the server reported as `served_policy`. `run-unit`
+closes the connection however the unit ended, within 5 s, and the server exits with it; it exits 1
+before any result when `--authkey-env` holds no usable key (missing, not hex, under 16 bytes) or
+icil-policy is not installed.
+
+A GPU that runs out of memory or is lost mid-rollout voids the unit on the harness, but a served
+policy sharing that GPU could have filled it. The result then lists every process `nvidia-smi` saw
+holding GPU memory (`gpu_processes`, pid and MiB) and `run_unit_pid`, so whoever started the
+policy can tell whether its processes held the memory; better, give the policy another GPU or cap
+its memory.
