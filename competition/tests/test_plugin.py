@@ -134,7 +134,7 @@ def test_the_catalogue_has_the_shape_the_orchestrator_reads_and_the_spec_needs()
 def test_the_provisional_franka_suite_is_one_arm_but_for_stacking_and_says_so():
     table = tasks.table()
     members = catalogue.provisional_franka_1arm(table)
-    arms = {name: catalogue.arms_of(table[name]) for name in members}
+    arms = {name: table[name].arms for name in members}
     by_category = {c: [n for n in members if table[n].category == c] for c in SPEC_CATEGORIES}
     assert all(by_category.values())
     assert {arms[n] for n in by_category["pick_and_place"] + by_category["press_push"]} == {"1"}
@@ -144,13 +144,13 @@ def test_the_provisional_franka_suite_is_one_arm_but_for_stacking_and_says_so():
     assert "PROVISIONAL" in Path(catalogue.__file__).read_text()
 
 
-def test_the_provisional_arms_cover_the_task_table_and_agree_with_it_once_it_has_them():
+def test_the_catalogue_shows_the_arms_robotwin_icils_table_records():
     table = tasks.table()
-    assert set(catalogue.PROVISIONAL_ARMS) == set(table.tasks)
-    recorded = {name: getattr(task, "arms", None) for name, task in table.tasks.items()}
-    if all(value is None for value in recorded.values()):
-        pytest.skip("robotwin_icil's task table records no arms on this branch")
-    assert recorded == catalogue.PROVISIONAL_ARMS
+    shown = BENCHMARK.catalogue()["tasks"]
+    assert {name: task["arms"] for name, task in shown.items()} == {
+        name: task.arms for name, task in table.tasks.items()
+    }
+    assert not any("arms are PROVISIONAL" in note for note in BENCHMARK.info()["provisional"])
 
 
 def test_info_names_the_robots_cameras_protocol_commits_and_command_line():

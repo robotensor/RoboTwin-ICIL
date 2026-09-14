@@ -71,7 +71,7 @@ def catalogue_sha256(table: tasks.TaskTable) -> str:
         "tasks": {
             name: {
                 "category": task.category,
-                "arms": catalogue.arms_of(task),
+                "arms": task.arms,
                 "label": catalogue.task_label(name),
             }
             for name, task in table.tasks.items()

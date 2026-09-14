@@ -96,6 +96,57 @@ def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
     assert units.catalogue_sha256(tasks.table()) == units.CATALOGUE_SHA256
 
 
+#: The provisional `franka_1arm` per category, derived from each task's `arms` in robotwin_icil's
+#: table when `CATALOGUE_SHA256` was pinned. Stacking has no one-arm task: its arm-switching tasks
+#: stand in for one, so the track's stacking skill can draw units.
+PINNED_FRANKA_1ARM = {
+    "pick_and_place": [
+        "move_can_pot",
+        "move_pillbottle_pad",
+        "move_playingcard_away",
+        "move_stapler_pad",
+        "place_a2b_left",
+        "place_a2b_right",
+        "place_container_plate",
+        "place_empty_cup",
+        "place_fan",
+        "place_mouse_pad",
+        "place_object_scale",
+        "place_object_stand",
+        "place_shoe",
+    ],
+    "stacking": [
+        "blocks_ranking_rgb",
+        "blocks_ranking_size",
+        "stack_blocks_three",
+        "stack_blocks_two",
+        "stack_bowls_three",
+        "stack_bowls_two",
+    ],
+    "press_push": [
+        "beat_block_hammer",
+        "click_alarmclock",
+        "click_bell",
+        "press_stapler",
+        "stamp_seal",
+        "turn_switch",
+    ],
+}
+
+
+def test_the_franka_suite_the_digest_covers_is_the_pinned_one():
+    # The digest covers franka_1arm's members; this names them, so a table whose arms move a task
+    # in or out of the suite says which one before the digest refuses to derive.
+    table = tasks.table()
+    members = catalogue.suites(table)["franka_1arm"]
+    by_category = {
+        category: [name for name in members if table[name].category == category]
+        for category in catalogue.FRANKA_1ARM_CATEGORIES
+    }
+    assert by_category == PINNED_FRANKA_1ARM
+    assert list(members) == [name for names in PINNED_FRANKA_1ARM.values() for name in names]
+
+
 def _changed_tables():
     table = tasks.table()
     moved = dict(table.tasks)
