@@ -88,6 +88,11 @@ trajectory from the very scene the rollout will start in:
 | `images(camera)` | `(T, h, w, 3)` from one camera |
 | `times()` | `(T,)` simulated seconds since the expert started, per frame — real, and uneven: each RoboTwin motion primitive records a frame before its first physics step, one after that step and after every `save_freq`-th step from it, and one after its last |
 
+`T` is not fixed for a scene. RoboTwin's expert plans with CuRobo on the GPU, whose trajectories
+for one scene are not the same length every run, and a primitive one physics step longer can record
+one more frame. A saved `prompt.npz` fixes the demonstration; `eval`, which generates one per
+episode, can hand a policy a frame more or fewer for the same seed in another run.
+
 `endpose` is RoboTwin's dict per frame: `left_endpose` and `right_endpose` (`[x, y, z, qw, qx, qy,
 qz]`, each arm's end-effector pose as RoboTwin's `get_arm_pose` reports it) and `left_gripper`,
 `right_gripper`. On disk (`prompt.npz`, written by `robotwin-icil

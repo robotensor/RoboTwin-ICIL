@@ -25,7 +25,12 @@
   proprioception and actions. Every frame records the simulated time it was taken at
   (`Frame.time_s`, `Demonstration.times()`), counted in physics steps by `robotwin.clock`, because
   RoboTwin's frames are not evenly spaced. `eval` records are otherwise unchanged: `run_episode` is
-  `generate.attempt` then `episode.evaluate`, and a fixture pins its records (#84).
+  `generate.attempt` then `episode.evaluate`, and a fixture pins its records. That fixture, not a
+  second GPU run, is the comparison: on any commit a scene's `demonstration_frames` and replay
+  `steps` can differ between runs, because the expert's CuRobo trajectories are not the same
+  length every time and a primitive one physics step longer can record one more frame (click_bell,
+  seed 42, aloha-agilex, before this change: 77 frames and 60 steps, then 78 and 59, on one commit
+  with identical manifests) (#84).
 - (feat): the survey renders no camera unless asked. Every frame called `get_obs`, which
   ray-traces every camera, although the survey reads only joints; `robotwin.capture(images=False)`
   now reads the joint vector and endpose straight from the robot (`robot_state`) and never calls
