@@ -13,8 +13,9 @@ robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v
 **No camera renders.** Everything the survey keeps is read from the robot's joints, so by default
 it records its demonstrations without images: each frame reads the joint vector and the endpose
 straight from the robot, from the accessors `get_obs` uses, and `get_obs` is never called.
-RoboTwin ray-traces every camera at 32 samples per pixel for each frame, which is most of a seed's
-cost, and SAPIEN's camera read is where a run hangs on a shared GPU. Nothing the survey measures
+RoboTwin ray-traces every camera at 32 samples per pixel for each frame, which we expect to be
+most of a seed's cost (not yet timed), and SAPIEN's camera read is where a run hangs on a shared
+GPU. Nothing the survey measures
 changes: at the pinned commit no expert (`play_once`, `check_success` or a helper they call) reads
 an observation, an image or a camera, and the one side effect of `get_obs` an expert could see —
 the light colours `crazy_random_light` draws from numpy's RNG — is kept (`robotwin.robot_state`

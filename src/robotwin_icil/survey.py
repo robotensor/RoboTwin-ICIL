@@ -127,8 +127,8 @@ def survey_task(
     """Run the expert once per seed, exactly as an episode's generator would, and record each.
 
     Everything recorded is read from the joints, so by default no camera renders a frame
-    (`robotwin.capture`): ray tracing every camera is most of a seed's cost, and no expert reads
-    an image. `images=True` renders them as an episode does.
+    (`robotwin.capture`): ray tracing every camera is expected to be most of a seed's cost (not
+    yet timed), and no expert reads an image. `images=True` renders them as an episode does.
     """
     result = TaskSurvey(
         task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]), images=images
