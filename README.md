@@ -93,7 +93,9 @@ RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
 Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
 short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
-expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md).
+expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md). The
+competition's one-arm Franka track draws from `franka_1arm`, four tasks chosen by a smaller survey
+of the expert on two Franka arms, described in the same document.
 
 The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
 drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking

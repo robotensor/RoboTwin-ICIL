@@ -38,10 +38,10 @@ Pure — no simulator, no assets, no GPU:
   robots and their action widths, the observed cameras, the protocol (`same_initial_state`, view
   `sensorimotor`), the prompt's channel map; `catalogue_sha256`, `pinned_catalogue_sha256` and
   `derivation`; the `limits` a served policy gets and the `run_extra` keys that set them; the
-  command line; and what is `provisional`.
+  command line; and `franka_1arm`: the survey that chose it, each category's tasks and arms, and
+  its `stand_ins`.
 - `catalogue()`: `{"suites": {suite: [task]}, "categories": {id: label}, "tasks": {task:
-  {"category", "arms", "label"}}, "embodiments": {suite: robot}, "provisional": [note]}`, from
-  `robotwin_icil.tasks`.
+  {"category", "arms", "label"}}, "embodiments": {suite: robot}}`, from `robotwin_icil.tasks`.
 - `derive_units(seed_material, count, suite, category)`: `count` units from a sha256 counter over
   `seed_material`, tasks spread evenly over the suite (within `category`). Each unit's
   `instance_params` holds `SCENE_SEED_CANDIDATES` candidate `scene_seeds`, its `embodiment`, and
@@ -86,17 +86,18 @@ Commands — the argv of `python -m robotwin_icil.cli` in the simulator's enviro
   from `nvidia-smi`) and `run_unit_pid`, from which the orchestrator can tell whether the policy's
   processes held the memory.
 
-## Provisional
+## The franka_1arm suite
 
-The `franka_1arm` suite is named by the Franka survey (robotensor/ICIL-robotwin-benchmark#83),
-which has not finished. Until then the plugin derives a provisional one from each task's `arms`
-in `robotwin_icil.tasks`: per category of the one-arm track, its one-arm tasks. A category with
-no one-arm task serves its arm-switching tasks in their place, so its skill can still draw units;
-at the pinned RoboTwin that is Stacking, where every expert picks its arm per object. A category
-with neither kind has no `franka_1arm` task and derives no units. `info()["franka_1arm"]` lists
-each category's tasks and arms and the categories without a one-arm task, and the note in
-`info()["provisional"]` and `catalogue()["provisional"]` says the same; `benchmarks check`
-prints only its pin notes and `ok`.
+`franka_1arm`, the suite the one-arm Franka track draws from, is `robotwin_icil`'s task table's:
+place_empty_cup (pick_and_place), stack_bowls_two (stacking), click_bell and press_stapler
+(press_push). The Franka survey chose it (robotensor/ICIL-robotwin-benchmark#83, `docs/survey.md`):
+a task is in it when its expert, on two Franka arms, solved at least 2 of 3 surveyed seeds and
+moved one arm in every successful demonstration. Stacking has no one-arm task, so
+stack_bowls_two, an arm-switching task, stands in for it, with a limit: a scene the survey did not
+see can still make its expert switch arms, and neither `materialize` nor `verify_prompt` refuses a
+demonstration that moved both. `derive_units` draws a skill's units only from its category of the
+suite. `info()["franka_1arm"]` names the survey, each category's tasks and arms, and the stand-in
+in `stand_ins`; `benchmarks check` prints only its pin notes and `ok`.
 
 ## Tests
 

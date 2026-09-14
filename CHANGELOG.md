@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- (feat): the one-arm Franka suite is chosen by measuring RoboTwin's expert on two Franka arms.
+  `tasks.yml` gains `franka_1arm`: place_empty_cup, stack_bowls_two, click_bell and press_stapler,
+  the tasks whose expert solved at least 2 of 3 surveyed seeds with every successful
+  demonstration moving one arm. The survey (`docs/results/survey-franka-1arm.json`,
+  `docs/survey.md`) ran without images on six tasks at 3 seeds each, cut by decision from every
+  one-arm task at 20 seeds to finish the milestone sooner: place_a2b_left solved 1 of 3 and
+  stack_blocks_two moved both arms in 2 of 3, so both are out. Stacking has no one-arm task, so
+  stack_bowls_two, an arm-switching task, stands in for it, with a stated limit: a scene the
+  survey did not see can still make its expert switch arms, and nothing refuses that
+  demonstration. The plugin serves the table's suite instead of deriving a provisional one from
+  each task's arms, drops `provisional` from `info()` and `catalogue()`, and names the stand-in in
+  `info()["franka_1arm"]["stand_ins"]`. `units.CATALOGUE_SHA256` is the new table's and
+  `units.DERIVATION` becomes `units/2`, so every unit changes; a test pins `franka_1arm`'s units
+  beside `v1`'s (#83).
 - (fix): a served policy can no longer void the units it is losing, or reach past its socket. All
   of a unit's calls to it share `run-unit --policy-budget-s` (300 s): the call it runs out in is
   cut short and the unit is void on the policy, where a policy answering every call just in time
@@ -37,10 +51,8 @@
   CI; each unit holds four candidate `scene_seeds` and its robot), `verify_prompt` (reads
   `prompt.npz` without unpickling and holds its task, seed, robot, arrays and scene digest to the
   unit) and `read_result` (with `void_cause`). `materialize_command` and `run_command` return the
-  argv of `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON`. The `franka_1arm` suite
-  is PROVISIONAL until the Franka survey names it (#83): derived from each task's `arms` in
-  `robotwin_icil.tasks`, the one-arm pick-and-place and press/push tasks and, since stacking has
-  no one-arm task, its arm-switching tasks in their place, which `info()["franka_1arm"]` names.
+  argv of `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON`. Units of the task table's
+  `franka_1arm` suite run on two Franka arms, every other suite's on aloha-agilex (#83).
   `icil-orchestrator benchmarks check robotwin` reports it ok, noting the unpinned version and
   wheel (#86).
 - (feat): an episode runs against a policy served at an address, and a lost policy voids it.
