@@ -20,6 +20,7 @@ from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
 from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
+from .remote import ACT_TIMEOUT_S
 from .robotwin import EMBODIMENTS, RoboTwinError
 from .unit import UnitError
 
@@ -120,10 +121,25 @@ def _run_unit(args: argparse.Namespace) -> int:
 
     # First, so a command that fails from here on leaves nothing an earlier one wrote.
     out = clear_outputs(args.out, RUN_UNIT_OUTPUTS, prompt=args.prompt)
-    kwargs = _policy_kwargs(args.policy_arg or [])
-    policy = make_policy(args.policy, **kwargs)
-    # Resolve before entering the RoboTwin seam, which moves the working directory.
-    result = run_unit(Path(args.prompt).resolve(), policy, out)
+    if args.policy_address is not None:
+        from .remote import RemotePolicy, authkey_from_env
+
+        # The key comes from the environment, never argv; nothing connects until the unit resets
+        # the policy, so a policy that cannot be reached is the unit's result, not an exit 1.
+        policy = RemotePolicy(
+            args.policy_address,
+            authkey_from_env(args.authkey_env),
+            act_timeout_s=ACT_TIMEOUT_S if args.act_timeout_s is None else args.act_timeout_s,
+            log_file=args.policy_log,
+        )
+    else:
+        policy = make_policy(args.policy, **_policy_kwargs(args.policy_arg or []))
+    try:
+        # Resolve before entering the RoboTwin seam, which moves the working directory.
+        result = run_unit(Path(args.prompt).resolve(), policy, out)
+    finally:
+        # However the unit ended: a served policy's server exits once its client has gone.
+        policy.close()
     print(json.dumps(result, indent=2, sort_keys=True))
     # A failed or void unit is a result, written to result.json; only a harness error exits 1.
     return 0
@@ -252,17 +268,43 @@ def build_parser() -> argparse.ArgumentParser:
     unit = commands.add_parser(
         "run-unit",
         help="evaluate a policy from a saved prompt: rebuilds and verifies its scene, writes "
-        "result.json and evaluation.mp4; exits 0 whether the policy succeeded or not",
+        "result.json and evaluation.mp4; exits 0 whether the policy succeeded, failed or could "
+        "not be reached",
     )
     unit.add_argument("--prompt", required=True, help="a prompt.npz written by materialize")
-    unit.add_argument(
-        "--policy", required=True, help="built-in name (replay, dummy) or module:Class"
+    policy = unit.add_mutually_exclusive_group(required=True)
+    policy.add_argument(
+        "--policy",
+        help="a policy run in this process: built-in name (replay, dummy) or module:Class",
+    )
+    policy.add_argument(
+        "--policy-address",
+        metavar="ADDR",
+        help="a policy served by `python -m icil_policy.serve`: a Unix socket path or host:port; "
+        "needs --authkey-env",
     )
     unit.add_argument(
         "--policy-arg",
         action="append",
         metavar="KEY=VALUE",
-        help="a keyword argument for the policy's constructor; repeatable",
+        help="a keyword argument for --policy's constructor; repeatable",
+    )
+    unit.add_argument(
+        "--authkey-env",
+        metavar="NAME",
+        help="the environment variable holding the served policy's key as hex, at least 16 "
+        "bytes; the key itself is never an argument",
+    )
+    unit.add_argument(
+        "--act-timeout-s",
+        type=_positive_seconds,
+        metavar="S",
+        help=f"how long one act of the served policy may take (default {ACT_TIMEOUT_S:g})",
+    )
+    unit.add_argument(
+        "--policy-log",
+        metavar="PATH",
+        help="the served policy's log file, whose tail ends the error of a unit it voided",
     )
     unit.add_argument("--out", required=True, help="directory the result and clip are written into")
     unit.set_defaults(handler=_run_unit)
@@ -287,6 +329,39 @@ def _add_embodiment(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _positive_seconds(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = float("nan")
+    if not 0 < seconds < float("inf"):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a positive number of seconds")
+    return seconds
+
+
+def _run_unit_usage(args: argparse.Namespace) -> str | None:
+    """Why run-unit's policy flags do not go together, or None: the parser keeps --policy and
+    --policy-address apart, and this keeps each one's own flags with it."""
+    if args.policy_address is not None:
+        if not args.authkey_env:
+            return "--policy-address needs --authkey-env, the variable holding the policy's key"
+        if args.policy_arg:
+            return "--policy-arg configures a policy run in this process, not a served one"
+        return None
+    given = [
+        flag
+        for flag, value in (
+            ("--authkey-env", args.authkey_env),
+            ("--act-timeout-s", args.act_timeout_s),
+            ("--policy-log", args.policy_log),
+        )
+        if value is not None
+    ]
+    if given:
+        return f"{', '.join(given)} go with --policy-address, not --policy"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if getattr(args, "seeds", 1) < 1:
@@ -294,6 +369,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if getattr(args, "episodes", 1) < 1:
         print("robotwin-icil: --episodes must be at least 1", file=sys.stderr)
+        return 2
+    usage = _run_unit_usage(args) if args.command == "run-unit" else None
+    if usage is not None:
+        print(f"robotwin-icil: {usage}", file=sys.stderr)
         return 2
     try:
         return args.handler(args)

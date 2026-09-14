@@ -382,3 +382,70 @@ def test_run_unit_refuses_to_write_over_the_prompts_own_result(tmp_path, fake_si
         "prompt.npz",
         "result.json",
     ]
+
+
+RUN_UNIT = ["run-unit", "--prompt", "p/prompt.npz"]
+
+
+def test_run_unit_takes_a_policy_or_an_address_never_both(tmp_path, capsys):
+    base = [*RUN_UNIT, "--out", str(tmp_path / "r")]
+    address = ["--policy-address", "/tmp/policy.sock", "--authkey-env", "POLICY_KEY"]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*base, "--policy", "replay", *address])
+    assert refused.value.code == 2 and "not allowed with argument" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as refused:
+        cli.main(base)
+    assert refused.value.code == 2 and "--policy --policy-address" in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()
+
+
+@pytest.mark.parametrize(
+    ("flags", "reason"),
+    [
+        (["--policy-address", "/tmp/policy.sock"], "--policy-address needs --authkey-env"),
+        (
+            ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", "--policy-arg", "a=b"],
+            "--policy-arg configures a policy run in this process",
+        ),
+        (["--policy", "replay", "--authkey-env", "K"], "--authkey-env go with --policy-address"),
+        (
+            ["--policy", "replay", "--act-timeout-s", "5", "--policy-log", "x.log"],
+            "--act-timeout-s",
+        ),
+    ],
+)
+def test_run_unit_refuses_flags_that_belong_to_the_other_kind_of_policy(
+    tmp_path, capsys, flags, reason
+):
+    assert cli.main([*RUN_UNIT, "--out", str(tmp_path / "r"), *flags]) == 2
+    assert reason in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()  # refused before anything was cleared or written
+
+
+@pytest.mark.parametrize("seconds", ["0", "-1", "inf", "soon"])
+def test_an_act_timeout_must_be_a_positive_number_of_seconds(seconds, capsys):
+    flags = ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", "--act-timeout-s", seconds]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*RUN_UNIT, "--out", "r", *flags])
+    assert refused.value.code == 2 and "positive number of seconds" in capsys.readouterr().err
+
+
+def test_a_served_policy_without_its_key_is_refused_before_any_result(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # A key that is not there is the caller's configuration, not the unit's outcome: exit 1, and
+    # no result.json the orchestrator could take for one.
+    monkeypatch.delenv("NO_SUCH_POLICY_KEY", raising=False)
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+    argv = [
+        "run-unit",
+        "--prompt",
+        str(tmp_path / "p" / "prompt.npz"),
+        "--out",
+        str(tmp_path / "r"),
+    ]
+    argv += ["--policy-address", "/nonexistent/policy.sock", "--authkey-env", "NO_SUCH_POLICY_KEY"]
+    assert cli.main(argv) == 1
+    assert "NO_SUCH_POLICY_KEY: the environment variable holds no key" in capsys.readouterr().err
+    assert sorted(p.name for p in (tmp_path / "r").iterdir()) == []
