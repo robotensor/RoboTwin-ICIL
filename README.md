@@ -128,7 +128,7 @@ robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell -
 robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 
 # the competition's shape: build one demonstration and save it, then evaluate from the file
-robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
+robotwin-icil materialize --task click_bell --scene-seed 42 --scene-seed 43 --out runs/unit/prompt
 robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy replay --out runs/unit/run
 
 # the official V1 suite
@@ -148,8 +148,10 @@ upper bound: if it does not succeed, the bug is in the benchmark, not in the mod
 
 `materialize` and `run-unit` are the same episode in two processes, which is how a competition
 runs it: both policies in a duel are handed the identical `prompt.npz`, and a third party can
-check it by hash. `materialize` writes `prompt.npz`, `demonstration.mp4` and `result.json`, and
-exits 3 when the expert was rejected on the seed. `run-unit` rebuilds the scene from the prompt's
+check it by hash. `materialize` tries its candidate `--scene-seed`s in order and writes
+`prompt.npz` and `demonstration.mp4` for the first one the expert solves; its `result.json` names
+the chosen seed and every attempt, and is void when the expert was rejected on all of them. It
+exits 0 whenever it wrote `result.json`. `run-unit` rebuilds the scene from the prompt's
 privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
 rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
 result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a

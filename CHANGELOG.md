@@ -3,15 +3,19 @@
 ## Unreleased
 
 - (feat): a demonstration is built once and saved, and an episode is evaluated from the saved file.
-  `robotwin-icil materialize --task T --scene-seed S --out DIR` builds one seed's scene, runs the
-  expert once and writes `prompt.npz`, `demonstration.mp4` and `result.json`, exiting 3 when the
-  expert was rejected on the seed; `robotwin-icil run-unit --prompt DIR/prompt.npz --policy P --out
+  `robotwin-icil materialize --task T --scene-seed S [--scene-seed S2 ...] --out DIR` tries the
+  candidate seeds in order — one scene built and one expert run each — and writes `prompt.npz` and
+  `demonstration.mp4` for the first the expert solves, and `result.json` either way, with the
+  chosen `scene_seed` and every attempt (seed, rejection, detail), which the prompt's `meta`
+  records too; every candidate rejected is a void result with `void_cause` "harness", and a seed
+  given twice is refused. It exits 0 whenever `result.json` was written, a rejection included, so
+  the caller reads the reason instead of a log tail; `robotwin-icil run-unit --prompt DIR/prompt.npz --policy P --out
   DIR` rebuilds the scene from the prompt's privileged `meta`, refuses a meta whose digest is not
   its own fingerprint's, voids on scene drift with the mismatches, rolls the policy out and writes
   `result.json` (`success` and `steps` null exactly when `void`, the rebuilt scene's
   `live_scene_sha256` and its `scene_max_error`, the checkpoint and both commits) and
   `evaluation.mp4`. Both commands' `result.json` carry `success`, `void`, `steps` and `error`, the
-  fields the orchestrator reads: a rejected seed is a void materialize. In `run-unit` a policy at
+  fields the orchestrator reads: every candidate rejected is a void materialize. In `run-unit` a policy at
   fault — raising from `reset` or `set_demonstration`, or a wrong-width or non-finite action —
   fails its unit and never voids it; void is kept for an unreadable, mistyped or tampered prompt,
   scene drift, a config RoboTwin refuses, any other harness fault while evaluating (traceback to
