@@ -31,8 +31,10 @@ def assert_read_result_shape(result):
     assert (result["success"] is None) == result["void"]
     if result["void"]:
         assert result["steps"] is None and isinstance(result["error"], str) and result["error"]
+        assert result["void_cause"] in ("harness", "policy")
     else:
         assert isinstance(result["success"], bool) and isinstance(result["steps"], int)
+        assert result["void_cause"] is None
 
 
 def materialized(tmp_path, env=None, **config):

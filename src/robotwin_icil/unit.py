@@ -369,7 +369,8 @@ def run_unit(
     episode — an unreadable, mistyped or tampered prompt, a config RoboTwin refuses, a scene that
     drifted or would not build, a GPU lost or full during the rollout, or any other fault of the
     harness while it evaluated (its traceback is printed to stderr). `success` and `steps` are
-    None exactly when the unit is void.
+    None exactly when the unit is void, and `void_cause` says whose the void is: "harness" for
+    every reason above; None when the unit was scored.
 
     A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
     prompt raises `UnitError`: neither is a unit's outcome, and no result is written for them.
@@ -384,6 +385,7 @@ def run_unit(
     result: dict[str, Any] = {
         "success": None,
         "void": True,
+        "void_cause": None,
         "steps": None,
         "step_limit": None,
         "error": None,
@@ -411,7 +413,15 @@ def run_unit(
         return result
 
     def void(error: str, **fields: Any) -> dict[str, Any]:
-        return finish(success=None, void=True, steps=None, step_limit=None, error=error, **fields)
+        return finish(
+            success=None,
+            void=True,
+            void_cause="harness",
+            steps=None,
+            step_limit=None,
+            error=error,
+            **fields,
+        )
 
     try:
         demonstration, meta = read_prompt(prompt_path)
@@ -476,6 +486,7 @@ def run_unit(
     return finish(
         success=bool(evaluation.success),
         void=False,
+        void_cause=None,
         steps=int(evaluation.steps),
         step_limit=evaluation.step_limit,
         error=None,
