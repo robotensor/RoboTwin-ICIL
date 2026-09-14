@@ -215,6 +215,19 @@ def test_a_grandchild_that_ignores_sigterm_is_killed_too(tmp_path):
     assert not os.path.exists(f"/proc/{worker}") or simwatch.read_procs()[worker].state == "Z"
 
 
+def test_a_log_that_cannot_be_reread_is_a_usage_error(capsys):
+    # simwatch rereads the log for --rerun-on; a pipe cannot seek, and /dev/null gives nothing back.
+    read_end, write_end = os.pipe()
+    try:
+        for log in (f"/proc/self/fd/{write_end}", "/dev/null"):
+            with pytest.raises(SystemExit) as exit:
+                simwatch.main(["--poll", "0.1", "--log", log, *python("raise SystemExit(3)")])
+            assert exit.value.code == 2 and "is not a regular file" in capsys.readouterr().err
+    finally:
+        os.close(read_end)
+        os.close(write_end)
+
+
 def test_no_command_is_a_usage_error(tmp_path, capsys):
     with pytest.raises(SystemExit) as exit:
         simwatch.main(["--log", str(tmp_path / "run.log"), "--"])

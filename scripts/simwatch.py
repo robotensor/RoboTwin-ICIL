@@ -31,6 +31,7 @@ import os
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -305,7 +306,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--log",
         required=True,
         metavar="FILE",
-        help="file the command's stdout and stderr, and simwatch's own lines, are appended to",
+        help="regular file the command's stdout and stderr, and simwatch's own lines, are appended "
+        "to; it is reread for --rerun-on, so not a pipe or device",
     )
     parser.add_argument("cmd", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -314,6 +316,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("no command given after --")
     if args.retries < 0 or args.min_cpu_rate < 0:
         parser.error("--retries and --min-cpu-rate must not be negative")
+    try:
+        mode = os.stat(args.log).st_mode
+    except FileNotFoundError:
+        pass  # appending creates a regular file
+    else:
+        # A pipe cannot seek and a device gives nothing back, so no attempt's output could be searched.
+        if not stat.S_ISREG(mode):
+            parser.error(
+                f"--log {args.log} is not a regular file; simwatch rereads it for --rerun-on"
+            )
     args.rerun_on = args.rerun_on or [re.compile(p) for p in DEFAULT_RERUN_ON]
     return args
 
