@@ -20,8 +20,9 @@ def test_tasks_lists_categories_arms_and_suite_membership(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
-    assert "click_bell  (one arm)  [v1]" in out
-    assert "stack_bowls_two  (switching arms)  [v1]" in out
+    assert "click_bell  (one arm)  [franka_1arm, v1]" in out
+    assert "stack_bowls_two  (switching arms)  [franka_1arm, v1]" in out
+    assert "place_a2b_left  (one arm)  [v1]" in out
     assert "lift_pot  (two arms)" in out
     assert listed(out) == list(tasks.table().tasks)
 
@@ -154,14 +155,87 @@ def test_materialize_then_run_unit_through_the_cli(tmp_path, fake_sim, capsys):
     assert (run / "evaluation.mp4").is_file()
 
 
-def test_a_rejected_seed_exits_3_with_its_result(tmp_path, fake_sim, capsys):
+def test_a_rejected_seed_exits_0_with_its_result(tmp_path, fake_sim, capsys):
+    # The orchestrator reads result.json whatever the exit; a non-zero exit for an outcome it
+    # expects would have it void the unit on the log tail and lose the rejection's reason.
     from fake_robotwin import FakeTaskEnv
 
     fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11})
-    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == cli.EXIT_REJECTED == 3
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["rejection"] == "unstable"
     assert json.loads((tmp_path / "result.json").read_text())["ok"] is False
     assert not (tmp_path / "prompt.npz").exists()
+
+
+def test_materialize_takes_every_candidate_seed_in_order(tmp_path, fake_sim, capsys):
+    from fake_robotwin import FakeTaskEnv
+
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11, 12})
+    argv = [*MATERIALIZE, "--scene-seed", "12", "--scene-seed", "13", "--out", str(tmp_path)]
+    assert cli.build_parser().parse_args(argv).scene_seeds == [11, 12, 13]
+    assert cli.main(argv) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["ok"] is True and printed["scene_seed"] == 13
+    assert [a["seed"] for a in printed["attempts"]] == [11, 12, 13]
+
+    # Every candidate rejected is still a result, and still exit 0.
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11, 12, 13})
+    assert cli.main(argv) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["void"] is True and printed["void_cause"] == "harness"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["result.json"]
+
+    # A seed given twice is a caller's mistake: exit 1, and nothing written.
+    assert cli.main([*MATERIALIZE, "--scene-seed", "11", "--out", str(tmp_path)]) == 1
+    assert "given more than once" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
+def test_a_command_built_for_another_benchmark_source_refuses_to_run(tmp_path, fake_sim, capsys):
+    # The plugin builds its argv against the robotwin_icil it imports; an interpreter running
+    # another one may read the same flags differently (one --scene-seed kept of four, say).
+    import robotwin_icil
+
+    other = "0" * 64
+    out = tmp_path / "p"
+    assert cli.main([*MATERIALIZE, "--out", str(out), "--expect-source-sha256", other]) == 1
+    err = capsys.readouterr().err
+    assert f"digests to {robotwin_icil.source_sha256()}, not the {other}" in err
+    assert not out.exists()
+
+    argv = ["run-unit", "--prompt", str(out / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), "--expect-source-sha256", other]) == 1
+    assert "another robotwin_icil" in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()
+
+    # Its own digest runs, and the result says which source wrote it.
+    mine = ["--expect-source-sha256", robotwin_icil.source_sha256()]
+    assert cli.main([*MATERIALIZE, "--out", str(out), *mine]) == 0
+    assert json.loads(capsys.readouterr().out)["source_sha256"] == robotwin_icil.source_sha256()
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), *mine]) == 0
+    assert json.loads(capsys.readouterr().out)["source_sha256"] == robotwin_icil.source_sha256()
+
+
+def test_the_denoiser_is_a_flag_that_reaches_the_simulator_seam(tmp_path, fake_sim, monkeypatch):
+    # The orchestrator hands a benchmark subprocess only allow-listed variables, so the override
+    # for a denoiser that hangs camera reads travels as an argument.
+    from fake_robotwin import FakeTaskEnv
+
+    monkeypatch.setenv("ROBOTWIN_ICIL_DENOISER", "")
+    seen = []
+
+    def load_task(name):
+        seen.append(os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+        return FakeTaskEnv()
+
+    fake_sim["next"] = load_task
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p"), "--denoiser", "none"]) == 0
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r"), "--denoiser", "oidn"]) == 0
+    assert seen == ["none", "oidn"]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*MATERIALIZE, "--out", str(tmp_path / "q"), "--denoiser", "fast"])
+    assert refused.value.code == 2
 
 
 def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
@@ -356,3 +430,73 @@ def test_run_unit_refuses_to_write_over_the_prompts_own_result(tmp_path, fake_si
         "prompt.npz",
         "result.json",
     ]
+
+
+RUN_UNIT = ["run-unit", "--prompt", "p/prompt.npz"]
+
+
+def test_run_unit_takes_a_policy_or_an_address_never_both(tmp_path, capsys):
+    base = [*RUN_UNIT, "--out", str(tmp_path / "r")]
+    address = ["--policy-address", "/tmp/policy.sock", "--authkey-env", "POLICY_KEY"]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*base, "--policy", "replay", *address])
+    assert refused.value.code == 2 and "not allowed with argument" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as refused:
+        cli.main(base)
+    assert refused.value.code == 2 and "--policy --policy-address" in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()
+
+
+@pytest.mark.parametrize(
+    ("flags", "reason"),
+    [
+        (["--policy-address", "/tmp/policy.sock"], "--policy-address needs --authkey-env"),
+        (
+            ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", "--policy-arg", "a=b"],
+            "--policy-arg configures a policy run in this process",
+        ),
+        (["--policy", "replay", "--authkey-env", "K"], "--authkey-env go with --policy-address"),
+        (
+            ["--policy", "replay", "--act-timeout-s", "5", "--policy-log", "x.log"],
+            "--act-timeout-s",
+        ),
+        (["--policy", "replay", "--policy-budget-s", "5"], "--policy-budget-s go with"),
+        (["--policy", "replay", "--unit-timeout-s", "600"], "--unit-timeout-s go with"),
+    ],
+)
+def test_run_unit_refuses_flags_that_belong_to_the_other_kind_of_policy(
+    tmp_path, capsys, flags, reason
+):
+    assert cli.main([*RUN_UNIT, "--out", str(tmp_path / "r"), *flags]) == 2
+    assert reason in capsys.readouterr().err
+    assert not (tmp_path / "r").exists()  # refused before anything was cleared or written
+
+
+@pytest.mark.parametrize("flag", ["--act-timeout-s", "--policy-budget-s", "--unit-timeout-s"])
+@pytest.mark.parametrize("seconds", ["0", "-1", "inf", "soon"])
+def test_a_served_policys_limits_are_positive_numbers_of_seconds(flag, seconds, capsys):
+    flags = ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", flag, seconds]
+    with pytest.raises(SystemExit) as refused:
+        cli.main([*RUN_UNIT, "--out", "r", *flags])
+    assert refused.value.code == 2 and "positive number of seconds" in capsys.readouterr().err
+
+
+def test_a_served_policy_without_its_key_is_refused_before_any_result(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # A key that is not there is the caller's configuration, not the unit's outcome: exit 1, and
+    # no result.json the orchestrator could take for one.
+    monkeypatch.delenv("NO_SUCH_POLICY_KEY", raising=False)
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+    argv = [
+        "run-unit",
+        "--prompt",
+        str(tmp_path / "p" / "prompt.npz"),
+        "--out",
+        str(tmp_path / "r"),
+    ]
+    argv += ["--policy-address", "/nonexistent/policy.sock", "--authkey-env", "NO_SUCH_POLICY_KEY"]
+    assert cli.main(argv) == 1
+    assert "NO_SUCH_POLICY_KEY: the environment variable holds no key" in capsys.readouterr().err
+    assert sorted(p.name for p in (tmp_path / "r").iterdir()) == []

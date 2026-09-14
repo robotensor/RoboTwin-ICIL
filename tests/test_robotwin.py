@@ -1,5 +1,6 @@
 """The RoboTwin seam's config resolution and error reporting, exercised without importing RoboTwin."""
 
+import subprocess
 import sys
 import types
 
@@ -25,6 +26,29 @@ def importing(monkeypatch):
         monkeypatch.setattr(robotwin.importlib, "import_module", import_module)
 
     return use
+
+
+@pytest.mark.parametrize(
+    ("stdout", "raises", "held"),
+    [
+        ("1234, 5120\n4242, 23000\n", None, [(1234, 5120), (4242, 23000)]),
+        ("", None, []),
+        ("[N/A], [N/A]\n", None, None),
+        ("", FileNotFoundError("nvidia-smi"), None),
+        ("", subprocess.TimeoutExpired("nvidia-smi", 10), None),
+    ],
+)
+def test_gpu_processes_are_who_nvidia_smi_says_holds_memory(monkeypatch, stdout, raises, held):
+    def run(argv, **kwargs):
+        assert argv[:2] == ["nvidia-smi", "--query-compute-apps=pid,used_memory"]
+        assert kwargs["timeout"] <= 10  # a lost device must not hang the result being written
+        if raises is not None:
+            raise raises
+        return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(robotwin.subprocess, "run", run)
+    expected = None if held is None else [{"pid": p, "used_mib": m} for p, m in held]
+    assert robotwin.gpu_processes() == expected
 
 
 def test_a_missing_task_module_is_an_unknown_task(importing):

@@ -20,19 +20,22 @@ the `Demonstration` and nothing else.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sys
 import time
 import traceback
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import generate, tasks
+from . import generate, source_sha256, tasks
 from .demo import Demonstration
 from .episode import evaluate
-from .policy import ICILPolicy
+from .policy import ICILPolicy, Unscorable
 from .prompt import PROMPT_FILE, PROMPT_SCHEMA, PromptError, read_prompt, sha256_of, write_prompt
 from .records import SAME_SCENE, git_commit
 from .scene import SceneFingerprint, deviation, digest
@@ -72,99 +75,174 @@ def clear_outputs(
     return out
 
 
+#: The seeds `np.random.seed`, which RoboTwin feeds the scene seed to, accepts.
+SEED_RANGE = range(0, 2**32)
+
+
 @dataclass(frozen=True)
 class Materialized:
-    """What `materialize` did: a prompt written, or a seed rejected, and the result it recorded."""
+    """What `materialize` did: a prompt written, or every candidate seed rejected, and the result
+    it recorded. `generated` holds every attempt, in the order the candidates were tried."""
 
     ok: bool
-    attempt: generate.Attempt
+    generated: generate.Generated
     result: dict[str, Any]
-    demonstration: Demonstration | None = None
-    initial: SceneFingerprint | None = None
+
+    @property
+    def demonstration(self) -> Demonstration | None:
+        return self.generated.demonstration
+
+    @property
+    def initial(self) -> SceneFingerprint | None:
+        return self.generated.initial
+
+
+def candidate_seeds(scene_seeds: int | Sequence[int]) -> list[int]:
+    """The candidates `materialize` tries, in order; `UnitError` for a list it must not try.
+
+    A seed given twice would build the same scene twice, and the expert is not reproducible from
+    its seed, so the second try could succeed where the first failed: which prompt a unit gets
+    would depend on the retry, not on the list.
+    """
+    seeds = [scene_seeds] if isinstance(scene_seeds, int) else list(scene_seeds)
+    if not seeds:
+        raise UnitError("materialize needs at least one candidate scene seed")
+    for seed in seeds:
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed not in SEED_RANGE:
+            raise UnitError(f"scene seed {seed!r} is not an integer in [0, 2**32)")
+    repeated = sorted({seed for seed in seeds if seeds.count(seed) > 1})
+    if repeated:
+        raise UnitError(f"scene seed {', '.join(map(str, repeated))} is given more than once")
+    return seeds
+
+
+def attempts_json(generated: generate.Generated) -> list[dict[str, Any]]:
+    """Every candidate tried, in order: its seed, why the expert was rejected on it (None for the
+    seed that was kept) and the rejection's detail."""
+    return [
+        {
+            "seed": attempt.seed,
+            "rejection": None if attempt.rejection is None else attempt.rejection.value,
+            "detail": attempt.detail,
+        }
+        for attempt in generated.attempts
+    ]
 
 
 def materialize(
     task: str,
-    scene_seed: int,
+    scene_seeds: int | Sequence[int],
     config,
     out_dir: str | Path,
     *,
     task_env=None,
     video: bool = True,
 ) -> Materialized:
-    """Build the scene for `scene_seed`, run the expert once, and save what it did.
+    """Try the candidate `scene_seeds` in order until the expert solves one, and save that one.
 
-    A rejected seed is a legitimate outcome, not an error: `result.json` says why and no prompt
-    is written. The result carries what the orchestrator's `read_result` reads from either
-    command — `success`, `void`, `steps`, `error` — next to `ok`: a written prompt is a success
-    whose `steps` are the demonstration's actions, a rejected seed is void with the rejection as
-    its `error`. A simulator that cannot build any scene raises `RoboTwinError`, as `generate`
-    does. Stale files from an earlier command in the same directory are removed first, so what
-    the directory holds afterwards is this call's.
+    Each candidate is one scene built and one expert run, as `generate.generate` tries an
+    episode's seeds; the first demonstration that succeeds is written and the remaining
+    candidates are never built. A single seed is a list of one. Rejected candidates are
+    legitimate outcomes, not errors: the result and the prompt's `meta` record every attempt, and
+    when all of them are rejected `result.json` says why and no prompt is written.
+
+    The result carries what the orchestrator's `read_result` reads from either command —
+    `success`, `void`, `void_cause`, `steps`, `error` — next to `ok`: a written prompt is a
+    success whose `steps` are the demonstration's actions and whose `scene_seed` is the candidate
+    it was built from; every candidate rejected is void with `void_cause` "harness" (the expert
+    failed, not a policy), `scene_seed` None and the rejections as its `error`. A simulator that
+    cannot build any scene raises `RoboTwinError`, as `generate` does, and a candidate list it
+    must not try raises `UnitError`. Stale files from an earlier command in the same directory
+    are removed first, so what the directory holds afterwards is this call's.
     """
     from . import robotwin
 
     started = time.monotonic()
     out = clear_outputs(out_dir, MATERIALIZE_OUTPUTS)
+    candidates = candidate_seeds(scene_seeds)
 
     args = config.resolve(task)
     embodiment = str(args["embodiment_name"])
     task_env = task_env if task_env is not None else robotwin.load_task(task)
     try:
-        attempt, demonstration, initial = generate.attempt(
-            task_env, int(scene_seed), args, config.save_freq, 0
+        generated = generate.generate(
+            task_env, candidates, lambda: config.resolve(task), config.save_freq, 0
         )
     finally:
         robotwin.free_gpu()
+    attempts = attempts_json(generated)
+    rejections = _rejection_counts(generated)
 
     def finish(**fields: Any) -> dict[str, Any]:
         result = {
             "task": task,
-            "scene_seed": int(scene_seed),
+            "scene_seeds": candidates,
             "embodiment": embodiment,
-            "attempts": 1,
+            "attempts": attempts,
+            "rejections": rejections,
             **fields,
+            "source_sha256": source_sha256(),
             "duration_s": round(time.monotonic() - started, 3),
         }
         _write_json(out / RESULT_FILE, result)
         return result
 
+    demonstration, initial = generated.demonstration, generated.initial
     if demonstration is None or initial is None:
-        assert attempt.rejection is not None
-        reason = attempt.rejection.value + (f": {attempt.detail}" if attempt.detail else "")
+        last = generated.attempts[-1]
+        assert last.rejection is not None
+        if len(generated.attempts) == 1:
+            error = f"expert rejected the seed: {_why(last)}"
+        else:
+            error = f"expert rejected all {len(generated.attempts)} candidate seeds: " + "; ".join(
+                f"seed {attempt.seed}: {_why(attempt)}" for attempt in generated.attempts
+            )
         result = finish(
             ok=False,
+            scene_seed=None,
             success=None,
             void=True,
+            void_cause="harness",
             steps=None,
-            error=f"expert rejected the seed: {reason}",
-            rejection=attempt.rejection.value,
-            detail=attempt.detail,
+            error=error,
+            rejection=last.rejection.value,
+            detail=last.detail,
         )
-        return Materialized(ok=False, attempt=attempt, result=result)
+        return Materialized(ok=False, generated=generated, result=result)
 
-    meta = build_meta(task, int(scene_seed), config, args, demonstration, initial)
+    assert generated.seed is not None
+    expert = {"scene_seeds": candidates, "attempts": attempts, "rejections": rejections}
+    meta = build_meta(task, generated.seed, config, args, demonstration, initial, expert)
     prompt_sha256 = write_prompt(out / PROMPT_FILE, demonstration, meta)
     note = ""
     if video:
         note = _film(lambda: EpisodeVideo(out).demonstration(demonstration))
     result = finish(
         ok=True,
+        scene_seed=generated.seed,
         success=True,
         void=False,
+        void_cause=None,
         steps=len(demonstration) - 1,
         error=None,
         frames=len(demonstration),
         cameras=list(demonstration.cameras),
         prompt_sha256=prompt_sha256,
         scene_sha256=meta["scene"]["sha256"],
-        rejections={},
         video=DEMONSTRATION_CLIP if (out / DEMONSTRATION_CLIP).is_file() else None,
         detail=note.strip(),
     )
-    return Materialized(
-        ok=True, attempt=attempt, result=result, demonstration=demonstration, initial=initial
-    )
+    return Materialized(ok=True, generated=generated, result=result)
+
+
+def _why(attempt: generate.Attempt) -> str:
+    assert attempt.rejection is not None
+    return attempt.rejection.value + (f": {attempt.detail}" if attempt.detail else "")
+
+
+def _rejection_counts(generated: generate.Generated) -> dict[str, int]:
+    counts = Counter(a.rejection.value for a in generated.attempts if a.rejection is not None)
+    return dict(sorted(counts.items()))
 
 
 def build_meta(
@@ -174,11 +252,13 @@ def build_meta(
     args: dict[str, Any],
     demonstration: Demonstration,
     initial: SceneFingerprint,
+    expert: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The privileged `meta` of a prompt: enough to rebuild its scene and to prove it is the same.
 
     `config` and `args` are the `SceneConfig` the scene was built with and what it resolved to;
-    `initial` is the fingerprint taken before the expert acted.
+    `initial` is the fingerprint taken before the expert acted. `expert` is how the seed was
+    found — the candidates, every attempt and the rejections — and defaults to the one seed given.
     """
     from . import robotwin
 
@@ -202,7 +282,13 @@ def build_meta(
         "scene": {"fingerprint": initial.to_json(), "sha256": digest(initial)},
         "benchmark_commit": git_commit(robotwin.REPO_ROOT),
         "robotwin_commit": git_commit(robotwin.ROBOTWIN_ROOT),
-        "expert": {"attempts": 1, "rejections": {}, "rejection_details": {}},
+        "expert": expert
+        if expert is not None
+        else {
+            "scene_seeds": [int(scene_seed)],
+            "attempts": [{"seed": int(scene_seed), "rejection": None, "detail": ""}],
+            "rejections": {},
+        },
         "frames": len(demonstration),
         "cameras": list(demonstration.cameras),
     }
@@ -267,6 +353,23 @@ def scene_config_from(meta: dict[str, Any]):
     )
 
 
+#: The label a policy's episode seed is hashed under, so the seed carries no bits of the digest.
+EPISODE_SEED_LABEL = "robotwin-icil episode seed"
+
+
+def episode_seed(prompt_sha256: str) -> int:
+    """The seed a policy is reset with for the prompt whose bytes hash to `prompt_sha256`.
+
+    Never the scene seed, which is privileged: a policy that held it could rebuild the scene it is
+    scored in. Drawn from the prompt's own bytes instead, so every policy handed one prompt (both
+    sides of a duel) gets the same seed; hashed again under `EPISODE_SEED_LABEL`, so it holds no
+    bits of the prompt sha256 a duel publishes. In [0, 2**31): every RNG a policy may seed with it
+    takes that, numpy's legacy `np.random.seed` included.
+    """
+    digest = hashlib.sha256(f"{EPISODE_SEED_LABEL}|{prompt_sha256}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+
+
 def run_unit(
     prompt_path: str | Path,
     policy: ICILPolicy,
@@ -285,8 +388,20 @@ def run_unit(
     `void`, with the reason in `error`, only when the harness could not give the policy a fair
     episode — an unreadable, mistyped or tampered prompt, a config RoboTwin refuses, a scene that
     drifted or would not build, a GPU lost or full during the rollout, or any other fault of the
-    harness while it evaluated (its traceback is printed to stderr). `success` and `steps` are
-    None exactly when the unit is void.
+    harness while it evaluated (its traceback is printed to stderr), a unit that ran out of time
+    while its served policy was within its budget. `success` and `steps` are None exactly when
+    the unit is void, and `void_cause` says whose the void is: "harness" for every reason above;
+    "policy" when the policy could not be spoken to — a served policy that never listened,
+    refused or did not answer `hello`, timed out, used up its time budget for the unit, hung up
+    or answered nonsense (`PolicyUnreachable`) — with the reason, and the server's log tail when
+    run-unit has it, in `error`; None when the unit was scored. A served policy that answers a
+    call with an error has failed, not voided.
+
+    The policy is reset with `episode_seed` of the prompt's sha256, never the scene seed, and
+    `policy`, `model`, `checkpoint`, `served_policy`, `policy_wall_s` and `policy_budget_s` are
+    what `describe` said once the unit was over (a served policy names itself only once it has
+    answered `hello`; the last two, how long its calls took and could have, are a served
+    policy's).
 
     A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
     prompt raises `UnitError`: neither is a unit's outcome, and no result is written for them.
@@ -297,17 +412,29 @@ def run_unit(
     # Absolute before the RoboTwin seam moves the working directory into the checkout.
     prompt_path = Path(prompt_path).resolve()
     out = clear_outputs(out_dir, RUN_UNIT_OUTPUTS, prompt=prompt_path)
-    describe = policy.describe()
+
+    def described() -> dict[str, Any]:
+        describe = policy.describe()
+        return {
+            "policy": str(describe["policy"]),
+            "model": str(describe.get("model", describe["policy"])),
+            "checkpoint": describe.get("checkpoint"),
+            "served_policy": describe.get("served_policy"),
+            "policy_wall_s": describe.get("policy_wall_s"),
+            "policy_budget_s": describe.get("policy_budget_s"),
+        }
+
     result: dict[str, Any] = {
         "success": None,
         "void": True,
+        "void_cause": None,
         "steps": None,
         "step_limit": None,
         "error": None,
         "detail": "",
         "scene_max_error": None,
-        "model": str(describe.get("model", describe["policy"])),
-        "checkpoint": describe.get("checkpoint"),
+        **described(),
+        "source_sha256": source_sha256(),
         "benchmark_commit": git_commit(robotwin.REPO_ROOT),
         "robotwin_commit": git_commit(robotwin.ROBOTWIN_ROOT),
         "embodiment": None,
@@ -322,13 +449,22 @@ def run_unit(
 
     def finish(**fields: Any) -> dict[str, Any]:
         result.update(fields)
+        result.update(described())
         result["video"] = EVALUATION_CLIP if (out / EVALUATION_CLIP).is_file() else None
         result["duration_s"] = round(time.monotonic() - started, 3)
         _write_json(out / RESULT_FILE, result)
         return result
 
-    def void(error: str, **fields: Any) -> dict[str, Any]:
-        return finish(success=None, void=True, steps=None, step_limit=None, error=error, **fields)
+    def void(error: str, cause: str = "harness", **fields: Any) -> dict[str, Any]:
+        return finish(
+            success=None,
+            void=True,
+            void_cause=cause,
+            steps=None,
+            step_limit=None,
+            error=error,
+            **fields,
+        )
 
     try:
         demonstration, meta = read_prompt(prompt_path)
@@ -369,10 +505,21 @@ def run_unit(
             policy,
             video=clip,
             score_policy_faults=True,
+            policy_seed=episode_seed(result["prompt_sha256"]),
         )
+    except Unscorable as exc:
+        # Not what the policy did, so not its failure: a policy that could not be spoken to voids
+        # on the policy, anything else on the harness. Either way the reason is the error.
+        return void(str(exc), cause=exc.void_cause)
     except robotwin.RoboTwinError as exc:
-        # The simulator failed under the policy (the GPU lost or full): nothing to score.
-        return void(f"simulator failed: {exc}")
+        # The simulator failed under the policy (the GPU lost or full): nothing to score. Void on
+        # the harness, since this process cannot see whose memory filled the device; who held it,
+        # and which process this is, go on the result for whoever started a served policy there.
+        return void(
+            f"simulator failed: {exc}",
+            gpu_processes=robotwin.gpu_processes(),
+            run_unit_pid=os.getpid(),
+        )
     except Exception as exc:
         # `evaluate` scores whatever the policy did, so what still escapes it is the harness's own
         # fault (a rebuilt scene it cannot fingerprint, say). The reason goes on the result, where
@@ -393,6 +540,7 @@ def run_unit(
     return finish(
         success=bool(evaluation.success),
         void=False,
+        void_cause=None,
         steps=int(evaluation.steps),
         step_limit=evaluation.step_limit,
         error=None,
@@ -402,7 +550,16 @@ def run_unit(
 
 
 def read_result(out_dir: str | Path) -> dict[str, Any]:
-    """The `result.json` a command left in `out_dir`."""
+    """The `result.json` a command left in `out_dir`.
+
+    Both commands write the orchestrator ABI's fields — `success`, `void`, `steps`, `error` — and
+    `void_cause`, a field this benchmark adds to them: None for a scored unit or a written prompt;
+    "policy" for a unit whose policy could not be spoken to (nothing listened, `hello` refused or
+    unanswered, a timeout, a hang-up, a malformed reply); "harness" for every other void (every
+    materialize candidate rejected, an unreadable or tampered prompt, scene drift, a simulator or
+    GPU failure, any other fault of the harness). A policy that answers with an error, or returns
+    an invalid action, is a scored failure: `success` false, `void` false, `void_cause` None.
+    """
     return json.loads((Path(out_dir) / RESULT_FILE).read_text(encoding="utf-8"))
 
 

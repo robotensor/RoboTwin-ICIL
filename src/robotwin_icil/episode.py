@@ -27,7 +27,7 @@ import numpy as np
 
 from .demo import Demonstration
 from .generate import Generated, generate, scene_seeds
-from .policy import ICILPolicy, Observation, PolicyError
+from .policy import EpisodeInfo, ICILPolicy, Observation, PolicyError, Unscorable
 from .records import SAME_SCENE, EpisodeRecord, Status
 from .scene import SceneFingerprint, compare, max_error
 from .tasks import Task
@@ -151,6 +151,7 @@ def evaluate(
     episode: int = 0,
     score_policy_faults: bool = False,
     note: str = "",
+    policy_seed: int | None = None,
 ) -> Evaluation:
     """Rebuild the demonstration's scene, check it is the same one, and roll the policy out in it.
 
@@ -158,19 +159,22 @@ def evaluate(
     match it before the policy is even handed the demonstration. The env is closed on the way out
     whatever happened. `note` — in a benchmark run, what writing the demonstration clip said — is
     appended to the detail of a scene that was built, ahead of the evaluation clip's own note.
+    The policy is reset with the episode's public `EpisodeInfo`: the robot, its live action
+    widths and `policy_seed`, which is never `seed`.
 
     A `PolicyError`, and anything `reset` or `set_demonstration` raises, propagates, as in
     `run_episode`: in a run of the benchmark an adapter at fault is a bug to fix. With
     `score_policy_faults` they are instead the policy's result — a failure, with the reason in
     `detail` — as a competition needs: an evaluation that is not scored is thrown out, and a
-    policy must not be able to throw out the episodes it is losing.
+    policy must not be able to throw out the episodes it is losing. `Unscorable`, a policy that
+    could not be spoken to above all, always propagates: it is nobody's result.
     """
     from . import robotwin
 
     try:
-        task_env.setup_demo(
-            now_ep_num=episode, seed=seed, is_test=True, **config.resolve(task_name)
-        )
+        args = config.resolve(task_name)
+        embodiment = str(args["embodiment_name"])
+        task_env.setup_demo(now_ep_num=episode, seed=seed, is_test=True, **args)
     except Exception as exc:
         robotwin.close(task_env)
         return _not_scored(f"evaluation scene failed to build: {type(exc).__name__}: {exc}")
@@ -187,9 +191,14 @@ def evaluate(
                 scene_max_error=max_error(mismatches),
                 live=live,
             )
+        info = EpisodeInfo(
+            embodiment=embodiment, action_dims=robotwin.action_dims(task_env), seed=policy_seed
+        )
         try:
-            policy.reset()
+            policy.reset(info)
             policy.set_demonstration(demonstration)
+        except Unscorable:
+            raise
         except Exception as exc:
             if not score_policy_faults:
                 raise
@@ -265,7 +274,7 @@ def rollout(
                 task_env.take_action(action, action_type=policy.action_type)
                 if robotwin.episode_over(task_env):
                     break
-    except PolicyError:
+    except (PolicyError, Unscorable):
         raise
     except Exception as exc:
         if robotwin.gpu_exhausted(exc):

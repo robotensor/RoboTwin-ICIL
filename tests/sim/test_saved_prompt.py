@@ -12,18 +12,18 @@ QPOS_DIM = {"aloha-agilex": 14, "franka-panda": 16}
 
 
 def _materialize(tmp_path, embodiment, seeds=range(8)):
-    """Materialize the first seed the expert solves; rejected seeds are outcomes, not evidence."""
-    config = robotwin.SceneConfig(embodiment=embodiment)
-    outcomes = []
-    for seed in seeds:
-        done = unit.materialize(TASK, seed, config, tmp_path / f"seed{seed}")
-        if done.ok:
-            return seed, tmp_path / f"seed{seed}", done
-        outcomes.append(f"seed {seed}: {done.result['rejection']} {done.result['detail']}".rstrip())
-    pytest.fail(
-        f"the {embodiment} expert solved none of {len(outcomes)} {TASK} seeds:\n"
-        + "\n".join(outcomes)
-    )
+    """Materialize the first candidate the expert solves; rejected seeds are outcomes, not
+    evidence, and materialize itself tries the next one."""
+    out = tmp_path / "prompt"
+    done = unit.materialize(TASK, list(seeds), robotwin.SceneConfig(embodiment=embodiment), out)
+    if not done.ok:
+        pytest.fail(f"the {embodiment} expert solved no {TASK} candidate: {done.result['error']}")
+    assert done.result["attempts"][-1] == {
+        "seed": done.result["scene_seed"],
+        "rejection": None,
+        "detail": "",
+    }
+    return done.result["scene_seed"], out, done
 
 
 @pytest.mark.parametrize("embodiment", sorted(QPOS_DIM))

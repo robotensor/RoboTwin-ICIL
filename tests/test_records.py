@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -158,6 +159,23 @@ def test_an_episode_recorded_twice_is_an_error(tmp_path):
 
 def test_git_commit_of_a_non_repository_is_none(tmp_path):
     assert git_commit(tmp_path) is None
+
+
+def test_git_commit_is_a_checkouts_own_never_the_repository_around_it(tmp_path):
+    # A wheel's package sits wherever its environment does, which may be inside another repository.
+    repo = tmp_path / "unrelated"
+    site = repo / ".venv" / "lib" / "python3.10"
+    site.mkdir(parents=True)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "README").write_text("another project\n")
+    subprocess.run([*git, "add", "README"], check=True)
+    subprocess.run([*git, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "c"], check=True)
+    head = subprocess.run(
+        [*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert git_commit(repo) == head
+    assert git_commit(site) is None
 
 
 def test_records_written_before_rejection_details_still_load():

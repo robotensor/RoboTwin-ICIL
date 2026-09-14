@@ -21,5 +21,23 @@ jobs:
         with: { submodules: true }
       - uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python }}" }
+      # icil-policy lives in the private orchestrator repository and is on no package index, so
+      # it is not installed here: the tests that drive a served policy importorskip it and skip.
       - run: pip install -e ".[dev]"
       - run: pytest -q -m "not sim"
+  competition:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      # The orchestrator plugin's pure tests, on both Pythons, so a unit list derived on one is the
+      # unit list derived on the other. The plugin depends on icil-policy, which no index serves
+      # (see `unit`) and none of these tests needs: it is installed beside the benchmark it wraps,
+      # without its dependencies.
+      - run: pip install -e ".[dev]" && pip install --no-deps -e ./competition
+      - run: pytest -q -m "not sim"
+        working-directory: competition

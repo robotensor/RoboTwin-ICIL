@@ -61,6 +61,13 @@ def use_env_render_manifests() -> None:
             os.environ.setdefault(variable, str(manifest))
 
 
+#: The environment variable that overrides the ray-tracing denoiser (`denoiser_for`), and what it
+#: takes. `materialize` and `run-unit` also take it as `--denoiser`, for callers that pass a
+#: command only allow-listed variables.
+DENOISER_ENV = "ROBOTWIN_ICIL_DENOISER"
+DENOISERS = ("oidn", "none")
+
+
 def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> str | None:
     """The ray-tracing denoiser to use where RoboTwin asks for "oidn", or None to keep its request.
 
@@ -70,10 +77,8 @@ def denoiser_for(capability: tuple[int, int] | None, override: str | None) -> st
     while another process loads the GPU. `ROBOTWIN_ICIL_DENOISER` (`oidn` or `none`) overrides.
     """
     if override:
-        if override not in ("oidn", "none"):
-            raise RoboTwinError(
-                f"ROBOTWIN_ICIL_DENOISER must be 'oidn' or 'none', not {override!r}"
-            )
+        if override not in DENOISERS:
+            raise RoboTwinError(f"{DENOISER_ENV} must be 'oidn' or 'none', not {override!r}")
         return None if override == "oidn" else "none"
     if capability is not None and capability[0] >= 10:
         return "none"
@@ -109,7 +114,7 @@ def use_supported_denoiser() -> None:
     current = render.set_ray_tracing_denoiser
     if getattr(current, "robotwin_icil_denoiser", None) is not None:
         return
-    choice = denoiser_for(_gpu_capability(), os.environ.get("ROBOTWIN_ICIL_DENOISER"))
+    choice = denoiser_for(_gpu_capability(), os.environ.get(DENOISER_ENV))
     if choice is None:
         return
 
@@ -335,6 +340,32 @@ def gpu_lost(exc: BaseException) -> bool:
     """
     text = str(exc)
     return "ErrorDeviceLost" in text or "VK_ERROR_DEVICE_LOST" in text
+
+
+def gpu_processes() -> list[dict[str, int]] | None:
+    """Every process holding GPU memory, as `nvidia-smi` lists them: `pid` and `used_mib`.
+
+    What a GPU failure is recorded with. A served policy may share the simulator's device, and a
+    policy that fills it makes the rollout fail as a GPU failure that is not the harness's; this
+    process cannot tell that, but whoever started the policy can, from its process ids. None when
+    `nvidia-smi` cannot say (none installed, a lost device it cannot query).
+    """
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout
+        rows = [line.split(",") for line in out.splitlines() if line.strip()]
+        return [{"pid": int(pid), "used_mib": int(used)} for pid, used in rows]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
 
 
 def free_gpu() -> None:

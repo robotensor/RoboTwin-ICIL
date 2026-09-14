@@ -93,7 +93,9 @@ RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
 Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
 short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
-expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md).
+expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md). The
+competition's one-arm Franka track draws from `franka_1arm`, four tasks chosen by a smaller survey
+of the expert on two Franka arms, described in the same document.
 
 The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
 drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
@@ -128,8 +130,15 @@ robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell -
 robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 
 # the competition's shape: build one demonstration and save it, then evaluate from the file
-robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
+robotwin-icil materialize --task click_bell --scene-seed 42 --scene-seed 43 --out runs/unit/prompt
 robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy replay --out runs/unit/run
+
+# the same unit against a policy served in a process of its own (needs icil-policy installed)
+export ICIL_POLICY_AUTHKEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+python -m icil_policy.serve --manifest <icil-policy>/examples/replay_policy/icil.yaml \
+    --address /tmp/policy.sock --authkey-env ICIL_POLICY_AUTHKEY --log-file /tmp/policy.log &
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy-address /tmp/policy.sock \
+    --authkey-env ICIL_POLICY_AUTHKEY --policy-log /tmp/policy.log --out runs/unit/served
 
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
@@ -148,16 +157,36 @@ upper bound: if it does not succeed, the bug is in the benchmark, not in the mod
 
 `materialize` and `run-unit` are the same episode in two processes, which is how a competition
 runs it: both policies in a duel are handed the identical `prompt.npz`, and a third party can
-check it by hash. `materialize` writes `prompt.npz`, `demonstration.mp4` and `result.json`, and
-exits 3 when the expert was rejected on the seed. `run-unit` rebuilds the scene from the prompt's
+check it by hash. `materialize` tries its candidate `--scene-seed`s in order and writes
+`prompt.npz` and `demonstration.mp4` for the first one the expert solves; its `result.json` names
+the chosen seed and every attempt, and is void when the expert was rejected on all of them. It
+exits 0 whenever it wrote `result.json`. `run-unit` rebuilds the scene from the prompt's
 privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
 rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
 result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a
-policy that will not load). Both commands' `result.json` carry `success`, `void`, `steps` and
+policy that will not load, a served policy whose `--authkey-env` holds no usable key, icil-policy
+not installed). Given `--expect-source-sha256`, either command exits 1 before writing anything
+unless the benchmark's own source (`robotwin_icil.source_sha256()`) digests to it, and both
+results record `source_sha256`; `--denoiser oidn|none` sets `ROBOTWIN_ICIL_DENOISER` for a caller
+that passes no such variable. Both commands' `result.json` carry `success`, `void`, `steps` and
 `error`; a policy that raises or returns an invalid action fails its unit, and only what the
 harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids one. `prompt.npz`
 holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
 map `prompt.CHANNELS` publishes, plus `meta`, which never reaches a policy.
+
+A competition does not import the policy at all. `run-unit --policy-address ADDR --authkey-env
+NAME` drives one served by `python -m icil_policy.serve` in a process of its own: the
+demonstration crosses the socket as `prompt.npz`'s own arrays, each observation as
+`frames_<camera>`, `qpos` and `endpose`, and nothing of `meta`. A served policy that answers a
+call with an error fails its unit; one that cannot be spoken to (nothing listening, `hello`
+refused, a timeout, a hang-up, a malformed reply) or whose calls use up its time budget for the
+unit (`--policy-budget-s`, 300 s) voids it with `void_cause` "policy". A unit that runs out of
+`--unit-timeout-s` while the policy is within its budget, and every other void, carries "harness"
+— see [`docs/policies.md`](docs/policies.md).
+
+The competition orchestrator runs the benchmark through [`competition/`](competition/README.md),
+a distribution of its own that it imports without a simulator: the catalogue, the unit list of
+a duel, prompt verification and results, and the argv of `materialize` and `run-unit`.
 
 ## Layout
 
@@ -172,12 +201,14 @@ src/robotwin_icil/
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   unit.py                   the episode in two files: materialize a prompt, run a unit from it
+  remote.py                 a policy served at an address, driven through icil-policy's client
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
   survey.py                 the expert's own success rate per task, and which arms it moved
   robotwin.py               the only module that imports RoboTwin
   cli.py
+competition/                the orchestrator plugin, its own distribution (competition/README.md)
 docs/                       installation, policy adapters, the expert survey
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```

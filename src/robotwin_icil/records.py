@@ -206,8 +206,30 @@ def write_json(path: Path, data: Any, *, sort_keys: bool = False) -> None:
     tmp.replace(path)
 
 
+def is_checkout_top(path: Path) -> bool:
+    """Whether `path` is the top of a git checkout (a worktree's or a submodule's included).
+
+    A benchmark installed from a wheel lives inside whatever directory the environment is in, and
+    that may be some other repository, or a submodule directory left empty may sit inside the
+    benchmark's: git would answer for the repository around it.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return bool(top) and Path(top).resolve() == Path(path).resolve()
+
+
 def git_commit(path: Path) -> str | None:
-    """HEAD of the checkout at `path`, suffixed `-dirty` when it has uncommitted changes."""
+    """HEAD of the checkout at `path`, suffixed `-dirty` when it has uncommitted changes; None
+    unless `path` is the top of a checkout (`is_checkout_top`)."""
+    if not is_checkout_top(path):
+        return None
     try:
         head = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "HEAD"],

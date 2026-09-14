@@ -42,6 +42,34 @@ def test_all_suite_is_the_whole_table():
     assert set(table.suites["all"]) == set(table.tasks)
 
 
+def test_franka_1arm_is_the_surveyed_suite_with_an_arm_switching_stand_in():
+    # docs/survey.md, "Franka one-arm survey": at least 2 of 3 seeds solved on two Frankas, and
+    # every successful demonstration moved one arm. Stacking has no one-arm task, so
+    # stack_bowls_two stands in for it.
+    table = tasks.table()
+    suite = table.suite("franka_1arm")
+    names = [task.name for task in suite]
+    assert names == ["place_empty_cup", "stack_bowls_two", "click_bell", "press_stapler"]
+    assert names == [name for name in table.tasks if name in names]  # table order
+    assert [task.category for task in suite] == [
+        "pick_and_place",
+        "stacking",
+        "press_push",
+        "press_push",
+    ]
+    assert {task.name: task.arms for task in suite if task.arms != arms.ONE} == {
+        "stack_bowls_two": arms.SWITCHING
+    }
+    assert not [t for t in table.tasks.values() if t.category == "stacking" and t.arms == arms.ONE]
+    # The suite keeps its stand-in; only --arms 1, which keeps one-arm tasks alone, drops it.
+    assert table.select(suite="franka_1arm") == suite
+    assert [task.name for task in table.select(suite="franka_1arm", arms=arms.ONE)] == [
+        "place_empty_cup",
+        "click_bell",
+        "press_stapler",
+    ]
+
+
 def test_unknown_names_are_rejected():
     table = tasks.table()
     with pytest.raises(tasks.TaskTableError):
@@ -111,6 +139,21 @@ def test_arms_load_as_the_table_vocabulary(tmp_path):
     )
     table = tasks.load_table(path)
     assert [task.arms for task in table.tasks.values()] == [arms.ONE, arms.SWITCHING, arms.TWO]
+
+
+def test_a_suite_may_hold_tasks_of_any_arms(tmp_path):
+    # A suite is a list of tasks and says nothing of arms: franka_1arm holds an arm-switching
+    # stand-in for a category with no one-arm task. What a run keeps is --arms's to narrow.
+    path = tmp_path / "tasks.yml"
+    path.write_text(
+        "categories:\n  press_push: Press / Push\n  stacking: Stacking\ntasks:\n"
+        "  click_bell: {category: press_push, arms: 1}\n"
+        "  stack: {category: stacking, arms: switching}\n"
+        "suites:\n  track: [click_bell, stack]\n"
+    )
+    table = tasks.load_table(path)
+    assert [task.arms for task in table.suite("track")] == [arms.ONE, arms.SWITCHING]
+    assert table.select(suite="track", arms=arms.ONE) == (table["click_bell"],)
 
 
 @needs_robotwin

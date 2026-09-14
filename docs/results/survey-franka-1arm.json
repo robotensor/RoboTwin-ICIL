@@ -1,0 +1,334 @@
+{
+  "_comment": "RoboTwin's expert alone on franka-panda (two Franka arms 0.8 m apart), run on 2026-09-14 from branch arms-and-embodiment at commit bfbc595: 3 seeds per task from global seed 0 (scene seeds 1826701614, 1367864806, 1097657231), 6 tasks, two of v1's in each category of the franka_1arm track, each surveyed on its own. Issue #83 asked for all 26 one-arm tasks at 20 seeds each (3 to 13 GPU hours); the scope was reduced to these 6 tasks x 3 seeds by decision, to finish the milestone sooner, so every rate here is a three-seed estimate. No images: no camera rendered (images false). The per-seed equivalence gate (tests/sim/test_capture_without_images.py) was skipped: two rendered runs of one seed already differ (qpos rows by up to 0.13 rad; identical runs in #81 recorded 77 and 78 frames), its one completed run, on a shared GPU, failed only on click_bell seed 0 with 47 frames rendered and 48 without, inside that spread, and two source audits found no expert path that reads a camera or an observation. The first seed of every task took 31-35 s and the others 1-5 s. docs/survey.md, 'Franka one-arm survey', has the table and the suite it names.",
+  "images": false,
+  "tasks": [
+    {
+      "task": "place_a2b_left",
+      "skill_category": "pick_and_place",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 1,
+      "success_rate": 0.3333333333333333,
+      "rejections": {
+        "expert_failed": 1,
+        "plan_failed": 1
+      },
+      "one_arm_demonstrations": 1,
+      "two_arm_demonstrations": 0,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 96.0,
+      "seconds_per_seed": 13.305602096991302,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "expert_failed",
+          "frames": null,
+          "arms_moved": null,
+          "displacement": null,
+          "seconds": 32.37861581693869
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "ok",
+          "frames": 96,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.0,
+            "right": 0.0
+          },
+          "seconds": 3.258374513941817
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "plan_failed",
+          "frames": null,
+          "arms_moved": null,
+          "displacement": null,
+          "seconds": 4.279815960093401
+        }
+      ]
+    },
+    {
+      "task": "place_empty_cup",
+      "skill_category": "pick_and_place",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 3,
+      "success_rate": 1.0,
+      "rejections": {},
+      "one_arm_demonstrations": 3,
+      "two_arm_demonstrations": 0,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 117.0,
+      "seconds_per_seed": 11.948789562680759,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "ok",
+          "frames": 114,
+          "arms_moved": [
+            "right"
+          ],
+          "displacement": {
+            "left": 0.0,
+            "right": 1.0
+          },
+          "seconds": 32.010024445015006
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "ok",
+          "frames": 119,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.0881588459014893,
+            "right": 0.0
+          },
+          "seconds": 1.9895535010145977
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "ok",
+          "frames": 118,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.0,
+            "right": 0.0
+          },
+          "seconds": 1.8467907420126721
+        }
+      ]
+    },
+    {
+      "task": "stack_blocks_two",
+      "skill_category": "stacking",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 3,
+      "success_rate": 1.0,
+      "rejections": {},
+      "one_arm_demonstrations": 1,
+      "two_arm_demonstrations": 2,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 202.33333333333334,
+      "seconds_per_seed": 14.9157726126723,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "ok",
+          "frames": 206,
+          "arms_moved": [
+            "left",
+            "right"
+          ],
+          "displacement": {
+            "left": 1.0033438205718994,
+            "right": 1.0421684980392456
+          },
+          "seconds": 35.30562009708956
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "ok",
+          "frames": 206,
+          "arms_moved": [
+            "left",
+            "right"
+          ],
+          "displacement": {
+            "left": 1.077663779258728,
+            "right": 1.1248738765716553
+          },
+          "seconds": 4.8712507949676365
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "ok",
+          "frames": 195,
+          "arms_moved": [
+            "right"
+          ],
+          "displacement": {
+            "left": 0.0,
+            "right": 1.0
+          },
+          "seconds": 4.570446945959702
+        }
+      ]
+    },
+    {
+      "task": "stack_bowls_two",
+      "skill_category": "stacking",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 2,
+      "success_rate": 0.6666666666666666,
+      "rejections": {
+        "expert_failed": 1
+      },
+      "one_arm_demonstrations": 2,
+      "two_arm_demonstrations": 0,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 202.0,
+      "seconds_per_seed": 13.669675309637872,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "ok",
+          "frames": 197,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.3994183540344238,
+            "right": 0.0
+          },
+          "seconds": 34.16739423398394
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "expert_failed",
+          "frames": null,
+          "arms_moved": null,
+          "displacement": null,
+          "seconds": 3.29939292895142
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "ok",
+          "frames": 207,
+          "arms_moved": [
+            "right"
+          ],
+          "displacement": {
+            "left": 0.0,
+            "right": 2.0879786610603333
+          },
+          "seconds": 3.5422387659782544
+        }
+      ]
+    },
+    {
+      "task": "click_bell",
+      "skill_category": "press_push",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 3,
+      "success_rate": 1.0,
+      "rejections": {},
+      "one_arm_demonstrations": 3,
+      "two_arm_demonstrations": 0,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 46.666666666666664,
+      "seconds_per_seed": 11.028433168694997,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "ok",
+          "frames": 47,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.0,
+            "right": 0.0
+          },
+          "seconds": 31.131293410086073
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "ok",
+          "frames": 46,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.0,
+            "right": 0.0
+          },
+          "seconds": 1.0046292970655486
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "ok",
+          "frames": 47,
+          "arms_moved": [
+            "right"
+          ],
+          "displacement": {
+            "left": 0.0,
+            "right": 1.0
+          },
+          "seconds": 0.9493767989333719
+        }
+      ]
+    },
+    {
+      "task": "press_stapler",
+      "skill_category": "press_push",
+      "embodiment": "franka-panda",
+      "images": false,
+      "seeds": 3,
+      "successes": 3,
+      "success_rate": 1.0,
+      "rejections": {},
+      "one_arm_demonstrations": 3,
+      "two_arm_demonstrations": 0,
+      "no_arm_demonstrations": 0,
+      "mean_demonstration_frames": 93.0,
+      "seconds_per_seed": 11.094288864638656,
+      "seeds_detail": [
+        {
+          "seed": 1826701614,
+          "outcome": "ok",
+          "frames": 100,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 2.7567098736763,
+            "right": 0.0
+          },
+          "seconds": 31.26621809997596
+        },
+        {
+          "seed": 1367864806,
+          "outcome": "ok",
+          "frames": 88,
+          "arms_moved": [
+            "left"
+          ],
+          "displacement": {
+            "left": 1.2389167547225952,
+            "right": 0.0
+          },
+          "seconds": 1.0055703870020807
+        },
+        {
+          "seed": 1097657231,
+          "outcome": "ok",
+          "frames": 91,
+          "arms_moved": [
+            "right"
+          ],
+          "displacement": {
+            "left": 0.0,
+            "right": 1.5060149431228638
+          },
+          "seconds": 1.01107810693793
+        }
+      ]
+    }
+  ]
+}
