@@ -34,6 +34,30 @@ time.sleep(3600)
 """
 
 
+# A child that keeps starting short burners behind `sh -c '... &'`: sh exits at once, so every
+# burner is orphaned and nothing in the attempt ever waits for it.
+DAEMONS = """
+import shlex, subprocess, sys, time
+burn = "import time\\nend = time.process_time() + 0.1\\nwhile time.process_time() < end: pass"
+while True:
+    subprocess.run(["sh", "-c", f"{shlex.quote(sys.executable)} -c {shlex.quote(burn)} &"])
+    time.sleep(0.15)
+"""
+
+# A child whose helper starts a sleeping worker in a session of its own and exits at once, then
+# idles: the worker is in neither the attempt's tree nor its session any more.
+ORPHAN = """
+import subprocess, sys, time
+worker = "import time; time.sleep(3600)"
+spawn = (
+    f"import subprocess, sys; w = subprocess.Popen([sys.executable, '-c', {worker!r}],"
+    " start_new_session=True); print(f'worker={w.pid}', flush=True)"
+)
+subprocess.run([sys.executable, "-c", spawn])
+time.sleep(3600)
+"""
+
+
 def watch(tmp_path, *args, log_name="run.log"):
     log = tmp_path / log_name
     started = time.monotonic()
@@ -213,6 +237,24 @@ def test_cpu_trickling_in_worker_threads_is_counted(tmp_path):
     # The same threads at a sixth of the rate are a stall, measured at their true rate.
     code, log, _ = watch(tmp_path, *limits, *python(TRICKLE, 0.1, 4), log_name="idle.log")
     assert code == 124 and 0.05 < stall_rate(log) < 0.2
+
+
+def test_cpu_of_workers_orphaned_behind_a_shell_is_counted(tmp_path):
+    # About 0.7 cores of burners that init would otherwise adopt and reap, taking their CPU along.
+    limits = ["--stall", "2", "--poll", "1", "--max-wall", "4", "--retries", "0"]
+    code, log, _ = watch(tmp_path, *limits, *python(DAEMONS))
+
+    assert code == 124
+    assert "still running after 4s wall" in log and "cores over the last" not in log
+
+
+def test_a_worker_orphaned_in_its_own_session_is_killed_with_the_attempt(tmp_path):
+    limits = ["--stall", "1.5", "--poll", "0.25", "--max-wall", "30", "--retries", "0"]
+    code, log, _ = watch(tmp_path, *limits, *python(ORPHAN))
+    workers = pids(log, "worker")
+
+    assert code == 124 and "stalled: " in log and len(workers) == 1
+    assert [pid for pid in workers if alive(pid)] == []
 
 
 def test_a_child_working_at_full_speed_outlasts_the_stall_window(tmp_path):

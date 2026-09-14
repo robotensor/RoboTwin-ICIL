@@ -30,6 +30,7 @@ Standard library only; runs under any Python 3.10+.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
 import re
 import shlex
@@ -48,6 +49,7 @@ OVERLAP = 64 * 1024
 DEFAULT_RERUN_ON = ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST")
 DEFAULT_MIN_CPU_RATE = 0.25
 KILL_WAIT = 10.0
+PR_SET_CHILD_SUBREAPER = 36  # <linux/prctl.h>
 
 
 class Proc(NamedTuple):
@@ -91,17 +93,19 @@ def process_start(pid: int) -> int | None:
 
 
 def attempt_procs(leader: int, start: int | None, procs: dict[int, Proc]) -> dict[int, Proc]:
-    """The attempt's processes in `procs`: its leader, the leader's descendants and its session.
+    """The attempt's processes in `procs`: its leader, everything below it, and its session.
 
-    The session still holds a descendant that init adopted when its parent exited; a worker that
-    starts a session of its own is found through its parent while that parent lives. The leader is
-    walked only while its pid names the process simwatch started (`start`). The session needs no
-    such check: the kernel does not hand out a session's id while any process is in it.
+    simwatch adopts a descendant whose parent exits (see adopt_orphans), so its other children and
+    everything below them belong to the attempt too: it runs one attempt at a time and kills each
+    before the next. Where adoption is not allowed, the session still holds what init took. The
+    leader is walked only while its pid names the process simwatch started (`start`). The session
+    needs no such check: the kernel does not hand out a session's id while any process is in it.
     """
     children: dict[int, list[int]] = {}
     for pid, proc in procs.items():
         children.setdefault(proc.ppid, []).append(pid)
     stack = [pid for pid, proc in procs.items() if proc.session == leader]
+    stack += [pid for pid in children.get(os.getpid(), []) if pid != leader]
     if leader in procs and procs[leader].start == start:
         stack.append(leader)
     members: dict[int, Proc] = {}
@@ -111,6 +115,33 @@ def attempt_procs(leader: int, start: int | None, procs: dict[int, Proc]) -> dic
             members[pid] = procs[pid]
             stack.extend(children.get(pid, []))
     return members
+
+
+def reap_adopted(procs: dict[int, Proc], leader: int) -> None:
+    """Wait for adopted orphans that `procs` saw exited, so their final CPU was sampled first.
+
+    The leader is left to Popen, which needs its exit status.
+    """
+    me = os.getpid()
+    for pid, proc in procs.items():
+        if proc.ppid == me and proc.state == "Z" and pid != leader:
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+
+
+def adopt_orphans() -> bool:
+    """Make simwatch the reaper of its descendants' orphans; whether the kernel allowed it.
+
+    A worker whose parent exits, one started behind `sh -c '... &'` say, would otherwise go to
+    init: out of the attempt's tree, its CPU uncounted and, in a session of its own, never killed.
+    """
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
+    except (OSError, AttributeError):
+        return False
 
 
 def signal_process(pid: int, start: int, sig: int) -> None:
@@ -148,6 +179,7 @@ def kill_attempt(proc: subprocess.Popen, start: int | None, grace: float) -> int
     deadline = time.monotonic() + grace
     while True:
         procs = read_procs()
+        reap_adopted(procs, proc.pid)
         keys = {(pid, p.start) for pid, p in attempt_procs(proc.pid, start, procs).items()}
         # One signalled already can have left the tree and session: its parent died before it did.
         keys |= {key for key in signalled if key[0] in procs and procs[key[0]].start == key[1]}
@@ -188,7 +220,8 @@ def run_once(
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     start = process_start(proc.pid)  # not reaped before poll(), so readable even if it exited
     started = time.monotonic()
-    used, last_total = 0.0, 0.0
+    used = 0.0
+    seen: dict[tuple[int, int], float] = {}  # (pid, start) -> its CPU at the last sample
     window = deque([(started, used)])
     while True:
         code = proc.poll()
@@ -200,12 +233,15 @@ def run_once(
             if left:
                 why += f" (killed {left} process{'es' if left > 1 else ''} it left running)"
             return exit_status(code), why
-        # A child reaped inside the tree moves into its parent's cutime, so the sum keeps it.
-        total = sum(p.cpu for p in attempt_procs(proc.pid, start, read_procs()).values())
+        procs = read_procs()
         now = time.monotonic()
-        # A member reaped outside the tree takes its CPU with it; that is not negative work.
-        used += max(0.0, total - last_total)
-        last_total = total
+        cpu = {(pid, p.start): p.cpu for pid, p in attempt_procs(proc.pid, start, procs).items()}
+        # Each process adds what it used since the last sample, so one that exits or is reaped in
+        # between takes nothing away from the rest. A child reaped by its parent also lands in the
+        # parent's cutime and can be counted twice, which can only delay a stall, never cause one.
+        used += sum(max(0.0, total - seen.get(key, 0.0)) for key, total in cpu.items())
+        seen = cpu
+        reap_adopted(procs, proc.pid)
         window.append((now, used))
         while len(window) > 1 and window[1][0] <= now - stall:
             window.popleft()
@@ -383,6 +419,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if not adopt_orphans():
+        print(
+            "simwatch: cannot adopt orphaned processes; a worker whose parent exits is not counted "
+            "and, in a session of its own, not killed",
+            file=sys.stderr,
+        )
     return watch(
         args.cmd,
         args.log,
