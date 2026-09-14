@@ -45,6 +45,18 @@ robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 -
   --json docs/results/survey-franka-1arm.json
 ```
 
+**The Franka survey ran without images.** It was gated on the sim test above passing, and the
+test, in its earlier form, compared one rendered run with one run without images exactly, seed by
+seed. That could not tell rendering apart from the expert's own variation: two rendered runs of
+one seed had already differed by up to 0.13 rad in their qpos rows, and identical runs in #81
+recorded 77 and 78 frames. The test's one completed run, on a GPU another simulator process
+shared, failed only on click_bell seed 0, with 47 frames rendered against 48 without — within that
+variation. Two independent audits of the pinned source had found no expert path that reads a
+camera or an observation (`robotwin.robot_state` says how), so the gate was skipped rather than
+held on a comparison that could not decide, and the test was reworked to compare against two
+rendered runs; that form has not run on the simulator yet. The Franka survey's rejections carry
+the GPU-memory caveat above: it does not predict every seed `eval` would reject on a shared GPU.
+
 ## V1 survey
 
 20 seeds per task from global seed 0, `demo_clean` config, aloha-agilex, on the reference machine
