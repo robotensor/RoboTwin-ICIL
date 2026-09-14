@@ -4,9 +4,11 @@ SAPIEN's camera read can hang for good on a Blackwell GPU that another process i
 renderer can lose the GPU outright (see "Rendering" in docs/install.md). Each attempt ends one of
 three ways:
 
-  stalled     The attempt's process tree has not gained CPU time for --stall seconds, or the
-              attempt ran longer than --max-wall seconds. The process group is killed and the
-              command rerun.
+  stalled     The attempt's process tree used under --min-cpu-rate cores on average over the last
+              --stall seconds, or the attempt ran longer than --max-wall seconds. A hung camera
+              read sleeps or polls the GPU with a trickle of CPU, so the test is a rate over a
+              sliding window, not whether CPU time moved at all. The process group is killed
+              (SIGTERM, then SIGKILL) and the command rerun.
   transient   The attempt exited non-zero and its own output, the last 64 KB it appended to --log,
               matches a --rerun-on pattern (by default SAPIEN's ErrorDeviceLost). It is rerun.
   final       Any other exit. The watch ends with the attempt's exit code (128+N for signal N).
@@ -31,17 +33,31 @@ import signal
 import subprocess
 import sys
 import time
+from collections import deque
+from typing import NamedTuple
 
 GAVE_UP = 124
 TAIL_BYTES = 64 * 1024
 DEFAULT_RERUN_ON = ("ErrorDeviceLost",)
+DEFAULT_MIN_CPU_RATE = 0.25
 
 
-def tree_cpu_seconds(root: int) -> float:
-    """User + system CPU seconds of `root` and every descendant, read from /proc."""
+class Proc(NamedTuple):
+    ppid: int
+    pgrp: int
+    session: int
+    state: str
+    cpu: float  # user + system seconds of every thread, plus children it has reaped
+
+
+def read_procs() -> dict[int, Proc]:
+    """Every process on the host, from /proc/<pid>/stat.
+
+    That file already sums all of a process's threads, including threads that have exited, so a
+    trickle of CPU in a worker thread counts; /proc/<pid>/task/*/stat would lose the exited ones.
+    """
     ticks = os.sysconf("SC_CLK_TCK")
-    children: dict[int, list[int]] = {}
-    stats: dict[int, float] = {}
+    procs = {}
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
@@ -50,15 +66,56 @@ def tree_cpu_seconds(root: int) -> float:
                 fields = f.read().rsplit(")", 1)[1].split()
         except OSError:
             continue
-        pid, ppid = int(entry), int(fields[1])
-        children.setdefault(ppid, []).append(pid)
-        stats[pid] = (int(fields[11]) + int(fields[12])) / ticks
-    total, stack = 0.0, [root]
+        cpu = sum(int(tick) for tick in fields[11:15]) / ticks
+        procs[int(entry)] = Proc(int(fields[1]), int(fields[2]), int(fields[3]), fields[0], cpu)
+    return procs
+
+
+def tree_cpu_seconds(root: int) -> float:
+    """CPU seconds used so far by `root`, its descendants and anything else in its session.
+
+    A child that exits and is reaped inside the tree moves into its parent's cutime and cstime, so
+    the sum does not drop when it goes; the session catches descendants reparented away.
+    """
+    procs = read_procs()
+    children: dict[int, list[int]] = {}
+    for pid, proc in procs.items():
+        children.setdefault(proc.ppid, []).append(pid)
+    members: set[int] = set()
+    stack = [root, *(pid for pid, proc in procs.items() if proc.session == root)]
     while stack:
         pid = stack.pop()
-        total += stats.get(pid, 0.0)
+        if pid in members or pid not in procs:
+            continue
+        members.add(pid)
         stack.extend(children.get(pid, []))
-    return total
+    return sum(procs[pid].cpu for pid in members)
+
+
+def group_alive(pgid: int) -> bool:
+    """Whether any process in the group is still running; zombies left to a lazy reaper do not count."""
+    return any(p.pgrp == pgid and p.state not in "ZX" for p in read_procs().values())
+
+
+def kill_group(proc: subprocess.Popen, grace: float) -> None:
+    """SIGTERM the attempt's process group, then SIGKILL whatever is left after `grace` seconds."""
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + grace
+    while True:
+        proc.poll()
+        if not group_alive(proc.pid):
+            break
+        if time.monotonic() >= deadline:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            break
+        time.sleep(0.2)
+    proc.wait()
 
 
 def exit_status(returncode: int) -> int:
@@ -67,38 +124,53 @@ def exit_status(returncode: int) -> int:
 
 
 def run_once(
-    cmd: list[str], log, *, stall: float, max_wall: float, poll: float
+    cmd: list[str],
+    log,
+    *,
+    stall: float,
+    min_cpu_rate: float,
+    max_wall: float,
+    poll: float,
+    grace: float = 20.0,
 ) -> tuple[int | None, str]:
     """Run one attempt: its exit status, or None when the watchdog killed it, and why it ended.
 
-    A hung SAPIEN camera read still burns a trickle of CPU polling the GPU, so besides the
-    CPU-progress test there is a wall-clock cap per attempt: a run that has not finished by then
-    is treated as hung too.
+    CPU is sampled every `poll` seconds. The attempt is stalled once a window of at least `stall`
+    seconds of samples shows under `min_cpu_rate` cores on average, or after `max_wall` seconds.
     """
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     started = time.monotonic()
-    last_cpu, last_change = -1.0, started
+    used, last_total = 0.0, 0.0
+    window = deque([(started, used)])
     while True:
         code = proc.poll()
         if code is not None:
             return exit_status(code), f"exited {exit_status(code)}"
-        cpu = tree_cpu_seconds(proc.pid)
+        total = tree_cpu_seconds(proc.pid)
         now = time.monotonic()
-        if cpu > last_cpu + 0.5:
-            last_cpu, last_change = cpu, now
-        if now - last_change > stall or now - started > max_wall:
+        # A member reaped outside the tree takes its CPU with it; that is not negative work.
+        used += max(0.0, total - last_total)
+        last_total = total
+        window.append((now, used))
+        while len(window) > 1 and window[1][0] <= now - stall:
+            window.popleft()
+        since, used_then = window[0]
+        why = None
+        if now - since >= stall and (used - used_then) / (now - since) < min_cpu_rate:
+            rate = (used - used_then) / (now - since)
             why = (
-                f"stalled: no CPU progress for {stall:.0f}s"
-                if now - last_change > stall
-                else f"stalled: still running after {max_wall:.0f}s wall"
+                f"stalled: {rate:.3f} cores over the last {now - since:.0f}s, "
+                f"under --min-cpu-rate {min_cpu_rate:g}"
             )
-            print(f"[simwatch] {why} at {cpu:.1f}s CPU; killing", file=log, flush=True)
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
+        elif now - started > max_wall:
+            why = f"stalled: still running after {max_wall:.0f}s wall"
+        if why:
+            print(
+                f"[simwatch] {why} ({used:.1f}s CPU in all); killing process group {proc.pid}",
+                file=log,
+                flush=True,
+            )
+            kill_group(proc, grace)
             return None, why
         time.sleep(poll)
 
@@ -173,8 +245,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_positive,
         default=180.0,
         metavar="SECONDS",
-        help="an attempt whose CPU time has not grown for this long is stalled "
-        "(default: %(default)g)",
+        help="length of the CPU-rate window (default: %(default)g)",
+    )
+    parser.add_argument(
+        "--min-cpu-rate",
+        type=float,
+        default=DEFAULT_MIN_CPU_RATE,
+        metavar="CORES",
+        help="an attempt whose process tree averaged fewer cores than this over the last --stall "
+        "seconds is stalled; 1.0 is one core busy (default: %(default)g)",
     )
     parser.add_argument(
         "--max-wall",
@@ -219,8 +298,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
     if not args.cmd:
         parser.error("no command given after --")
-    if args.retries < 0:
-        parser.error("--retries must not be negative")
+    if args.retries < 0 or args.min_cpu_rate < 0:
+        parser.error("--retries and --min-cpu-rate must not be negative")
     args.rerun_on = args.rerun_on or [re.compile(p) for p in DEFAULT_RERUN_ON]
     return args
 
@@ -233,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         retries=args.retries,
         rerun_on=args.rerun_on,
         stall=args.stall,
+        min_cpu_rate=args.min_cpu_rate,
         max_wall=args.max_wall,
         poll=args.poll,
     )

@@ -1,6 +1,8 @@
 """scripts/simwatch.py against small child processes: which exits are rerun, which hangs are killed."""
 
 import importlib.util
+import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -14,6 +16,23 @@ spec.loader.exec_module(simwatch)
 
 pytestmark = pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs Linux /proc")
 
+# A child that burns `rate` cores in `threads` worker threads, never finishing on its own. The
+# main thread only waits, so the CPU is visible only when every thread of the process is counted.
+TRICKLE = """
+import os, sys, threading, time
+rate, threads = float(sys.argv[1]), int(sys.argv[2])
+print(f"pid={os.getpid()}", flush=True)
+def burn():
+    while True:
+        end = time.thread_time() + 0.02 * rate / threads
+        while time.thread_time() < end:
+            pass
+        time.sleep(0.02 * (1 - rate / threads))
+for _ in range(threads):
+    threading.Thread(target=burn, daemon=True).start()
+time.sleep(3600)
+"""
+
 
 def watch(tmp_path, *args, log_name="run.log"):
     log = tmp_path / log_name
@@ -22,8 +41,16 @@ def watch(tmp_path, *args, log_name="run.log"):
     return code, log.read_text(), time.monotonic() - started
 
 
+def stall_rate(log):
+    return float(re.search(r"stalled: ([0-9.]+) cores over the last", log).group(1))
+
+
 def python(source, *argv):
     return ["--", sys.executable, "-c", source, *map(str, argv)]
+
+
+def live_group(pgid):
+    return [pid for pid, p in simwatch.read_procs().items() if p.pgrp == pgid and p.state != "Z"]
 
 
 def test_a_device_lost_crash_is_rerun_until_the_retries_run_out(tmp_path):
@@ -85,6 +112,71 @@ def test_a_death_by_signal_is_reported_as_128_plus_the_signal(tmp_path):
     segv = "import os, signal; os.kill(os.getpid(), signal.SIGSEGV)"
     code, _, _ = watch(tmp_path, "--poll", "0.1", *python(segv))
     assert code == 128 + 11
+
+
+def test_a_trickle_of_cpu_is_a_stall_and_its_process_group_is_killed(tmp_path):
+    # The shape of the hung camera read: about 0.1 core, no end. Killed after --stall, not the cap.
+    limits = ["--stall", "3", "--poll", "0.25", "--max-wall", "30", "--retries", "0"]
+    code, log, took = watch(tmp_path, *limits, *python(TRICKLE, 0.1, 1))
+
+    assert code == 124
+    assert 0.05 < stall_rate(log) < 0.2 and "under --min-cpu-rate 0.25" in log
+    assert "still running after" not in log
+    assert 3 <= took < 8
+    assert live_group(int(re.search(r"^pid=(\d+)$", log, re.MULTILINE).group(1))) == []
+
+
+def test_cpu_trickling_in_worker_threads_is_counted(tmp_path):
+    # Four threads at 0.15 core each is 0.6 cores: over the 0.25 threshold only if all are summed.
+    limits = ["--stall", "2", "--poll", "0.25", "--max-wall", "5", "--retries", "0"]
+    code, log, _ = watch(tmp_path, *limits, *python(TRICKLE, 0.6, 4), log_name="busy.log")
+
+    assert code == 124
+    assert "still running after 5s wall" in log and "cores over the last" not in log
+
+    # The same threads at a sixth of the rate are a stall, measured at their true rate.
+    code, log, _ = watch(tmp_path, *limits, *python(TRICKLE, 0.1, 4), log_name="idle.log")
+    assert code == 124 and 0.05 < stall_rate(log) < 0.2
+
+
+def test_a_child_working_at_full_speed_outlasts_the_stall_window(tmp_path):
+    busy = (
+        "import time\nend = time.monotonic() + 5\nwhile time.monotonic() < end: pass\nprint('done')"
+    )
+    code, log, took = watch(tmp_path, "--stall", "2", "--poll", "0.25", *python(busy))
+
+    assert code == 0 and "stalled" not in log
+    assert took >= 5
+
+
+def test_a_grandchild_that_ignores_sigterm_is_killed_too(tmp_path):
+    # The whole group goes: a worker that shrugs off SIGTERM gets SIGKILL after the grace period.
+    source = (
+        "import os, signal, subprocess, sys, time\n"
+        "worker = 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(3600)'\n"
+        "child = subprocess.Popen([sys.executable, '-c', worker])\n"
+        "print(f'pid={os.getpid()} worker={child.pid}', flush=True)\n"
+        "time.sleep(3600)\n"
+    )
+    log_path = tmp_path / "run.log"
+    started = time.monotonic()
+    with open(log_path, "a", buffering=1) as log:
+        code, why = simwatch.run_once(
+            [sys.executable, "-c", source],
+            log,
+            stall=1.5,
+            min_cpu_rate=0.25,
+            max_wall=30,
+            poll=0.25,
+            grace=1.0,
+        )
+    text = log_path.read_text()
+    pgid, worker = (int(word.split("=")[1]) for word in text.split("\n")[0].split())
+
+    assert code is None and why.startswith("stalled")
+    assert time.monotonic() - started < 8
+    assert live_group(pgid) == []
+    assert not os.path.exists(f"/proc/{worker}") or simwatch.read_procs()[worker].state == "Z"
 
 
 def test_no_command_is_a_usage_error(tmp_path, capsys):
