@@ -2,8 +2,10 @@
 
 `robot_state` stands in for `get_obs` on the claim that no expert reads what rendering produces.
 On dual Franka, the robot the one-arm survey runs, each seed's attempt with and without images
-must end the same way — success or the same rejection — with as many frames, the same joints
-and the same arms moved. Run it alone on the GPU, from a checkout with RoboTwin's assets.
+must end the same way — success or the same rejection — with as many frames, the same joints,
+the same endposes and the same arms moved. `robot_state` reads the endpose itself rather than
+taking `get_obs`'s, so only the real simulator can show the two agree. Run it alone on the GPU,
+from a checkout with RoboTwin's assets.
 
 The verdict on a pair of runs is plain Python and is tested here without the simulator.
 """
@@ -12,7 +14,7 @@ import numpy as np
 import pytest
 
 from robotwin_icil import generate, robotwin
-from robotwin_icil.demo import arms_moved
+from robotwin_icil.demo import Demonstration, Frame, arms_moved
 
 CONFIG = robotwin.SceneConfig(embodiment="franka-panda")
 
@@ -26,13 +28,30 @@ def _attempt(task_env, task: str, seed: int, images: bool) -> dict:
         task_env, seed, CONFIG.resolve(task), CONFIG.save_freq, 0, images=images
     )
     if demonstration is None:
-        return {"outcome": outcome.rejection.value, "frames": None, "arms": None, "qpos": None}
+        return {
+            "outcome": outcome.rejection.value,
+            "frames": None,
+            "arms": None,
+            "qpos": None,
+            "endpose": None,
+        }
     assert (demonstration.cameras == ()) is not images
+    endpose = _endposes(demonstration)
+    assert endpose, "the config records no endpose, so there is none to compare"
     return {
         "outcome": "ok",
         "frames": len(demonstration),
         "arms": arms_moved(demonstration),
         "qpos": demonstration.qpos(),
+        "endpose": endpose,
+    }
+
+
+def _endposes(demonstration) -> dict[str, np.ndarray]:
+    """Each endpose entry over the frames, in the frame's key order: (T, 7) poses, (T,) grippers."""
+    return {
+        key: np.asarray([frame.endpose[key] for frame in demonstration.frames], dtype=np.float64)
+        for key in demonstration.frames[0].endpose
     }
 
 
@@ -42,13 +61,19 @@ def _differences(rendered: dict, plain: dict) -> list[str]:
         for key in ("outcome", "frames", "arms")
         if rendered[key] != plain[key]
     ]
-    if (
-        not found
-        and rendered["qpos"] is not None
-        and not np.allclose(rendered["qpos"], plain["qpos"])
-    ):
+    if found or rendered["qpos"] is None:
+        return found
+    if not np.allclose(rendered["qpos"], plain["qpos"]):
         largest = float(np.abs(rendered["qpos"] - plain["qpos"]).max())
         found.append(f"qpos: rows differ by up to {largest:.3g}")
+    keys, plain_keys = list(rendered["endpose"]), list(plain["endpose"])
+    if keys != plain_keys:
+        found.append(f"endpose: keys {keys} with images, {plain_keys} without")
+        return found
+    for key in keys:
+        if not np.allclose(rendered["endpose"][key], plain["endpose"][key]):
+            largest = float(np.abs(rendered["endpose"][key] - plain["endpose"][key]).max())
+            found.append(f"{key}: differs by up to {largest:.3g}")
     return found
 
 
@@ -110,15 +135,54 @@ def test_an_attempt_without_images_ends_as_the_rendered_one_does(task, seed):
     assert verdict == SAME, f"{task} seed {seed}: {reason}"
 
 
-def _run(outcome: str = "ok", frames: int | None = 44, arms=("right",), shift: float = 0.0) -> dict:
+ENDPOSE_KEYS = ("left_endpose", "left_gripper", "right_endpose", "right_gripper")
+
+
+def _run(
+    outcome: str = "ok",
+    frames: int | None = 44,
+    arms=("right",),
+    shift: float = 0.0,
+    endpose_shift: float = 0.0,
+    endpose_keys: tuple[str, ...] = ENDPOSE_KEYS,
+) -> dict:
     if outcome != "ok":
-        return {"outcome": outcome, "frames": None, "arms": None, "qpos": None}
+        return {"outcome": outcome, "frames": None, "arms": None, "qpos": None, "endpose": None}
     return {
         "outcome": outcome,
         "frames": frames,
         "arms": arms,
         "qpos": np.full((frames, 16), shift),
+        "endpose": {
+            key: np.full((frames, 7) if key.endswith("endpose") else (frames,), endpose_shift)
+            for key in endpose_keys
+        },
     }
+
+
+def test_endposes_stack_each_entry_over_the_frames_in_the_frames_key_order():
+    frames = tuple(
+        Frame(
+            index=index,
+            images={},
+            qpos=np.zeros(16),
+            endpose={"right_endpose": [float(index)] * 7, "right_gripper": 0.5},
+        )
+        for index in range(3)
+    )
+    endpose = _endposes(Demonstration(frames=frames, frequency=250 / 15))
+    assert list(endpose) == ["right_endpose", "right_gripper"]
+    assert endpose["right_endpose"].shape == (3, 7) and endpose["right_endpose"][2, 6] == 2.0
+    assert endpose["right_gripper"].shape == (3,)
+
+
+def test_an_endpose_that_moves_without_images_is_a_difference_though_the_joints_agree():
+    verdict, reason = _verdict([_run()], _run(endpose_shift=0.1))
+    assert verdict == DIFFERENT
+    assert "left_endpose: differs by up to 0.1" in reason and "qpos" not in reason
+    verdict, reason = _verdict([_run()], _run(endpose_keys=ENDPOSE_KEYS[::-1]))
+    assert verdict == DIFFERENT and "endpose: keys" in reason
+    assert _verdict([_run()], _run(endpose_keys=()))[0] == DIFFERENT
 
 
 def test_a_run_without_images_that_matches_either_rendered_run_is_the_same():

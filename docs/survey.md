@@ -20,7 +20,7 @@ an observation, an image or a camera, and the one side effect of `get_obs` an ex
 the light colours `crazy_random_light` draws from numpy's RNG — is kept (`robotwin.robot_state`
 says how this was checked). `tests/sim/test_capture_without_images.py` runs the check on two
 Frankas: with and without images, a seed ends the same way, in as many frames, with the same
-joints and the same arms moved. The Franka expert does not always repeat itself, so a mismatch
+joints, endposes and arms moved. The Franka expert does not always repeat itself, so a mismatch
 is run again with images; a seed whose two rendered runs differ is only an expected failure, and
 only while the run without images ends as one of them does, in a frame count between theirs.
 `--images` renders every frame as `eval` does; `eval` always
