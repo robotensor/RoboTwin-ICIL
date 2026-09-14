@@ -123,6 +123,41 @@ def test_a_policy_that_hangs_is_void_at_its_act_timeout_and_its_server_exits(
     assert served.process.wait(timeout=15) == 0
 
 
+def test_a_policy_slow_on_every_act_voids_on_the_policy_once_its_budget_is_spent(
+    tmp_path, serve_policy, policy_repo
+):
+    # Each act well inside its timeout; together they would run the unit as long as the policy
+    # liked, into the orchestrator's kill, where a unit is void for both sides.
+    path = materialize(tmp_path)
+    served = serve_policy(policy_repo(where="slow", sleep_s=0.4))
+    budget = ["--act-timeout-s", "5", "--policy-budget-s", "1.5"]
+    result = run_unit(tmp_path, path, served, *budget)
+    assert result["void"] is True and result["void_cause"] == "policy"
+    assert result["error"].startswith("the policy is unreachable: act: its calls took 1.5s")
+    assert "its whole budget of 1.5s for the unit" in result["error"]
+    assert 1.5 <= result["policy_wall_s"] < 2.5 and result["policy_budget_s"] == 1.5
+    assert served.process.wait(timeout=15) == 0
+
+
+def test_a_unit_out_of_time_with_the_policy_within_budget_is_void_on_the_harness(
+    tmp_path, fake_sim, serve_policy, policy_repo, monkeypatch
+):
+    path = materialize(tmp_path)
+    served = serve_policy(policy_repo())
+    monkeypatch.setattr(remote, "RESULT_RESERVE_S", 0.0)
+
+    class SlowHarness(FakeTaskEnv):
+        def take_action(self, action, action_type="qpos"):
+            time.sleep(0.5)
+            super().take_action(action, action_type)
+
+    fake_sim["next"] = lambda name: SlowHarness()
+    result = run_unit(tmp_path, path, served, "--unit-timeout-s", "1.2")
+    assert result["void"] is True and result["void_cause"] == "harness"
+    assert result["error"].startswith("the unit ran out of time during act:")
+    assert result["policy_wall_s"] < 1.0 and result["success"] is None
+
+
 def test_a_policy_that_stalls_its_close_does_not_keep_run_unit_running(
     tmp_path, serve_policy, policy_repo, monkeypatch
 ):

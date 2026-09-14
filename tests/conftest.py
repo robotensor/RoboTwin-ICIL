@@ -52,6 +52,8 @@ class Flaky:
             raise RuntimeError("boom in act")
         if self.step == self.at and self.where == "hang":
             time.sleep(self.sleep_s)
+        if self.where == "slow":
+            time.sleep(self.sleep_s)
         k = min(self.step, len(self.actions) - 1)
         self.step += 1
         return {"action": self.actions[k]}
@@ -89,8 +91,8 @@ def replay_manifest():
 @pytest.fixture
 def policy_repo(tmp_path):
     """`policy_repo(**kwargs)`: the `icil.yaml` of a repository serving `FLAKY_POLICY`, built
-    with `kwargs` (`where`: init, reset, prompt, act, hang or close; `at`: the act step; `sleep_s`,
-    how long `hang` stalls that act and `close` stalls closing)."""
+    with `kwargs` (`where`: init, reset, prompt, act, hang, slow or close; `at`: the act step;
+    `sleep_s`, how long `hang` stalls that act, `slow` every act and `close` closing)."""
 
     def write(**kwargs):
         root = tmp_path / "flaky-repo"

@@ -32,12 +32,24 @@ a `PolicyUnavailable`, whose `remote_type` is set exactly when the server sent a
   server log's tail when `log_file` names the log — as the error.
 - a message the client refuses before sending it (`WireError`) holds the benchmark's own arrays:
   `Unscorable`, void on the harness.
+
+How long a policy may take is bounded three ways. Each call has its own timeout, which bounds a
+hang. All the calls of a unit together — connecting, `hello`, `reset`, `prompt`, every `act` —
+may take at most the policy's budget (`policy_budget_s`), which bounds a policy that answers each
+call just in time: the call in flight when it runs out is cut short there, `PolicyUnreachable`,
+void with `void_cause` "policy". Without it a slow policy would run the unit into its caller's
+kill, and a unit killed while its policy was still alive is void for both sides of a duel, not the
+slow side's loss. And given the unit's `deadline`, no call runs past it: a call cut short there
+while the policy was still within its budget means the harness took more than the unit left it,
+`Unscorable`, void on the harness, written before the caller's kill.
 """
 
 from __future__ import annotations
 
+import math
 import os
-from collections.abc import MutableMapping
+import time
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -71,14 +83,22 @@ REASON_TAIL_CHARS = 8192
 #: the policy listens, so a server that is not there by then is not coming.
 CONNECT_TIMEOUT_S = 60.0
 #: How long each of `hello`, `reset` and `prompt` may take: `hello` builds the policy, loading its
-#: weights, and `prompt` hands it the demonstration to encode. That is work, not a hang, and the
-#: unit's own wall clock, which the orchestrator enforces, bounds it all.
+#: weights, and `prompt` hands it the demonstration to encode. That is work, not a hang; the
+#: policy's budget bounds it together with every act.
 SETUP_TIMEOUT_S = 300.0
 #: How long one `act` may take unless run-unit is told otherwise (`--act-timeout-s`).
 ACT_TIMEOUT_S = 60.0
 #: How long saying `close` may take. By then the unit's result is written, and a policy that
 #: stalls its close must not keep run-unit, and the unit, running past it.
 CLOSE_TIMEOUT_S = 5.0
+#: How long all the calls to a served policy may take together in one unit unless run-unit is
+#: told otherwise (`--policy-budget-s`): connecting, `hello`, `reset`, `prompt` and every `act`,
+#: not `close`. Half of the orchestrator's placeholder unit budget (600 s); the other half is the
+#: harness's own, building the scene, stepping and rendering it, writing the clip.
+POLICY_BUDGET_S = 300.0
+#: What run-unit keeps back from `--unit-timeout-s` to finish once a call is cut short at the
+#: deadline: close the scene, write the clip and result.json, close the policy.
+RESULT_RESERVE_S = 30.0
 
 
 def authkey_from_env(name: str, environ: MutableMapping[str, str] | None = None) -> bytes:
@@ -133,7 +153,8 @@ class RemotePolicy(ICILPolicy):
 
     Nothing is sent until the first `reset`, which connects and says `hello`. `close` says `close`
     and drops the connection, after which the server exits; run-unit calls it however the unit
-    ended. `client_factory` stands in for `icil_policy.client.RemotePolicy` in tests.
+    ended. `deadline` is a `clock()` reading no call runs past, or None. `client_factory` stands
+    in for `icil_policy.client.RemotePolicy` and `clock` for `time.monotonic` in tests.
     """
 
     name = "remote"
@@ -147,8 +168,11 @@ class RemotePolicy(ICILPolicy):
         setup_timeout_s: float = SETUP_TIMEOUT_S,
         connect_timeout_s: float = CONNECT_TIMEOUT_S,
         close_timeout_s: float | None = None,
+        policy_budget_s: float = POLICY_BUDGET_S,
+        deadline: float | None = None,
         log_file: str | os.PathLike[str] | None = None,
         client_factory: Any = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__()
         try:
@@ -174,6 +198,14 @@ class RemotePolicy(ICILPolicy):
         self.setup_timeout_s = float(setup_timeout_s)
         self.connect_timeout_s = float(connect_timeout_s)
         self.close_timeout_s = float(close_timeout_s)
+        if not policy_budget_s > 0:
+            raise PolicyError(f"the policy's budget must be positive, not {policy_budget_s!r}")
+        self.policy_budget_s = float(policy_budget_s)
+        self.deadline = deadline
+        #: How long the calls to the policy have taken so far, counted against its budget.
+        self.policy_wall_s = 0.0
+        self._clock = clock
+        self._built = clock()
         # Absolute before the RoboTwin seam moves the working directory, and never resolved: the
         # policy can write beside its log, and `icil_policy.logs.tail` refuses to follow a log
         # swapped for a link only while the path it opens still ends in that link.
@@ -192,6 +224,8 @@ class RemotePolicy(ICILPolicy):
             "policy": self.name,
             "action_type": self.action_type,
             "served_policy": self.served_policy,
+            "policy_wall_s": round(self.policy_wall_s, 3),
+            "policy_budget_s": self.policy_budget_s,
         }
         if self.served_policy is not None:
             described["model"] = self.served_policy
@@ -266,15 +300,12 @@ class RemotePolicy(ICILPolicy):
         return np.array(rows, dtype=np.float64)
 
     def _connect(self) -> None:
-        try:
-            self._client = self._client_factory(
-                self.address,
-                self._authkey,
-                timeout_s=self.connect_timeout_s,
-                log_file=self.log_file,
+        def connect(limit: float) -> Any:
+            return self._client_factory(
+                self.address, self._authkey, timeout_s=limit, log_file=self.log_file
             )
-        except self._unavailable as exc:
-            raise PolicyUnreachable(f"the policy is unreachable: {_reason(exc)}") from exc
+
+        self._client = self._timed("connect", self.connect_timeout_s, connect)
         hello = self._call("hello", self.setup_timeout_s)
         action_type = hello.get("action_type")
         if action_type not in ACTION_TYPES:
@@ -288,7 +319,7 @@ class RemotePolicy(ICILPolicy):
         self.served_policy = bounded(str(hello.get("policy")), MAX_NAME_CHARS)
 
     def _call(self, op: str, timeout_s: float, *args: Any) -> Any:
-        """One client call under its own timeout, its failure mapped as the module docstring says."""
+        """One client call, given at most `timeout_s` and timed as `_timed` says."""
         client = self._client
         if client is None:
             raise PolicyUnreachable(f"the policy is unreachable: {op}: the connection is closed")
@@ -298,10 +329,24 @@ class RemotePolicy(ICILPolicy):
             "prompt": client.set_demonstration,
             "act": client.act,
         }[op]
-        # Each call is timed on its own: the client reads `timeout_s` when the call starts.
-        client.timeout_s = timeout_s
-        try:
+
+        def call(limit: float) -> Any:
+            # Each call is timed on its own: the client reads `timeout_s` when the call starts.
+            client.timeout_s = limit
             return method(*args)
+
+        return self._timed(op, timeout_s, call)
+
+    def _timed(self, op: str, timeout_s: float, call: Callable[[float], Any]) -> Any:
+        """`call(limit)`, `limit` the least of `timeout_s`, what is left of the policy's budget and
+        what is left before the deadline. Its wall time counts against the budget, and its failure
+        is mapped as the module docstring says."""
+        limit, bound = self._limit(timeout_s)
+        if limit <= 0:
+            raise self._out_of_time(op, bound)
+        started = self._clock()
+        try:
+            return call(limit)
         except self._wire_error as exc:
             raise Unscorable(
                 f"the benchmark could not send {op} to the policy: {_reason(exc)}"
@@ -311,4 +356,39 @@ class RemotePolicy(ICILPolicy):
                 raise PolicyError(
                     f"the served policy answered {exc.op} with an error: {_reason(exc)}"
                 ) from exc
+            spent = self._clock() - started
+            if bound != "call" and spent >= limit:
+                raise self._out_of_time(op, bound, spent) from exc
             raise PolicyUnreachable(f"the policy is unreachable: {_reason(exc)}") from exc
+        finally:
+            self.policy_wall_s += self._clock() - started
+
+    def _limit(self, timeout_s: float) -> tuple[float, str]:
+        """How long the next call may take, and what sets that: "call", its own timeout;
+        "budget", what is left of the policy's; "deadline", what is left of the unit's."""
+        left = self.policy_budget_s - self.policy_wall_s
+        until = math.inf if self.deadline is None else self.deadline - self._clock()
+        if timeout_s <= min(left, until):
+            return timeout_s, "call"
+        if left <= until:
+            return left, "budget"
+        return until, "deadline"
+
+    def _out_of_time(self, op: str, bound: str, spent: float = 0.0) -> Unscorable:
+        """What ends a unit whose call the policy's budget or the unit's deadline cut short.
+
+        The budget is the policy's own: void on the policy. At the deadline the policy was within
+        its budget, so the rest of the unit's time went to the harness: void on the harness.
+        """
+        used = self.policy_wall_s + spent
+        if bound == "budget":
+            return PolicyUnreachable(
+                f"the policy is unreachable: {op}: its calls took {used:.1f}s, its whole budget "
+                f"of {self.policy_budget_s:g}s for the unit"
+            )
+        gone = self._clock() - self._built
+        return Unscorable(
+            f"the unit ran out of time during {op}: {gone:.1f}s gone, {gone - used:.1f}s of it "
+            f"the harness's and {used:.1f}s the policy's, within its {self.policy_budget_s:g}s "
+            "budget"
+        )

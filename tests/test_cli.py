@@ -412,6 +412,8 @@ def test_run_unit_takes_a_policy_or_an_address_never_both(tmp_path, capsys):
             ["--policy", "replay", "--act-timeout-s", "5", "--policy-log", "x.log"],
             "--act-timeout-s",
         ),
+        (["--policy", "replay", "--policy-budget-s", "5"], "--policy-budget-s go with"),
+        (["--policy", "replay", "--unit-timeout-s", "600"], "--unit-timeout-s go with"),
     ],
 )
 def test_run_unit_refuses_flags_that_belong_to_the_other_kind_of_policy(
@@ -422,9 +424,10 @@ def test_run_unit_refuses_flags_that_belong_to_the_other_kind_of_policy(
     assert not (tmp_path / "r").exists()  # refused before anything was cleared or written
 
 
+@pytest.mark.parametrize("flag", ["--act-timeout-s", "--policy-budget-s", "--unit-timeout-s"])
 @pytest.mark.parametrize("seconds", ["0", "-1", "inf", "soon"])
-def test_an_act_timeout_must_be_a_positive_number_of_seconds(seconds, capsys):
-    flags = ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", "--act-timeout-s", seconds]
+def test_a_served_policys_limits_are_positive_numbers_of_seconds(flag, seconds, capsys):
+    flags = ["--policy-address", "/tmp/p.sock", "--authkey-env", "K", flag, seconds]
     with pytest.raises(SystemExit) as refused:
         cli.main([*RUN_UNIT, "--out", "r", *flags])
     assert refused.value.code == 2 and "positive number of seconds" in capsys.readouterr().err

@@ -386,16 +386,20 @@ def run_unit(
     `void`, with the reason in `error`, only when the harness could not give the policy a fair
     episode — an unreadable, mistyped or tampered prompt, a config RoboTwin refuses, a scene that
     drifted or would not build, a GPU lost or full during the rollout, or any other fault of the
-    harness while it evaluated (its traceback is printed to stderr). `success` and `steps` are
-    None exactly when the unit is void, and `void_cause` says whose the void is: "harness" for
-    every reason above; "policy" when the policy could not be spoken to — a served policy that
-    never listened, refused or did not answer `hello`, timed out, hung up or answered nonsense
-    (`PolicyUnreachable`) — with the reason and the server's log tail in `error`; None when the
-    unit was scored. A served policy that answers a call with an error has failed, not voided.
+    harness while it evaluated (its traceback is printed to stderr), a unit that ran out of time
+    while its served policy was within its budget. `success` and `steps` are None exactly when
+    the unit is void, and `void_cause` says whose the void is: "harness" for every reason above;
+    "policy" when the policy could not be spoken to — a served policy that never listened,
+    refused or did not answer `hello`, timed out, used up its time budget for the unit, hung up
+    or answered nonsense (`PolicyUnreachable`) — with the reason, and the server's log tail when
+    run-unit has it, in `error`; None when the unit was scored. A served policy that answers a
+    call with an error has failed, not voided.
 
     The policy is reset with `episode_seed` of the prompt's sha256, never the scene seed, and
-    `policy`, `model`, `checkpoint` and `served_policy` are what `describe` said once the unit
-    was over (a served policy names itself only once it has answered `hello`).
+    `policy`, `model`, `checkpoint`, `served_policy`, `policy_wall_s` and `policy_budget_s` are
+    what `describe` said once the unit was over (a served policy names itself only once it has
+    answered `hello`; the last two, how long its calls took and could have, are a served
+    policy's).
 
     A simulator that cannot load the task raises `RoboTwinError`, and an `out_dir` holding the
     prompt raises `UnitError`: neither is a unit's outcome, and no result is written for them.
@@ -414,6 +418,8 @@ def run_unit(
             "model": str(describe.get("model", describe["policy"])),
             "checkpoint": describe.get("checkpoint"),
             "served_policy": describe.get("served_policy"),
+            "policy_wall_s": describe.get("policy_wall_s"),
+            "policy_budget_s": describe.get("policy_budget_s"),
         }
 
     result: dict[str, Any] = {

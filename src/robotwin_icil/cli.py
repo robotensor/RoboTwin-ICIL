@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from . import report as report_
@@ -20,7 +21,7 @@ from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
 from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
-from .remote import ACT_TIMEOUT_S
+from .remote import ACT_TIMEOUT_S, POLICY_BUDGET_S, RESULT_RESERVE_S
 from .robotwin import EMBODIMENTS, RoboTwinError
 from .unit import UnitError
 
@@ -119,17 +120,28 @@ def _materialize(args: argparse.Namespace) -> int:
 def _run_unit(args: argparse.Namespace) -> int:
     from .unit import RUN_UNIT_OUTPUTS, clear_outputs, run_unit
 
+    started = time.monotonic()
     # First, so a command that fails from here on leaves nothing an earlier one wrote.
     out = clear_outputs(args.out, RUN_UNIT_OUTPUTS, prompt=args.prompt)
     if args.policy_address is not None:
-        from .remote import RemotePolicy, authkey_from_env
+        from . import remote
 
+        deadline = None
+        if args.unit_timeout_s is not None:
+            # No call to the policy runs into the caller's kill: run-unit keeps time to write why.
+            deadline = started + args.unit_timeout_s - remote.RESULT_RESERVE_S
         # The key comes from the environment, never argv; nothing connects until the unit resets
         # the policy, so a policy that cannot be reached is the unit's result, not an exit 1.
-        policy = RemotePolicy(
+        policy = remote.RemotePolicy(
             args.policy_address,
-            authkey_from_env(args.authkey_env),
-            act_timeout_s=ACT_TIMEOUT_S if args.act_timeout_s is None else args.act_timeout_s,
+            remote.authkey_from_env(args.authkey_env),
+            act_timeout_s=(
+                remote.ACT_TIMEOUT_S if args.act_timeout_s is None else args.act_timeout_s
+            ),
+            policy_budget_s=(
+                remote.POLICY_BUDGET_S if args.policy_budget_s is None else args.policy_budget_s
+            ),
+            deadline=deadline,
             log_file=args.policy_log,
         )
     else:
@@ -302,6 +314,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"how long one act of the served policy may take (default {ACT_TIMEOUT_S:g})",
     )
     unit.add_argument(
+        "--policy-budget-s",
+        type=_positive_seconds,
+        metavar="S",
+        help="how long all the calls to the served policy may take together in the unit; the "
+        f"call it runs out in voids the unit on the policy (default {POLICY_BUDGET_S:g})",
+    )
+    unit.add_argument(
+        "--unit-timeout-s",
+        type=_positive_seconds,
+        metavar="S",
+        help="how long run-unit has before whoever started it kills it: no call to the served "
+        f"policy runs within {RESULT_RESERVE_S:g}s of that, and one cut short there while the "
+        "policy is within its budget voids the unit on the harness",
+    )
+    unit.add_argument(
         "--policy-log",
         metavar="PATH",
         help="the served policy's log file, whose tail ends the error of a unit it voided",
@@ -353,6 +380,8 @@ def _run_unit_usage(args: argparse.Namespace) -> str | None:
         for flag, value in (
             ("--authkey-env", args.authkey_env),
             ("--act-timeout-s", args.act_timeout_s),
+            ("--policy-budget-s", args.policy_budget_s),
+            ("--unit-timeout-s", args.unit_timeout_s),
             ("--policy-log", args.policy_log),
         )
         if value is not None

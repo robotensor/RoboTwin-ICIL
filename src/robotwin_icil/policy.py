@@ -52,7 +52,8 @@ class Unscorable(RuntimeError):
 
 class PolicyUnreachable(Unscorable):
     """The policy could not be spoken to: nothing listened, it refused or did not answer `hello`, a
-    call ran past its timeout, the connection dropped, or a reply was malformed.
+    call ran past its timeout or the policy's time budget for the unit, the connection dropped, or
+    a reply was malformed.
 
     Nothing the policy did was scored, and it was not the harness's doing either: the unit is void
     with `void_cause` "policy". An error *reply* is not this: a policy that answers a call by

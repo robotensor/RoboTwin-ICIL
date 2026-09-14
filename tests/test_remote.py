@@ -35,18 +35,42 @@ def errors():
     return pytest.importorskip("icil_policy.errors")
 
 
-class Script:
-    """What the fake client answers, where it fails, and every client it built."""
+class FakeClock:
+    """Stands in for `time.monotonic`: time passes only when a test says so."""
 
-    def __init__(self, *, fail=None, hello=REPLAY, chunk=1, reshape=None):
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+class Script:
+    """What the fake client answers, where it fails, how long each call takes on `clock`, and
+    every client it built."""
+
+    def __init__(self, *, fail=None, hello=REPLAY, chunk=1, reshape=None, seconds=None, clock=None):
         self.fail = dict(fail or {})
         self.hello = dict(hello)
         self.chunk = chunk
         self.reshape = reshape
+        self.seconds = dict(seconds or {})
+        self.clock = clock or FakeClock()
         self.clients = []
 
     def factory(self, address, authkey, *, timeout_s, log_file=None):
         return FakeClient(self, address, authkey, timeout_s, log_file)
+
+    def spend(self, op, timeout_s):
+        """Time `op` takes; one that would take its timeout or longer stops there, as the real
+        client's does, with the error the real client raises."""
+        seconds = self.seconds.get(op, 0.0)
+        if seconds >= timeout_s:
+            from icil_policy.errors import PolicyUnavailable
+
+            self.clock.now += timeout_s
+            raise PolicyUnavailable(f"{op}: no answer within {timeout_s:g}s", op=op)
+        self.clock.now += seconds
 
 
 class FakeClient:
@@ -57,6 +81,7 @@ class FakeClient:
         script.clients.append(self)
         self.script = script
         self.connected = (address, authkey, timeout_s, log_file)
+        script.spend("connect", timeout_s)
         if "connect" in script.fail:
             raise script.fail["connect"]
         self.timeout_s = timeout_s
@@ -65,6 +90,7 @@ class FakeClient:
 
     def _record(self, op, **fields):
         self.calls.append((op, self.timeout_s, fields))
+        self.script.spend(op, self.timeout_s)
         if op in self.script.fail:
             raise self.script.fail[op]
 
@@ -107,16 +133,21 @@ def materialized(tmp_path):
     return out / "prompt.npz"
 
 
-def run(tmp_path, script, **options):
+def run(tmp_path, script, env=None, **options):
     path = materialized(tmp_path)
-    policy = remote.RemotePolicy("/run/policy.sock", KEY, client_factory=script.factory, **options)
-    result = unit.run_unit(path, policy, tmp_path / "run", task_env=FakeTaskEnv(), video=False)
+    policy = remote.RemotePolicy(
+        "/run/policy.sock", KEY, client_factory=script.factory, clock=script.clock, **options
+    )
+    env = env or FakeTaskEnv()
+    result = unit.run_unit(path, policy, tmp_path / "run", task_env=env, video=False)
     return path, policy, result
 
 
 def test_a_served_replay_is_sent_the_prompts_own_arrays_and_public_info(tmp_path, errors):
     script = Script()
-    path, policy, result = run(tmp_path, script, act_timeout_s=7.0, log_file="policy.log")
+    # A budget no call reaches, so each call runs under its own timeout.
+    options = {"act_timeout_s": 7.0, "log_file": "policy.log", "policy_budget_s": 1000.0}
+    path, policy, result = run(tmp_path, script, **options)
     assert result["success"] is True and result["void"] is False and result["void_cause"] is None
     assert result["policy"] == "remote" and result["served_policy"] == REPLAY["policy"]
     assert result["model"] == REPLAY["policy"]
@@ -181,7 +212,7 @@ def test_close_has_its_own_short_timeout_whatever_the_last_call_had(tmp_path, er
     # the 300s reset had.
     failure = errors.PolicyUnavailable("reset: RuntimeError: boom", op="reset", remote_type="E")
     script = Script(fail={"reset": failure})
-    _, policy, result = run(tmp_path, script)
+    _, policy, result = run(tmp_path, script, policy_budget_s=1000.0)
     assert result["success"] is False
     [client] = script.clients
     assert client.timeout_s == remote.SETUP_TIMEOUT_S
@@ -230,6 +261,49 @@ def test_a_policy_log_swapped_for_a_link_is_never_followed(tmp_path, errors, mon
     policy = remote.RemotePolicy("/run/policy.sock", KEY, log_file="logs/policy.log")
     assert policy.log_file == link and policy.log_file.is_absolute()
     assert logs.tail(policy.log_file) == ""
+
+
+@pytest.mark.parametrize("deadline_in", [None, 10_000.0])
+def test_a_policy_that_uses_up_its_budget_voids_on_the_policy(tmp_path, errors, deadline_in):
+    # Every act answered well within its timeout, and the unit would still run for as long as
+    # the policy likes: its calls together stop at its budget, the call in flight cut short.
+    clock = FakeClock()
+    script = Script(seconds={"act": 40.0}, clock=clock)
+    deadline = None if deadline_in is None else clock.now + deadline_in
+    _, _, result = run(
+        tmp_path, script, act_timeout_s=60.0, policy_budget_s=100.0, deadline=deadline
+    )
+    assert result["void"] is True and result["void_cause"] == "policy"
+    assert result["error"] == (
+        "the policy is unreachable: act: its calls took 100.0s, its whole budget of 100s for the unit"
+    )
+    assert result["policy_wall_s"] == 100.0 and result["policy_budget_s"] == 100.0
+    [client] = script.clients
+    assert [seconds for op, seconds, _ in client.calls if op == "act"] == [60.0, 60.0, 20.0]
+
+
+def test_a_unit_out_of_time_while_the_policy_is_within_its_budget_is_void_on_the_harness(
+    tmp_path, errors
+):
+    # The harness, not the policy, took the unit's time: each step 30s against 10s an act.
+    clock = FakeClock()
+    script = Script(seconds={"act": 10.0}, clock=clock)
+
+    class SlowHarness(FakeTaskEnv):
+        def take_action(self, action, action_type="qpos"):
+            clock.now += 30.0
+            super().take_action(action, action_type)
+
+    options = {"policy_budget_s": 300.0, "deadline": clock.now + 100.0}
+    _, _, result = run(tmp_path, script, env=SlowHarness(), **options)
+    assert result["void"] is True and result["void_cause"] == "harness"
+    assert result["error"] == (
+        "the unit ran out of time during act: 120.0s gone, 90.0s of it the harness's and 30.0s "
+        "the policy's, within its 300s budget"
+    )
+    [client] = script.clients
+    # The third act had what was left before the deadline; the fourth was never sent.
+    assert [seconds for op, seconds, _ in client.calls if op == "act"] == [60.0, 60.0, 20.0]
 
 
 def test_what_a_hostile_server_says_is_bounded_before_it_reaches_the_result(tmp_path, errors):
