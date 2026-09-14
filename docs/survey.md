@@ -42,8 +42,10 @@ one arm, and the two combine — every one-arm task, on two Frankas:
 
 ```bash
 robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --seed 0 \
-  --json docs/results/survey-franka-1arm.json
+  --json runs/survey-franka-1arm.json
 ```
+
+The survey that chose the `franka_1arm` suite was smaller: see *Franka one-arm survey* below.
 
 **The Franka survey ran without images.** It was gated on the sim test above passing, and the
 test, in its earlier form, compared one rendered run with one run without images exactly, seed by
@@ -113,3 +115,50 @@ the table, and remains the harness's smoke-test task.
   stack_blocks_two is the slowest: its expert never fails, but it is long.
 - Expected expert runs per scored episode are about 1 / success rate; none of these is a model
   failure, and none enters a score's denominator.
+
+## Franka one-arm survey
+
+The `franka_1arm` suite, which the competition's one-arm Franka track draws its units from, comes
+from this survey. It ran on 2026-09-14 from the `arms-and-embodiment` branch at bfbc595: RoboTwin's
+expert alone on `--embodiment franka-panda` (two Franka arms 0.8 m apart), without images (see
+*The Franka survey ran without images* above), 3 seeds per task from global seed 0 (scene seeds
+1826701614, 1367864806 and 1097657231), on six tasks, two of `v1`'s in each category the track
+scores. Raw results: [`results/survey-franka-1arm.json`](results/survey-franka-1arm.json).
+
+**Reduced scope.** #83 asked for every one-arm task at 20 seeds: 26 × 20 expert runs, 3 to 13 GPU
+hours. The survey was cut to 6 tasks × 3 seeds by decision, to finish the milestone sooner. Every
+rate below is therefore a three-seed estimate, and no task outside these six was measured.
+
+| task | category | arms | successes | one-arm demonstrations | rejections | s / seed |
+| --- | --- | --- | ---: | ---: | --- | ---: |
+| place_a2b_left | Pick and Place | 1 | **1/3** | 1 of 1 | missed 1, plan failed 1 | 13.3 |
+| place_empty_cup | Pick and Place | 1 | 3/3 | 3 of 3 | — | 11.9 |
+| stack_blocks_two | Stacking | switching | 3/3 | **1 of 3** | — | 14.9 |
+| stack_bowls_two | Stacking | switching | 2/3 | 2 of 2 | missed 1 | 13.7 |
+| click_bell | Press / Push | 1 | 3/3 | 3 of 3 | — | 11.0 |
+| press_stapler | Press / Push | 1 | 3/3 | 3 of 3 | — | 11.1 |
+
+*arms* is the task's entry in `tasks.yml`, a static read of its expert; *one-arm demonstrations*
+is how many of the successes moved exactly one arm, measured from the joints (see *Reading the
+table* above). stack_blocks_two's expert moved both arms on seeds 1826701614 and 1367864806. The
+first seed of every task took 31 to 35 s and the other two 1 to 5 s, so *s / seed* is mostly the
+first seed's; it does not compare with the V1 survey's, which rendered every camera.
+
+**The rule.** A task is in `franka_1arm` when its expert solved at least 2 of its 3 surveyed seeds
+and every one of its successful demonstrations moved one arm. That is looser than `v1`'s 70%,
+which on three seeds would have demanded all three.
+
+**The decision.** `franka_1arm` is place_empty_cup, stack_bowls_two, click_bell and press_stapler,
+in the order of the task table (`src/robotwin_icil/tasks.yml`):
+
+- place_a2b_left is out: its expert solved 1 of 3.
+- stack_blocks_two is out: its expert solved all three, but moved both arms in two of them.
+- Stacking has no `arms: 1` task, so stack_bowls_two stands in for the stacking skill, with a
+  stated limit. It is an `arms: switching` task: its expert picks an arm per object, and although
+  both of its successful demonstrations moved one arm, another scene can still make it switch
+  arms. Neither `materialize` nor `verify_prompt` checks which arms a demonstration moved, so such
+  a scene would become a unit whose demonstration moves both.
+
+`--arms 1` keeps only `arms: 1` tasks, so it drops stack_bowls_two from the suite: a run of all
+four on two Frankas is `robotwin-icil eval --policy <adapter> --suite franka_1arm --embodiment
+franka-panda`, without `--arms 1`.
