@@ -2,7 +2,6 @@ import json
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import cli, robotwin, survey, tasks
-from robotwin_icil.demo import DemonstrationError
 from robotwin_icil.generate import scene_seeds
 
 
@@ -140,17 +139,13 @@ def test_survey_stops_with_one_line_when_a_qpos_does_not_split_into_arms(
     tmp_path, monkeypatch, capsys
 ):
     # An embodiment whose two arms differ in width cannot be measured; the survey says so and
-    # stops, rather than dying with a traceback at its first success. Frame pins the width on
-    # this branch, so the refusal is raised in arms_moved's place.
+    # stops, rather than dying with a traceback at its first success. A frame takes the robot's
+    # own width, so a real 15-wide qpos reaches arms_moved, which refuses to guess the split.
     first = tasks.table().suite("v1")[0].name
-
-    def refuse(demonstration):
-        raise DemonstrationError("qpos width 15 does not split into two equal arms")
 
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
     monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
-    monkeypatch.setattr(robotwin, "load_task", lambda name: FakeTaskEnv())
-    monkeypatch.setattr(survey, "arms_moved", refuse)
+    monkeypatch.setattr(robotwin, "load_task", lambda name: FakeTaskEnv(qpos_dim=15))
     out = tmp_path / "survey.json"
 
     assert cli.main(["survey", "--task", first, "--seeds", "2", "--json", str(out)]) == 1
