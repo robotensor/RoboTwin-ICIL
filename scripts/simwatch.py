@@ -1,13 +1,27 @@
-"""Run a simulator command under a hang watchdog, rerunning it when it stops making progress.
+"""Run a simulator command under a watchdog that reruns it when it hangs or loses the GPU.
 
-SAPIEN's camera read can hang for good on a Blackwell GPU that another process is loading (see
-"Rendering" in docs/install.md). A hung process sleeps, or polls the GPU with a trickle of CPU,
-so two signals decide that an attempt is dead: its process tree's CPU time has not advanced for
---stall seconds, or the attempt has run longer than --max-wall seconds. The tree is then killed
-and the command rerun, up to --retries times. `robotwin-icil eval` and `survey` resume from what
-they already wrote, so a rerun costs only the episode or seed that hung.
+SAPIEN's camera read can hang for good on a Blackwell GPU that another process is loading, and the
+renderer can lose the GPU outright (see "Rendering" in docs/install.md). Each attempt ends one of
+three ways:
 
-    python scripts/simwatch.py --stall 120 --max-wall 300 --retries 8 --log run.log -- \
+  stalled     The attempt's process tree used under --min-cpu-rate cores on average over the last
+              --stall seconds, or the attempt ran longer than --max-wall seconds. A hung camera
+              read sleeps or polls the GPU with a trickle of CPU, so the test is a rate over a
+              sliding window, not whether CPU time moved at all. Every process of the attempt is
+              killed (SIGTERM, then SIGKILL) and, once all are gone, the command rerun.
+  transient   The attempt exited non-zero and its own output, everything it appended to --log,
+              matches a --rerun-on pattern (by default Vulkan's device-lost error in either
+              spelling, ErrorDeviceLost or VK_ERROR_DEVICE_LOST). It is rerun.
+  final       Any other exit. The watch ends with the attempt's exit code (128+N for signal N).
+
+An attempt ends when its command exits. Anything it left running is killed first, so it can neither
+write a marker into the next attempt's output nor share the GPU with it.
+
+At most --retries reruns follow the first attempt. When the last allowed attempt also stalls or
+exits transiently, the watch gives up with exit code 124. `robotwin-icil eval` and `survey` resume
+from what they already wrote, so a rerun costs only the episode or seed that failed.
+
+    python scripts/simwatch.py --stall 120 --max-wall 900 --retries 8 --log run.log -- \\
         /root/miniforge3/envs/robotwin/bin/python -m robotwin_icil.cli eval ...
 
 Standard library only; runs under any Python 3.10+.
@@ -16,18 +30,45 @@ Standard library only; runs under any Python 3.10+.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
+import re
+import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
+from collections import deque
+from typing import NamedTuple
+
+GAVE_UP = 124
+CHUNK = 1024 * 1024
+OVERLAP = 64 * 1024
+# What robotwin_icil.robotwin.gpu_lost() takes for a lost GPU: SAPIEN's C++ spelling and Vulkan's C one.
+DEFAULT_RERUN_ON = ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST")
+DEFAULT_MIN_CPU_RATE = 0.25
+KILL_WAIT = 10.0
+PR_SET_CHILD_SUBREAPER = 36  # <linux/prctl.h>
 
 
-def tree_cpu_seconds(root: int) -> float:
-    """User + system CPU seconds of `root` and every descendant, read from /proc."""
+class Proc(NamedTuple):
+    ppid: int
+    pgrp: int
+    session: int
+    state: str
+    start: int  # clock ticks from boot to its start; with the pid, it tells a reused pid apart
+    cpu: float  # user + system seconds of every thread, plus children it has reaped
+
+
+def read_procs() -> dict[int, Proc]:
+    """Every process on the host, from /proc/<pid>/stat.
+
+    That file already sums all of a process's threads, including threads that have exited, so a
+    trickle of CPU in a worker thread counts; /proc/<pid>/task/*/stat would lose the exited ones.
+    """
     ticks = os.sysconf("SC_CLK_TCK")
-    children: dict[int, list[int]] = {}
-    stats: dict[int, float] = {}
+    procs = {}
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
             continue
@@ -36,71 +77,366 @@ def tree_cpu_seconds(root: int) -> float:
                 fields = f.read().rsplit(")", 1)[1].split()
         except OSError:
             continue
-        pid, ppid = int(entry), int(fields[1])
-        children.setdefault(ppid, []).append(pid)
-        stats[pid] = (int(fields[11]) + int(fields[12])) / ticks
-    total, stack = 0.0, [root]
+        cpu = sum(int(tick) for tick in fields[11:15]) / ticks
+        pid, ppid, pgrp, session = int(entry), int(fields[1]), int(fields[2]), int(fields[3])
+        procs[pid] = Proc(ppid, pgrp, session, fields[0], int(fields[19]), cpu)
+    return procs
+
+
+def process_start(pid: int) -> int | None:
+    """When `pid` started, in clock ticks after boot, or None once it is gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return int(f.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def attempt_procs(leader: int, start: int | None, procs: dict[int, Proc]) -> dict[int, Proc]:
+    """The attempt's processes in `procs`: its leader, everything below it, and its session.
+
+    simwatch adopts a descendant whose parent exits (see adopt_orphans), so its other children and
+    everything below them belong to the attempt too: it runs one attempt at a time and kills each
+    before the next. Where adoption is not allowed, the session still holds what init took. The
+    leader is walked only while its pid names the process simwatch started (`start`). The session
+    needs no such check: the kernel does not hand out a session's id while any process is in it.
+    """
+    children: dict[int, list[int]] = {}
+    for pid, proc in procs.items():
+        children.setdefault(proc.ppid, []).append(pid)
+    stack = [pid for pid, proc in procs.items() if proc.session == leader]
+    stack += [pid for pid in children.get(os.getpid(), []) if pid != leader]
+    if leader in procs and procs[leader].start == start:
+        stack.append(leader)
+    members: dict[int, Proc] = {}
     while stack:
         pid = stack.pop()
-        total += stats.get(pid, 0.0)
-        stack.extend(children.get(pid, []))
-    return total
+        if pid not in members:
+            members[pid] = procs[pid]
+            stack.extend(children.get(pid, []))
+    return members
 
 
-def run_once(cmd: list[str], log, stall: float, poll: float, max_wall: float) -> int | None:
-    """Exit code of the command, or None when the watchdog killed it for stalling.
+def reap_adopted(procs: dict[int, Proc], leader: int) -> None:
+    """Wait for adopted orphans that `procs` saw exited, so their final CPU was sampled first.
 
-    A hung SAPIEN camera read still burns a trickle of CPU polling the GPU, so besides the
-    CPU-progress test there is a wall-clock cap per attempt: a run that has not finished by then
-    is treated as hung too.
+    The leader is left to Popen, which needs its exit status.
+    """
+    me = os.getpid()
+    for pid, proc in procs.items():
+        if proc.ppid == me and proc.state == "Z" and pid != leader:
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+
+
+def adopt_orphans() -> bool:
+    """Make simwatch the reaper of its descendants' orphans; whether the kernel allowed it.
+
+    A worker whose parent exits, one started behind `sh -c '... &'` say, would otherwise go to
+    init: out of the attempt's tree, its CPU uncounted and, in a session of its own, never killed.
+    """
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
+    except (OSError, AttributeError):
+        return False
+
+
+def signal_process(pid: int, start: int, sig: int) -> None:
+    """Send `sig` to `pid` only while that pid is still the process that started at `start`."""
+    try:
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return
+    except OSError:  # a kernel without pidfds: check, then signal by number
+        try:
+            if process_start(pid) == start:
+                os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+        return
+    try:
+        # The descriptor holds the process that had the pid when it was opened. If that one started
+        # at `start`, a process that reuses the number later cannot receive the signal.
+        if process_start(pid) == start:
+            signal.pidfd_send_signal(fd, sig)
+    except ProcessLookupError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def kill_attempt(proc: subprocess.Popen, start: int | None, grace: float) -> int:
+    """Stop every process of the attempt, and say how many were still running.
+
+    Each gets SIGTERM, then SIGKILL once `grace` seconds have passed. This returns only when none
+    is left running, so a rerun never shares the GPU with what it replaces, or KILL_WAIT seconds
+    after the SIGKILL when a process is stuck in the kernel.
+    """
+    signalled: dict[tuple[int, int], int] = {}  # (pid, start) -> the last signal sent to it
+    deadline = time.monotonic() + grace
+    while True:
+        procs = read_procs()
+        reap_adopted(procs, proc.pid)
+        keys = {(pid, p.start) for pid, p in attempt_procs(proc.pid, start, procs).items()}
+        # One signalled already can have left the tree and session: its parent died before it did.
+        keys |= {key for key in signalled if key[0] in procs and procs[key[0]].start == key[1]}
+        running = [key for key in keys if procs[key[0]].state not in "ZX"]
+        now = time.monotonic()
+        if not running or now >= deadline + KILL_WAIT:
+            break
+        sig = signal.SIGKILL if now >= deadline else signal.SIGTERM
+        for key in running:
+            if signalled.get(key) != sig:
+                signal_process(*key, sig)
+                signalled[key] = sig
+        time.sleep(0.1)
+    proc.wait()
+    return len(signalled)
+
+
+def exit_status(returncode: int) -> int:
+    """A Popen return code as a shell reports it: a death by signal N is 128+N."""
+    return 128 - returncode if returncode < 0 else returncode
+
+
+def run_once(
+    cmd: list[str],
+    log,
+    *,
+    stall: float,
+    min_cpu_rate: float,
+    max_wall: float,
+    poll: float,
+    grace: float = 20.0,
+) -> tuple[int | None, str]:
+    """Run one attempt: its exit status, or None when the watchdog killed it, and why it ended.
+
+    CPU is sampled every `poll` seconds. The attempt is stalled once a window of at least `stall`
+    seconds of samples shows under `min_cpu_rate` cores on average, or after `max_wall` seconds.
     """
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    start = process_start(proc.pid)  # not reaped before poll(), so readable even if it exited
     started = time.monotonic()
-    last_cpu, last_change = -1.0, started
+    used = 0.0
+    seen: dict[tuple[int, int], float] = {}  # (pid, start) -> its CPU at the last sample
+    window = deque([(started, used)])
     while True:
         code = proc.poll()
         if code is not None:
-            return code
-        cpu = tree_cpu_seconds(proc.pid)
+            # What it left running could still write to the shared log, a marker landing in the
+            # next attempt's part of it, or hold the GPU; it goes before the output is searched.
+            left = kill_attempt(proc, start, grace)
+            why = f"exited {exit_status(code)}"
+            if left:
+                why += f" (killed {left} process{'es' if left > 1 else ''} it left running)"
+            return exit_status(code), why
+        procs = read_procs()
         now = time.monotonic()
-        if cpu > last_cpu + 0.5:
-            last_cpu, last_change = cpu, now
-        if now - last_change > stall or now - started > max_wall:
+        cpu = {(pid, p.start): p.cpu for pid, p in attempt_procs(proc.pid, start, procs).items()}
+        # Each process adds what it used since the last sample, so one that exits or is reaped in
+        # between takes nothing away from the rest. A child reaped by its parent also lands in the
+        # parent's cutime and can be counted twice, which can only delay a stall, never cause one.
+        used += sum(max(0.0, total - seen.get(key, 0.0)) for key, total in cpu.items())
+        seen = cpu
+        reap_adopted(procs, proc.pid)
+        window.append((now, used))
+        while len(window) > 1 and window[1][0] <= now - stall:
+            window.popleft()
+        since, used_then = window[0]
+        why = None
+        if now - since >= stall and (used - used_then) / (now - since) < min_cpu_rate:
+            rate = (used - used_then) / (now - since)
             why = (
-                f"no CPU progress for {stall:.0f}s"
-                if now - last_change > stall
-                else f"over {max_wall:.0f}s wall"
+                f"stalled: {rate:.3f} cores over the last {now - since:.0f}s, "
+                f"under --min-cpu-rate {min_cpu_rate:g}"
             )
-            print(f"[simwatch] {why} at {cpu:.1f}s CPU; killing", file=log, flush=True)
-            os.killpg(proc.pid, signal.SIGTERM)
-            try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
-            return None
+        elif now - started > max_wall:
+            why = f"stalled: still running after {max_wall:.0f}s wall"
+        if why:
+            print(
+                f"[simwatch] {why} ({used:.1f}s CPU in all); killing the attempt's processes",
+                file=log,
+                flush=True,
+            )
+            kill_attempt(proc, start, grace)
+            return None, why
         time.sleep(poll)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--stall", type=float, default=180.0)
-    parser.add_argument("--retries", type=int, default=5)
-    parser.add_argument("--poll", type=float, default=5.0)
-    parser.add_argument("--max-wall", type=float, default=600.0, help="seconds per attempt")
-    parser.add_argument("--log", required=True)
-    parser.add_argument("cmd", nargs=argparse.REMAINDER)
-    args = parser.parse_args()
-    cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
-    with open(args.log, "a", buffering=1) as log:
-        for attempt in range(1, args.retries + 2):
-            print(f"[simwatch] attempt {attempt}: {' '.join(cmd)}", file=log, flush=True)
-            code = run_once(cmd, log, args.stall, args.poll, args.max_wall)
+def find_marker(path: str, offset: int, patterns: list[re.Pattern[str]]) -> str | None:
+    """The first of `patterns` found in what was appended to `path` after `offset`, or None.
+
+    All of it is searched: pytest prints a failed test's captured output after the error, so the
+    marker can be megabytes from the end. It is read CHUNK bytes at a time, each searched together
+    with the last OVERLAP bytes of the one before, so a match up to OVERLAP long is never split.
+    """
+    with open(path, "rb") as f:
+        f.seek(offset)
+        carry = b""
+        while chunk := f.read(CHUNK):
+            buffer = carry + chunk
+            text = buffer.decode(errors="replace")
+            for pattern in patterns:
+                if pattern.search(text):
+                    return pattern.pattern
+            carry = buffer[-OVERLAP:]
+    return None
+
+
+def watch(
+    cmd: list[str],
+    log_path: str,
+    *,
+    retries: int,
+    rerun_on: list[re.Pattern[str]],
+    **limits,
+) -> int:
+    """Run `cmd` until an attempt ends for good or `retries` reruns are spent; the exit status."""
+    attempts = retries + 1
+    with open(log_path, "a", buffering=1) as log:
+
+        def say(line: str) -> None:
+            print(f"[simwatch] {line}", file=log, flush=True)
+
+        for attempt in range(1, attempts + 1):
+            say(f"attempt {attempt}/{attempts}: {shlex.join(cmd)}")
+            # Attempts share the log, so only what this attempt appended is searched for a marker.
+            offset = os.fstat(log.fileno()).st_size
+            code, why = run_once(cmd, log, **limits)
+            end = f"attempt {attempt}/{attempts} {why}"
+            if code == 0:
+                say(f"{end}; done")
+                return 0
             if code is not None:
-                print(f"[simwatch] exited {code}", file=log, flush=True)
-                return code
-        print("[simwatch] gave up: every attempt stalled", file=log, flush=True)
-        return 124
+                marker = find_marker(log_path, offset, rerun_on)
+                if marker is None:
+                    say(f"{end}, no --rerun-on match; exiting {code}")
+                    return code
+                end = f"{end}, output matches {marker!r}"
+            say(f"{end}; {'rerunning' if attempt < attempts else 'no retries left'}")
+        say(f"gave up after {attempts} attempts; exiting {GAVE_UP}")
+        return GAVE_UP
+
+
+def _regex(text: str) -> re.Pattern[str]:
+    try:
+        return re.compile(text)
+    except re.error as e:
+        raise argparse.ArgumentTypeError(f"bad regular expression {text!r}: {e}") from e
+
+
+def _positive(text: str) -> float:
+    value = float(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be positive, not {text}")
+    return value
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="simwatch.py",
+        usage="%(prog)s [options] --log FILE -- CMD [ARG ...]",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--stall",
+        type=_positive,
+        default=180.0,
+        metavar="SECONDS",
+        help="length of the CPU-rate window (default: %(default)g)",
+    )
+    parser.add_argument(
+        "--min-cpu-rate",
+        type=float,
+        default=DEFAULT_MIN_CPU_RATE,
+        metavar="CORES",
+        help="an attempt whose processes averaged fewer cores than this over the last --stall "
+        "seconds is stalled; 1.0 is one core busy. A blocking wait, or work done outside the "
+        "attempt (a remote policy server, a download), is idle, so lower this or lengthen --stall "
+        "for a job that mostly waits (default: %(default)g)",
+    )
+    parser.add_argument(
+        "--max-wall",
+        type=_positive,
+        default=600.0,
+        metavar="SECONDS",
+        help="an attempt still running after this long is stalled (default: %(default)g)",
+    )
+    parser.add_argument(
+        "--rerun-on",
+        type=_regex,
+        action="append",
+        metavar="REGEX",
+        help="rerun an attempt that exits non-zero when this pattern matches anything it wrote to "
+        "--log; repeatable, and any use replaces the default (default: "
+        + " ".join(DEFAULT_RERUN_ON)
+        + ")",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        metavar="N",
+        help="reruns allowed after the first attempt; exit 124 once they are spent "
+        "(default: %(default)d)",
+    )
+    parser.add_argument(
+        "--poll",
+        type=_positive,
+        default=5.0,
+        metavar="SECONDS",
+        help="how often the process tree's CPU is sampled (default: %(default)g)",
+    )
+    parser.add_argument(
+        "--log",
+        required=True,
+        metavar="FILE",
+        help="regular file the command's stdout and stderr, and simwatch's own lines, are appended "
+        "to; it is reread for --rerun-on, so not a pipe or device",
+    )
+    parser.add_argument("cmd", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    args.cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
+    if not args.cmd:
+        parser.error("no command given after --")
+    if args.retries < 0 or args.min_cpu_rate < 0:
+        parser.error("--retries and --min-cpu-rate must not be negative")
+    try:
+        mode = os.stat(args.log).st_mode
+    except FileNotFoundError:
+        pass  # appending creates a regular file
+    else:
+        # A pipe cannot seek and a device gives nothing back, so no attempt's output could be searched.
+        if not stat.S_ISREG(mode):
+            parser.error(
+                f"--log {args.log} is not a regular file; simwatch rereads it for --rerun-on"
+            )
+    args.rerun_on = args.rerun_on or [re.compile(p) for p in DEFAULT_RERUN_ON]
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if not adopt_orphans():
+        print(
+            "simwatch: cannot adopt orphaned processes; a worker whose parent exits is not counted "
+            "and, in a session of its own, not killed",
+            file=sys.stderr,
+        )
+    return watch(
+        args.cmd,
+        args.log,
+        retries=args.retries,
+        rerun_on=args.rerun_on,
+        stall=args.stall,
+        min_cpu_rate=args.min_cpu_rate,
+        max_wall=args.max_wall,
+        poll=args.poll,
+    )
 
 
 if __name__ == "__main__":

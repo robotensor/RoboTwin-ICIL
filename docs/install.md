@@ -101,9 +101,34 @@ What the script produced on the machine the V1 numbers come from:
   render-heavy run: an end-effector replay stopped after nine episodes with the GPU otherwise idle,
   in the same camera read, and with a training job holding the GPU a one-episode click_bell smoke
   hung twice in the expert's first frames before a third attempt scored in 51 s. So run long jobs
-  under `scripts/simwatch.py`, which kills an attempt whose CPU time stops advancing or that
-  outlives a wall-clock cap, and reruns it. A stopped `robotwin-icil eval` resumes from
-  `episodes.jsonl`, so the rerun picks up where it stopped.
+  under `scripts/simwatch.py` (`--help` lists its flags), which reruns an attempt, up to
+  `--retries` times, when either rule fires:
+  - *Stalled.* The attempt's processes averaged fewer than `--min-cpu-rate` cores (default 0.25)
+    over the last `--stall` seconds, or the attempt outlived `--max-wall`. Every thread of the
+    command, its descendants and its session counts, and so does a worker whose parent exits:
+    simwatch adopts it. A child the kernel reaps without a wait, because its parent ignores
+    SIGCHLD, counts only up to the last sample before it exits. A hung camera read is not idle:
+    its threads sleep in futex and poll but wake to poll the GPU, a trickle of CPU, so "any CPU in
+    the window" never fires and a rate does. Measured on the RTX 5090 with a training job holding
+    the GPU: hung `pytest -m sim` attempts used 0.004–0.024 cores in any 15 s window (0.005–0.009
+    over 120 s) and the click_bell smoke hang 0.07; the same job running a whole passing test
+    (expert demonstration, scene rebuild, replay rollout, video) averaged 0.9 cores and never
+    dropped below 0.25 over 5 s, 0.55 over 15 s or 0.77 over 30 s. Only CPU in the attempt's own
+    processes counts: a blocking wait, or work done elsewhere (a remote policy server, a
+    download), is idle to simwatch, so at the defaults a healthy job busy less than a quarter of
+    the time is killed. Lower `--min-cpu-rate` or lengthen `--stall` for such a job. Every process
+    of the attempt, its descendants and session, is sent SIGTERM, then SIGKILL after 20 s, and the
+    rerun starts once all of them are gone.
+  - *Lost the GPU.* The attempt exited non-zero and a `--rerun-on` pattern (default
+    `ErrorDeviceLost` and `VK_ERROR_DEVICE_LOST`, the two spellings of Vulkan's device-lost error
+    that `robotwin_icil` stops a run on) matches anything that attempt wrote to `--log`, however
+    much output follows it. Any other exit ends the watch with that exit code. Whatever the
+    attempt left running when its command exited is killed before its output is searched, so a
+    straggler cannot mark the next attempt's output or share the GPU with it.
+
+  Each attempt's end and its reason are logged; once the retries are spent the watch exits 124. A
+  stopped `robotwin-icil eval` resumes from `episodes.jsonl`, so the rerun picks up where it
+  stopped.
 - **`ModuleNotFoundError: pkg_resources`.** setuptools is too new; rerun the script, which pins it.
 - **Embodiment `config.yml` or `curobo_left.yml` missing.** The asset stage did not finish; rerun
   the script.
