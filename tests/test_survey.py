@@ -77,6 +77,20 @@ def test_a_survey_records_which_arms_each_demonstration_moved(monkeypatch):
     assert (counts["one_arm_demonstrations"], counts["two_arm_demonstrations"]) == (0, 0)
 
 
+def test_a_survey_on_two_frankas_names_the_robot_and_the_arm_that_moved(monkeypatch):
+    # 16 wide, split 8 + 8. A left-only expert must read as one arm: an aloha-style split at 7
+    # would put the left gripper, index 7, in the right arm and count both.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(qpos_dim=16, moves=("left",))
+    config = FakeConfig(embodiment="franka-panda")
+    payload = survey.survey_task(env, tasks.table()["click_bell"], [1, 2], config).to_json()
+    assert payload["embodiment"] == "franka-panda"
+    detail = payload["seeds_detail"]
+    assert [r["arms_moved"] for r in detail] == [["left"], ["left"]]
+    assert all(r["displacement"]["right"] == 0.0 for r in detail)
+    assert (payload["one_arm_demonstrations"], payload["two_arm_demonstrations"]) == (2, 0)
+
+
 def test_render_lists_every_task_with_its_rate_and_one_arm_count(monkeypatch):
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
     table = tasks.table()
