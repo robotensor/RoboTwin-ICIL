@@ -1,7 +1,9 @@
 """`robotwin-icil`: run the benchmark, report a run, list the task table.
 
-`report` and `tasks` never import the simulator, so a finished run directory can be re-reported
-anywhere the package installs.
+`materialize` and `run-unit` are the benchmark as a competition runs it: one command builds and
+saves a demonstration, another evaluates a policy from the saved file, each in a process of its
+own. `report` and `tasks` never import the simulator, so a finished run directory can be
+re-reported anywhere the package installs.
 """
 
 from __future__ import annotations
@@ -16,8 +18,14 @@ from . import tasks as tasks_
 from .arms import LABELS, ONE, TWO
 from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
+from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
 from .robotwin import EMBODIMENTS, RoboTwinError
+from .unit import UnitError
+
+# `materialize` exits with this when the expert was rejected on the seed: a legitimate outcome,
+# recorded in result.json, that the caller tells apart from a harness error (1).
+EXIT_REJECTED = 3
 
 
 def _eval(args: argparse.Namespace) -> int:
@@ -92,6 +100,45 @@ def _survey(args: argparse.Namespace) -> int:
     print()
     print(render(results), end="")
     return 0
+
+
+def _materialize(args: argparse.Namespace) -> int:
+    from . import robotwin
+    from .unit import MATERIALIZE_OUTPUTS, clear_outputs, materialize
+
+    # First, so a command that fails from here on leaves nothing an earlier one wrote.
+    out = clear_outputs(args.out, MATERIALIZE_OUTPUTS)
+    task = tasks_.table()[args.task]
+    config = robotwin.SceneConfig(
+        task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
+    )
+    done = materialize(task.name, args.scene_seed, config, out)
+    print(json.dumps(done.result, indent=2, sort_keys=True))
+    return 0 if done.ok else EXIT_REJECTED
+
+
+def _run_unit(args: argparse.Namespace) -> int:
+    from .unit import RUN_UNIT_OUTPUTS, clear_outputs, run_unit
+
+    # First, so a command that fails from here on leaves nothing an earlier one wrote.
+    out = clear_outputs(args.out, RUN_UNIT_OUTPUTS, prompt=args.prompt)
+    kwargs = _policy_kwargs(args.policy_arg or [])
+    policy = make_policy(args.policy, **kwargs)
+    # Resolve before entering the RoboTwin seam, which moves the working directory.
+    result = run_unit(Path(args.prompt).resolve(), policy, out)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    # A failed or void unit is a result, written to result.json; only a harness error exits 1.
+    return 0
+
+
+def _policy_kwargs(pairs: list[str]) -> dict[str, str]:
+    kwargs: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise PolicyError(f"--policy-arg takes key=value, not {pair!r}")
+        kwargs[key] = value
+    return kwargs
 
 
 def _tasks(args: argparse.Namespace) -> int:
@@ -179,6 +226,41 @@ def build_parser() -> argparse.ArgumentParser:
     _add_arms(sur)
     sur.set_defaults(handler=_survey)
 
+    mat = commands.add_parser(
+        "materialize",
+        help="build one seed's demonstration and save it: prompt.npz, demonstration.mp4, "
+        "result.json; exits 3 when the expert was rejected on the seed",
+    )
+    mat.add_argument("--task", required=True, help="a single RoboTwin task")
+    mat.add_argument("--scene-seed", type=int, required=True, help="the scene to build")
+    mat.add_argument("--out", required=True, help="directory the three files are written into")
+    mat.add_argument(
+        "--task-config", default="demo_clean", help="RoboTwin env_cfg/task_config name"
+    )
+    _add_embodiment(mat)
+    mat.add_argument(
+        "--save-freq", type=int, default=15, help="control steps per demonstration frame"
+    )
+    mat.set_defaults(handler=_materialize)
+
+    unit = commands.add_parser(
+        "run-unit",
+        help="evaluate a policy from a saved prompt: rebuilds and verifies its scene, writes "
+        "result.json and evaluation.mp4; exits 0 whether the policy succeeded or not",
+    )
+    unit.add_argument("--prompt", required=True, help="a prompt.npz written by materialize")
+    unit.add_argument(
+        "--policy", required=True, help="built-in name (replay, dummy) or module:Class"
+    )
+    unit.add_argument(
+        "--policy-arg",
+        action="append",
+        metavar="KEY=VALUE",
+        help="a keyword argument for the policy's constructor; repeatable",
+    )
+    unit.add_argument("--out", required=True, help="directory the result and clip are written into")
+    unit.set_defaults(handler=_run_unit)
+
     lst = commands.add_parser(
         "tasks", help="list the task table: skill category, arms and suite membership"
     )
@@ -212,9 +294,11 @@ def main(argv: list[str] | None = None) -> int:
     except (
         RecordError,
         PolicyError,
+        PromptError,
         RoboTwinError,
         DemonstrationError,
         tasks_.TaskTableError,
+        UnitError,
     ) as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1

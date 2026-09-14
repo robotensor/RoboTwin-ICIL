@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -210,3 +212,34 @@ def test_arms_moved_refuses_a_row_that_does_not_split_into_two_arms():
         arms_moved(odd)
     with pytest.raises(DemonstrationError, match="two equal arms"):
         arm_displacements(odd)
+
+
+def test_untimed_frames_fall_back_to_the_nominal_rate():
+    d = demo(n=4)
+    assert not d.timed
+    np.testing.assert_allclose(d.times(), [0, 1 / 15, 2 / 15, 3 / 15])
+
+
+def test_timed_frames_report_when_they_were_taken():
+    # RoboTwin's frames are unevenly spaced: one step into a primitive, then every save_freq-th
+    # step, then its end. Recorded times are kept as they are, not regularised.
+    frames = tuple(
+        dataclasses.replace(frame(i), time_s=t) for i, t in enumerate([0.0, 0.004, 0.064, 0.1])
+    )
+    d = Demonstration(frames=frames, frequency=15)
+    assert d.timed
+    np.testing.assert_array_equal(d.times(), [0.0, 0.004, 0.064, 0.1])
+
+
+def test_times_must_be_finite_and_not_run_backwards():
+    with pytest.raises(DemonstrationError, match="time_s"):
+        dataclasses.replace(frame(0), time_s=float("nan"))
+    frames = (dataclasses.replace(frame(0), time_s=0.5), dataclasses.replace(frame(1), time_s=0.1))
+    with pytest.raises(DemonstrationError, match="before frame"):
+        Demonstration(frames=frames, frequency=15)
+
+
+def test_a_demonstration_is_timed_entirely_or_not_at_all():
+    frames = (dataclasses.replace(frame(0), time_s=0.0), frame(1))
+    with pytest.raises(DemonstrationError, match="some frames have a time_s"):
+        Demonstration(frames=frames, frequency=15)

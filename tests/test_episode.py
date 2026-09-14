@@ -119,6 +119,21 @@ def test_a_policy_breaking_the_protocol_stops_the_run():
         run_episode(spec(), _Broken(), FakeConfig(), task_env=FakeTaskEnv())
 
 
+class _CannotLoad(ReplayPolicy):
+    name = "cannot-load"
+
+    def _set_demonstration(self, demonstration):
+        raise ValueError("adapter could not load the demo")
+
+
+def test_an_adapter_that_cannot_take_the_demonstration_stops_the_run():
+    # Only run-unit scores a policy at fault as a failure; a benchmark run surfaces the bug.
+    env = FakeTaskEnv()
+    with pytest.raises(ValueError, match="could not load"):
+        run_episode(spec(), _CannotLoad(), FakeConfig(), task_env=env)
+    assert env.closed == 2
+
+
 def test_a_simulator_error_mid_rollout_is_a_failed_rollout():
     record = run_episode(
         spec(), ReplayPolicy(), FakeConfig(), task_env=FakeTaskEnv(rollout_raises_at=2)
@@ -174,6 +189,21 @@ def test_losing_the_gpu_in_the_expert_stops_the_run():
     env = FakeTaskEnv(device_lost_on_play={scene_seeds(0, 0, 5)[0]})
     with pytest.raises(robotwin.RoboTwinError, match="lost the GPU"):
         run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        ("CUDA out of memory. Tried to allocate 20.00 MiB.", "ran out of memory"),
+        ("vk::Device::waitForFences: ErrorDeviceLost", "lost the GPU"),
+    ],
+)
+def test_a_gpu_failure_mid_rollout_stops_the_run_rather_than_failing_the_policy(error, reason):
+    # The simulator failed, not the policy: a failure recorded against it would be a wrong score.
+    env = FakeTaskEnv(rollout_raises_at=2, rollout_error=error)
+    with pytest.raises(robotwin.RoboTwinError, match=f"{reason} during the rollout"):
+        run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
+    assert env.closed == 2
 
 
 def test_an_expert_that_raises_is_still_a_rejected_seed():

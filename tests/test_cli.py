@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -106,3 +108,251 @@ def test_a_one_arm_survey_of_every_task_selects_the_26_one_arm_tasks():
     args = cli.build_parser().parse_args(argv)
     selected = tasks.table().select(suite=args.suite, task=args.task, arms=args.arms)
     assert len(selected) == 26 and {task.arms for task in selected} == {"1"}
+
+
+MATERIALIZE = ["materialize", "--task", "click_bell", "--scene-seed", "11"]
+
+
+@pytest.fixture
+def fake_sim(monkeypatch):
+    """Route materialize and run-unit to fake envs; `envs` is what a test wants load_task to give."""
+    from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
+    from robotwin_icil import robotwin
+
+    envs = {"next": lambda name: FakeTaskEnv()}
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
+    monkeypatch.setattr(robotwin, "load_task", lambda name: envs["next"](name))
+    return envs
+
+
+def test_materialize_then_run_unit_through_the_cli(tmp_path, fake_sim, capsys):
+    pytest.importorskip("imageio_ffmpeg")
+    out, run = tmp_path / "prompt", tmp_path / "run"
+    assert cli.main([*MATERIALIZE, "--out", str(out)]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["ok"] is True and printed["scene_seed"] == 11
+    assert {p.name for p in out.iterdir()} == {"prompt.npz", "demonstration.mp4", "result.json"}
+
+    assert (
+        cli.main(
+            [
+                "run-unit",
+                "--prompt",
+                str(out / "prompt.npz"),
+                "--policy",
+                "replay",
+                "--out",
+                str(run),
+            ]
+        )
+        == 0
+    )
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["success"] is True and printed["void"] is False
+    assert json.loads((run / "result.json").read_text()) == printed
+    assert (run / "evaluation.mp4").is_file()
+
+
+def test_a_rejected_seed_exits_3_with_its_result(tmp_path, fake_sim, capsys):
+    from fake_robotwin import FakeTaskEnv
+
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11})
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == cli.EXIT_REJECTED == 3
+    assert json.loads(capsys.readouterr().out)["rejection"] == "unstable"
+    assert json.loads((tmp_path / "result.json").read_text())["ok"] is False
+    assert not (tmp_path / "prompt.npz").exists()
+
+
+def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
+    tmp_path, fake_sim, capsys
+):
+    assert (
+        cli.main(["materialize", "--task", "nope", "--scene-seed", "1", "--out", str(tmp_path)])
+        == 1
+    )
+    assert "unknown task 'nope'" in capsys.readouterr().err
+
+
+def test_run_unit_exits_0_on_a_failed_policy_and_1_on_a_harness_error(tmp_path, fake_sim, capsys):
+    from robotwin_icil import robotwin
+
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    prompt = str(tmp_path / "p" / "prompt.npz")
+    assert (
+        cli.main(
+            ["run-unit", "--prompt", prompt, "--policy", "dummy", "--out", str(tmp_path / "r")]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert json.loads((tmp_path / "r" / "result.json").read_text())["success"] is False
+
+    def broken(name):
+        raise robotwin.RoboTwinError("no RoboTwin checkout")
+
+    fake_sim["next"] = broken
+    assert (
+        cli.main(
+            ["run-unit", "--prompt", prompt, "--policy", "dummy", "--out", str(tmp_path / "r2")]
+        )
+        == 1
+    )
+    assert "no RoboTwin checkout" in capsys.readouterr().err
+
+
+def test_a_harness_fault_mid_unit_is_a_void_result_and_a_logged_traceback(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # The orchestrator reads result.json; a command that died would leave it a log tail to read.
+    from robotwin_icil import robotwin
+
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+
+    def broken(env):
+        raise KeyError("head_camera")
+
+    monkeypatch.setattr(robotwin, "fingerprint", broken)
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r")]) == 0
+    printed, err = capsys.readouterr()
+    result = json.loads(printed)
+    assert result["void"] is True and "KeyError: 'head_camera'" in result["error"]
+    assert json.loads((tmp_path / "r" / "result.json").read_text()) == result
+    assert "Traceback" in err and "KeyError: 'head_camera'" in err
+
+
+class KwargPolicy(cli.make_policy("replay").__class__):
+    """A replay policy that records how it was constructed."""
+
+    name = "kwarg"
+    created: list = []
+
+    def __init__(self, checkpoint, extra="none"):
+        super().__init__()
+        self.created.append({"checkpoint": checkpoint, "extra": extra})
+
+
+def test_policy_args_reach_the_policys_constructor(tmp_path, fake_sim, capsys):
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    prompt = str(tmp_path / "p" / "prompt.npz")
+    base = [
+        "run-unit",
+        "--prompt",
+        prompt,
+        "--policy",
+        "test_cli:KwargPolicy",
+        "--out",
+        str(tmp_path / "r"),
+    ]
+    KwargPolicy.created.clear()
+    assert cli.main([*base, "--policy-arg", "checkpoint=ckpt.pt", "--policy-arg", "extra=a=b"]) == 0
+    assert KwargPolicy.created == [{"checkpoint": "ckpt.pt", "extra": "a=b"}]
+    assert cli.main([*base, "--policy-arg", "novalue"]) == 1
+    assert "key=value" in capsys.readouterr().err
+
+
+class WherePolicy(cli.make_policy("replay").__class__):
+    """A replay policy that notes the working directory it was built and reset in."""
+
+    name = "where"
+    seen: dict = {}
+
+    def __init__(self, checkpoint):
+        super().__init__()
+        self.seen.update(built=Path.cwd(), checkpoint=Path(checkpoint).resolve())
+
+    def _reset(self):
+        super()._reset()
+        self.seen["reset"] = Path.cwd()
+
+
+def test_a_policy_is_built_before_the_simulator_moves_the_working_directory(
+    tmp_path, fake_sim, monkeypatch, capsys
+):
+    # docs/policies.md tells adapters to resolve a relative checkpoint in __init__: that holds
+    # only while the constructor runs before RoboTwin chdirs into vendor/RoboTwin, as here.
+    from fake_robotwin import FakeTaskEnv
+
+    caller, simulator = tmp_path / "caller", tmp_path / "vendor"
+    caller.mkdir()
+    simulator.mkdir()
+    monkeypatch.chdir(caller)
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path / "p")]) == 0
+    capsys.readouterr()
+
+    def load_task(name):
+        os.chdir(simulator)
+        return FakeTaskEnv()
+
+    fake_sim["next"] = load_task
+    WherePolicy.seen.clear()
+    argv = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz")]
+    argv += ["--policy", "test_cli:WherePolicy", "--policy-arg", "checkpoint=ckpt/model.pt"]
+    assert cli.main([*argv, "--out", str(tmp_path / "r")]) == 0
+    assert json.loads(capsys.readouterr().out)["success"] is True
+    assert WherePolicy.seen["built"] == caller and WherePolicy.seen["reset"] == simulator
+    assert WherePolicy.seen["checkpoint"] == caller / "ckpt" / "model.pt"
+
+
+def test_materialize_chooses_its_robot_and_records_it(tmp_path, fake_sim, capsys):
+    from robotwin_icil import prompt
+
+    parser = cli.build_parser()
+    # As eval's: without the flag the task config's own robot runs, and the prompt records it.
+    assert parser.parse_args([*MATERIALIZE, "--out", "d"]).embodiment is None
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path), "--embodiment", "franka-panda"]) == 0
+    _, meta = prompt.read_raw(tmp_path / "prompt.npz")
+    assert meta["embodiment"]["name"] == meta["embodiment"]["choice"] == "franka-panda"
+    assert json.loads(capsys.readouterr().out)["embodiment"] == "franka-panda"
+
+
+def _stale(directory, *names):
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (directory / name).write_text('{"success": true, "void": false, "ok": true}')
+
+
+@pytest.mark.parametrize(
+    ("argv", "error"),
+    [
+        (["--policy", "nope"], "unknown policy 'nope'"),
+        (["--policy", "replay", "--policy-arg", "novalue"], "key=value"),
+        (["--policy", "replay", "--policy-arg", "checkpoint=x"], "cannot construct policy"),
+    ],
+)
+def test_run_unit_failing_before_it_runs_leaves_no_earlier_result(
+    tmp_path, fake_sim, capsys, argv, error
+):
+    # A reused --out must never hand a reader an earlier command's verdict as this one's.
+    out = tmp_path / "run"
+    _stale(out, "result.json", "evaluation.mp4")
+    base = ["run-unit", "--prompt", str(tmp_path / "p" / "prompt.npz"), "--out", str(out)]
+    assert cli.main([*base, *argv]) == 1
+    assert error in capsys.readouterr().err
+    assert sorted(p.name for p in out.iterdir()) == []
+
+
+def test_materialize_failing_before_it_runs_leaves_no_earlier_prompt(tmp_path, fake_sim, capsys):
+    _stale(tmp_path, "prompt.npz", "demonstration.mp4", "result.json")
+    argv = ["materialize", "--task", "nope", "--scene-seed", "1", "--out", str(tmp_path)]
+    assert cli.main(argv) == 1
+    assert "unknown task 'nope'" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
+def test_run_unit_refuses_to_write_over_the_prompts_own_result(tmp_path, fake_sim, capsys):
+    out = tmp_path / "p"
+    assert cli.main([*MATERIALIZE, "--out", str(out)]) == 0
+    capsys.readouterr()
+    before = (out / "result.json").read_text()
+    argv = ["run-unit", "--prompt", str(out / "prompt.npz"), "--policy", "replay"]
+    assert cli.main([*argv, "--out", str(out)]) == 1
+    assert "holds the prompt" in capsys.readouterr().err
+    assert (out / "result.json").read_text() == before
+    assert sorted(p.name for p in out.iterdir()) == [
+        "demonstration.mp4",
+        "prompt.npz",
+        "result.json",
+    ]

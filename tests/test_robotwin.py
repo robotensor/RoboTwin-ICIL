@@ -313,3 +313,115 @@ def test_a_capture_puts_the_env_back_either_way():
             assert env.save_data is True and env.save_freq == 1
         assert env._take_picture == take_picture
         assert (env.save_data, env.save_freq) == (False, 7)
+
+
+def built(**kwargs):
+    from fake_robotwin import FakeTaskEnv
+
+    env = FakeTaskEnv(**kwargs)
+    env.setup_demo(seed=0)
+    return env
+
+
+def test_the_clock_counts_physics_steps_from_where_it_is_installed():
+    from fake_robotwin import SETTLE_STEPS
+
+    env = built()
+    assert env.scene.stepped == SETTLE_STEPS  # RoboTwin's settle, inside setup_demo
+    with robotwin.clock(env) as ticks:
+        assert ticks.steps == 0 and ticks.seconds == 0.0
+        env.scene.step()
+        env.scene.step()
+    assert ticks.steps == 2 and ticks.seconds == pytest.approx(2 / 250)
+    assert env.scene.stepped == SETTLE_STEPS + 2  # every counted step still ran
+
+
+def test_the_clock_sees_steps_taken_inside_the_env():
+    env = built(physics_per_action=3)
+    with robotwin.clock(env) as ticks:
+        env.take_action(env.target)
+    assert ticks.steps == 3
+
+
+def test_leaving_the_clock_restores_the_scenes_own_step():
+    env = built()
+    with robotwin.clock(env) as ticks:
+        assert "step" in vars(env.scene)
+    assert "step" not in vars(env.scene)
+    env.scene.step()
+    assert ticks.steps == 0
+
+
+def test_the_clock_is_removed_when_the_block_raises():
+    env = built()
+    with pytest.raises(RuntimeError, match="expert exploded"):
+        with robotwin.clock(env) as ticks:
+            env.scene.step()
+            raise RuntimeError("expert exploded")
+    assert "step" not in vars(env.scene)
+    env.scene.step()
+    assert ticks.steps == 1
+
+
+def test_nested_clocks_both_count_and_unwind_in_order():
+    env = built()
+    with robotwin.clock(env) as outer:
+        env.scene.step()
+        with robotwin.clock(env) as inner:
+            env.scene.step()
+        env.scene.step()
+    assert (outer.steps, inner.steps) == (3, 1)
+    assert "step" not in vars(env.scene)
+
+
+def test_a_scene_that_cannot_be_shadowed_is_refused():
+    class Frozen:
+        __slots__ = ()
+
+        def get_timestep(self):
+            return 1 / 250
+
+        def step(self):
+            pass
+
+    with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
+        with robotwin.clock(types.SimpleNamespace(scene=Frozen())):
+            pass
+
+
+def _primitive(env, physics_steps, save_freq):
+    """One motion primitive, recording as `Base_Task.take_dense_action` does: a frame before its
+    first physics step, one after every `save_freq`-th step from the first, one after its last."""
+    env._take_picture()
+    for control_idx in range(physics_steps):
+        env.scene.step()
+        if control_idx % save_freq == 0:
+            env._take_picture()
+    env._take_picture()
+
+
+def _recorded(primitives, clocked):
+    env = built()
+    if clocked:
+        with robotwin.clock(env) as ticks, robotwin.capture(env, 2, ticks) as frames:
+            for steps in primitives:
+                _primitive(env, steps, 2)
+    else:
+        with robotwin.capture(env, 2) as frames:
+            for steps in primitives:
+                _primitive(env, steps, 2)
+    return frames
+
+
+@pytest.mark.parametrize(
+    ("primitives", "physics_steps"),
+    [((4, 4), [0, 1, 3, 4, 4, 5, 7, 8]), ((4, 5), [0, 1, 3, 4, 4, 5, 7, 9, 9])],
+)
+def test_the_clock_times_upstreams_frames_and_never_adds_one(primitives, physics_steps):
+    # The clock only says when each frame was taken; how many there are is upstream's recording.
+    # Two frames share a time where one primitive hands over to the next, and one physics step
+    # more in a primitive can add a frame: why one scene's expert, whose CuRobo trajectories are
+    # not the same length every run, can record 77 frames in one run and 78 in the next.
+    timed = _recorded(primitives, clocked=True)
+    assert len(_recorded(primitives, clocked=False)) == len(timed) == len(physics_steps)
+    assert [frame.time_s for frame in timed] == pytest.approx([s / 250 for s in physics_steps])

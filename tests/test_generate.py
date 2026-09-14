@@ -142,3 +142,58 @@ def test_an_attempt_without_images_renders_nothing_and_ends_the_same_way(plan_fa
     assert plain_demo.frequency == rendered_demo.frequency
     assert (plain_demo.cameras, rendered_demo.cameras) == ((), ("head_camera",))
     assert arms_moved(plain_demo) == arms_moved(rendered_demo) == ("left",)
+
+
+def test_demonstration_frames_carry_simulated_time(monkeypatch):
+    # The fake expert records every `save_freq` physics steps. The clock starts after
+    # setup_demo, so the scene's settle is not part of the demonstration's time.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv()
+    _, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    np.testing.assert_allclose(demonstration.times(), np.arange(len(demonstration)) * 5 / 250)
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+def test_the_clock_is_gone_before_a_failed_expert_is_closed(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(expert_raises_on={0})
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+class _SlottedScene:
+    """A scene whose `step` cannot be shadowed, as a compiled SAPIEN scene's could not be."""
+
+    __slots__ = ("inner",)
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def step(self):
+        self.inner.step()
+
+    def get_timestep(self):
+        return self.inner.get_timestep()
+
+    def get_all_actors(self):
+        return self.inner.get_all_actors()
+
+    def get_all_articulations(self):
+        return self.inner.get_all_articulations()
+
+
+class _Unclockable(FakeTaskEnv):
+    def setup_demo(self, **kwargs):
+        super().setup_demo(**kwargs)
+        self.scene = _SlottedScene(self.scene)
+
+
+def test_a_scene_the_clock_cannot_count_stops_generation_rather_than_rejecting(monkeypatch):
+    # Not the expert failing on this seed: every seed would fail the same way, and recorded as
+    # rejections they would read as a task the expert cannot solve.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = _Unclockable()
+    with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
+        generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert env.closed == 1

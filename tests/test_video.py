@@ -86,3 +86,13 @@ def test_a_clip_that_fails_to_write_is_a_note_not_an_outcome(tmp_path, monkeypat
     )
     assert record.status is Status.SCORED and record.success
     assert "video: VideoError: disk full" in record.detail
+
+
+def test_the_evaluation_clip_can_be_named_and_paced_without_a_demonstration_clip(tmp_path):
+    clip = video.EpisodeVideo(tmp_path, evaluation_clip="evaluation.mp4", fps=25.0)
+    for _ in range(3):
+        clip.observe({"head_camera": np.zeros((16, 16, 3), dtype=np.uint8)})
+    clip.finish()
+    assert not (tmp_path / video.EVALUATION_CLIP).exists()
+    frames, seconds = imageio_ffmpeg.count_frames_and_secs(str(tmp_path / "evaluation.mp4"))
+    assert frames == 3 and seconds == pytest.approx(3 / 25, abs=0.01)

@@ -11,6 +11,9 @@ fingerprint off a live env is `robotwin.fingerprint`.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +42,60 @@ class SceneFingerprint:
     cameras: dict[str, np.ndarray]
     robot_qpos: np.ndarray
     extras: dict[str, Any] = field(default_factory=dict)
+
+    def to_json(self) -> dict[str, Any]:
+        """The fingerprint as plain JSON data: arrays become nested lists of floats.
+
+        A float's JSON text is its shortest round-tripping repr, so `from_json` reads back the
+        same float64 values and `digest` of the two is the same digest.
+        """
+        return {
+            "actors": {name: _plain(pose) for name, pose in self.actors.items()},
+            "articulations": {name: _plain(qpos) for name, qpos in self.articulations.items()},
+            "articulation_roots": {
+                name: _plain(pose) for name, pose in self.articulation_roots.items()
+            },
+            "cameras": {name: _plain(extrinsic) for name, extrinsic in self.cameras.items()},
+            "robot_qpos": _plain(self.robot_qpos),
+            "extras": {key: _plain(value) for key, value in self.extras.items()},
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> SceneFingerprint:
+        def arrays(part: str) -> dict[str, np.ndarray]:
+            return {name: np.asarray(value, dtype=np.float64) for name, value in data[part].items()}
+
+        return cls(
+            actors=arrays("actors"),
+            articulations=arrays("articulations"),
+            articulation_roots=arrays("articulation_roots"),
+            cameras=arrays("cameras"),
+            robot_qpos=np.asarray(data["robot_qpos"], dtype=np.float64),
+            extras=dict(data.get("extras", {})),
+        )
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def canonical_json(data: Any) -> str:
+    """One JSON text per value: sorted keys, no whitespace, no NaN. What a digest is taken over."""
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def digest(fingerprint: SceneFingerprint) -> str:
+    """sha256 of the fingerprint's canonical JSON: exact, so any change to any value changes it.
+
+    `compare` is the tolerant check between two live scenes; the digest is how a fingerprint
+    written into a file is later shown to be the one that file was written with.
+    """
+    text = canonical_json(fingerprint.to_json())
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -142,6 +199,24 @@ def compare(
 def max_error(mismatches: list[Mismatch]) -> float:
     """The largest measured deviation, for the episode record; 0.0 for an exact match."""
     return max((m.error for m in mismatches), default=0.0)
+
+
+def deviation(demonstration: SceneFingerprint, evaluation: SceneFingerprint) -> float | None:
+    """How far two fingerprints are apart, however small: `compare` with every tolerance at zero.
+
+    What a scene that passed `compare` still differed by, 0.0 for a bit-identical rebuild; None
+    when no distance is defined — an entity or an extra present in only one of them.
+    """
+    found = compare(
+        demonstration,
+        evaluation,
+        position_tol=0.0,
+        rotation_tol=0.0,
+        joint_tol=0.0,
+        camera_tol=0.0,
+    )
+    error = max_error(found)
+    return error if math.isfinite(error) else None
 
 
 def unique_names(names: list[str]) -> list[str]:

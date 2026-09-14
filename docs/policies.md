@@ -33,6 +33,8 @@ stream of zero scores.
 ## A minimal adapter
 
 ```python
+from pathlib import Path
+
 import torch
 
 from robotwin_icil.policy import ICILPolicy
@@ -44,8 +46,10 @@ class MyPolicy(ICILPolicy):
 
     def __init__(self, checkpoint: str = "checkpoints/model.pt"):
         super().__init__()
-        self.checkpoint = checkpoint
-        self.model = torch.load(checkpoint).eval().requires_grad_(False)
+        # Absolute now: the harness then runs from vendor/RoboTwin, where a relative path opened
+        # later (in reset, say) would be looked up.
+        self.checkpoint = str(Path(checkpoint).resolve())
+        self.model = torch.load(self.checkpoint).eval().requires_grad_(False)
 
     def _reset(self):
         self.context = None  # clear KV cache, history, recurrent state
@@ -75,13 +79,25 @@ trajectory from the very scene the rollout will start in:
 
 | | |
 | --- | --- |
-| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` `(qpos_dim,)`, `endpose` |
-| `frequency` | frames per second of the recording |
+| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` `(qpos_dim,)`, `endpose`, `time_s` |
+| `frequency` | nominal frames per second of the recording: the spacing of frames within one motion primitive |
 | `cameras` | the camera names present in every frame |
 | `qpos_dim` | the width of `qpos`, the same in every frame: the robot's |
 | `qpos()` | `(T, qpos_dim)` robot state over the demonstration |
 | `actions()` | `(T-1, qpos_dim)` the position target of each transition — the next frame's `qpos` |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
+| `times()` | `(T,)` simulated seconds since the expert started, per frame — real, and uneven: each RoboTwin motion primitive records a frame before its first physics step, one after that step and after every `save_freq`-th step from it, and one after its last |
+
+`T` is not fixed for a scene. RoboTwin's expert plans with CuRobo on the GPU, whose trajectories
+for one scene are not the same length every run, and a primitive one physics step longer can record
+one more frame. A saved `prompt.npz` fixes the demonstration; `eval`, which generates one per
+episode, can hand a policy a frame more or fewer for the same seed in another run.
+
+`endpose` is RoboTwin's dict per frame: `left_endpose` and `right_endpose` (`[x, y, z, qw, qx, qy,
+qz]`, each arm's end-effector pose as RoboTwin's `get_arm_pose` reports it) and `left_gripper`,
+`right_gripper`. On disk (`prompt.npz`, written by `robotwin-icil
+materialize` and read by `run-unit`) it is one 16-wide row per frame, left arm then right, pose then
+gripper — `robotwin_icil.prompt.flatten_endpose` — which is also the layout of an `ee` action.
 
 **Each observation** (`robotwin_icil.policy.Observation`) has the same modalities as a frame —
 `images`, `qpos`, `endpose` — plus `step` and `instruction`.
@@ -134,3 +150,24 @@ robotwin-icil eval --policy replay --suite v1 --episodes 20 --seed 42 --run-dir 
 harness's own upper bound, so it tells you what a perfect imitator scores on your machine. Then run
 your adapter with `--video` and compare `demonstration.mp4` with `evaluation_same_scene.mp4` in a
 few episode directories before trusting any number.
+
+To iterate on one scene without regenerating its demonstration every time, save it once and
+evaluate from the file — the competition runs adapters this way:
+
+```bash
+robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz \
+    --policy mypkg.adapters:MyPolicy --policy-arg checkpoint="$PWD/checkpoints/model.pt" --out runs/unit/run
+```
+
+`--policy-arg key=value` reaches the adapter's constructor as a string. The constructor runs in
+the directory you ran the command from, but the simulator then moves the process into
+`vendor/RoboTwin`: pass absolute paths, or resolve them in `__init__` as the adapter above does,
+never in `reset` or later. `run-unit` writes
+`result.json` (`success`, `void`, `steps`, `error`, ...) and `evaluation.mp4` into a directory of
+its own; the adapter is handed the `Demonstration` read from the file and nothing of the prompt's
+`meta`. An adapter at fault — raising from `reset` or `set_demonstration`, or returning an action
+of the wrong width or a non-finite one — fails the unit, with the reason in `detail`; it is never
+void, which is kept for what the harness could not give the policy (an unreadable prompt, a scene
+that drifted, a GPU that failed, a fault of the harness's own). `eval` raises instead, so the bug
+surfaces.

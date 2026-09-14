@@ -127,6 +127,10 @@ robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell -
 # how often RoboTwin's own expert solves each task (decides suite membership)
 robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 
+# the competition's shape: build one demonstration and save it, then evaluate from the file
+robotwin-icil materialize --task click_bell --scene-seed 42 --out runs/unit/prompt
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy replay --out runs/unit/run
+
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
@@ -142,18 +146,32 @@ The `replay` policy ignores its observations and plays the demonstration's actio
 Because Same Scene means the rollout starts from the identical state, it is the harness's own
 upper bound: if it does not succeed, the bug is in the benchmark, not in the model.
 
+`materialize` and `run-unit` are the same episode in two processes, which is how a competition
+runs it: both policies in a duel are handed the identical `prompt.npz`, and a third party can
+check it by hash. `materialize` writes `prompt.npz`, `demonstration.mp4` and `result.json`, and
+exits 3 when the expert was rejected on the seed. `run-unit` rebuilds the scene from the prompt's
+privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
+rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
+result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a
+policy that will not load). Both commands' `result.json` carry `success`, `void`, `steps` and
+`error`; a policy that raises or returns an invalid action fails its unit, and only what the
+harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids one. `prompt.npz`
+holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
+map `prompt.CHANNELS` publishes, plus `meta`, which never reaches a policy.
+
 ## Layout
 
 ```
 src/robotwin_icil/
   tasks.yml tasks.py        task -> skill category and arms table, suites, --arms selection
   arms.py                   static read of each expert's play_once: 1, switching or 2 arms
-  config.py                 benchmark + RoboTwin configuration
   demo.py                   model-independent demonstration container
-  scene.py                  initial-state fingerprint and Same Scene verification
+  prompt.py                 a demonstration on disk: prompt.npz and its channel map
+  scene.py                  initial-state fingerprint, Same Scene verification, its digest
   policy.py                 the policy interface, dummy and replay policies
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
+  unit.py                   the episode in two files: materialize a prompt, run a unit from it
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
