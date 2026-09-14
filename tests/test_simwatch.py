@@ -53,6 +53,19 @@ def live_group(pgid):
     return [pid for pid, p in simwatch.read_procs().items() if p.pgrp == pgid and p.state != "Z"]
 
 
+def alive(pid):
+    """Whether `pid` still runs; a zombie waiting for its reaper does not."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] not in "ZX"
+    except OSError:
+        return False
+
+
+def pids(log, name):
+    return [int(pid) for pid in re.findall(rf"\b{name}=(\d+)", log)]
+
+
 @pytest.mark.parametrize(
     "error",
     [
@@ -211,8 +224,26 @@ def test_a_grandchild_that_ignores_sigterm_is_killed_too(tmp_path):
 
     assert code is None and why.startswith("stalled")
     assert time.monotonic() - started < 8
+    # Gone when run_once returns, not merely signalled: SIGKILL takes a moment on a busy host.
     assert live_group(pgid) == []
-    assert not os.path.exists(f"/proc/{worker}") or simwatch.read_procs()[worker].state == "Z"
+    assert not alive(worker)
+
+
+def test_a_worker_in_its_own_session_is_killed_with_the_attempt(tmp_path):
+    # Its CPU counts toward the attempt, so the stall kill must reach it too, not only the group.
+    source = (
+        "import os, subprocess, sys, time\n"
+        "worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3600)'],"
+        " start_new_session=True)\n"
+        "print(f'worker={worker.pid}', flush=True)\n"
+        "time.sleep(3600)\n"
+    )
+    limits = ["--stall", "1.5", "--poll", "0.25", "--max-wall", "30", "--retries", "1"]
+    code, log, _ = watch(tmp_path, *limits, *python(source))
+    workers = pids(log, "worker")
+
+    assert code == 124 and log.count("stalled: ") == 4 and len(workers) == 2
+    assert [pid for pid in workers if alive(pid)] == []
 
 
 def test_a_log_that_cannot_be_reread_is_a_usage_error(capsys):

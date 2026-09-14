@@ -111,7 +111,8 @@ What the script produced on the machine the V1 numbers come from:
     window (0.005–0.009 over 120 s) and the click_bell smoke hang 0.07; the same job running a
     whole passing test (expert demonstration, scene rebuild, replay rollout, video) averaged 0.9
     cores and never dropped below 0.25 over 5 s, 0.55 over 15 s or 0.77 over 30 s.
-    The process group is sent SIGTERM, then SIGKILL after 20 s.
+    Every process of the attempt, its descendants and session, is sent SIGTERM, then SIGKILL
+    after 20 s, and the rerun starts once all of them are gone.
   - *Lost the GPU.* The attempt exited non-zero and a `--rerun-on` pattern (default
     `ErrorDeviceLost` and `VK_ERROR_DEVICE_LOST`, the two spellings of Vulkan's device-lost error
     that `robotwin_icil` stops a run on) matches anything that attempt wrote to `--log`, however

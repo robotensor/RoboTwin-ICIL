@@ -7,8 +7,8 @@ three ways:
   stalled     The attempt's process tree used under --min-cpu-rate cores on average over the last
               --stall seconds, or the attempt ran longer than --max-wall seconds. A hung camera
               read sleeps or polls the GPU with a trickle of CPU, so the test is a rate over a
-              sliding window, not whether CPU time moved at all. The process group is killed
-              (SIGTERM, then SIGKILL) and the command rerun.
+              sliding window, not whether CPU time moved at all. Every process of the attempt is
+              killed (SIGTERM, then SIGKILL) and, once all are gone, the command rerun.
   transient   The attempt exited non-zero and its own output, everything it appended to --log,
               matches a --rerun-on pattern (by default Vulkan's device-lost error in either
               spelling, ErrorDeviceLost or VK_ERROR_DEVICE_LOST). It is rerun.
@@ -44,6 +44,7 @@ OVERLAP = 64 * 1024
 # What robotwin_icil.robotwin.gpu_lost() takes for a lost GPU: SAPIEN's C++ spelling and Vulkan's C one.
 DEFAULT_RERUN_ON = ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST")
 DEFAULT_MIN_CPU_RATE = 0.25
+KILL_WAIT = 10.0
 
 
 class Proc(NamedTuple):
@@ -51,6 +52,7 @@ class Proc(NamedTuple):
     pgrp: int
     session: int
     state: str
+    start: int  # clock ticks from boot to its start; with the pid, it tells a reused pid apart
     cpu: float  # user + system seconds of every thread, plus children it has reaped
 
 
@@ -71,55 +73,93 @@ def read_procs() -> dict[int, Proc]:
         except OSError:
             continue
         cpu = sum(int(tick) for tick in fields[11:15]) / ticks
-        procs[int(entry)] = Proc(int(fields[1]), int(fields[2]), int(fields[3]), fields[0], cpu)
+        pid, ppid, pgrp, session = int(entry), int(fields[1]), int(fields[2]), int(fields[3])
+        procs[pid] = Proc(ppid, pgrp, session, fields[0], int(fields[19]), cpu)
     return procs
 
 
-def tree_cpu_seconds(root: int) -> float:
-    """CPU seconds used so far by `root`, its descendants and anything else in its session.
+def process_start(pid: int) -> int | None:
+    """When `pid` started, in clock ticks after boot, or None once it is gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return int(f.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
 
-    A child that exits and is reaped inside the tree moves into its parent's cutime and cstime, so
-    the sum does not drop when it goes; the session catches descendants reparented away.
+
+def attempt_procs(leader: int, start: int | None, procs: dict[int, Proc]) -> dict[int, Proc]:
+    """The attempt's processes in `procs`: its leader, the leader's descendants and its session.
+
+    The session still holds a descendant that init adopted when its parent exited; a worker that
+    starts a session of its own is found through its parent while that parent lives. The leader is
+    walked only while its pid names the process simwatch started (`start`). The session needs no
+    such check: the kernel does not hand out a session's id while any process is in it.
     """
-    procs = read_procs()
     children: dict[int, list[int]] = {}
     for pid, proc in procs.items():
         children.setdefault(proc.ppid, []).append(pid)
-    members: set[int] = set()
-    stack = [root, *(pid for pid, proc in procs.items() if proc.session == root)]
+    stack = [pid for pid, proc in procs.items() if proc.session == leader]
+    if leader in procs and procs[leader].start == start:
+        stack.append(leader)
+    members: dict[int, Proc] = {}
     while stack:
         pid = stack.pop()
-        if pid in members or pid not in procs:
-            continue
-        members.add(pid)
-        stack.extend(children.get(pid, []))
-    return sum(procs[pid].cpu for pid in members)
+        if pid not in members:
+            members[pid] = procs[pid]
+            stack.extend(children.get(pid, []))
+    return members
 
 
-def group_alive(pgid: int) -> bool:
-    """Whether any process in the group is still running; zombies left to a lazy reaper do not count."""
-    return any(p.pgrp == pgid and p.state not in "ZX" for p in read_procs().values())
-
-
-def kill_group(proc: subprocess.Popen, grace: float) -> None:
-    """SIGTERM the attempt's process group, then SIGKILL whatever is left after `grace` seconds."""
+def signal_process(pid: int, start: int, sig: int) -> None:
+    """Send `sig` to `pid` only while that pid is still the process that started at `start`."""
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return
+    except OSError:  # a kernel without pidfds: check, then signal by number
+        try:
+            if process_start(pid) == start:
+                os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+        return
+    try:
+        # The descriptor holds the process that had the pid when it was opened. If that one started
+        # at `start`, a process that reuses the number later cannot receive the signal.
+        if process_start(pid) == start:
+            signal.pidfd_send_signal(fd, sig)
     except ProcessLookupError:
         pass
+    finally:
+        os.close(fd)
+
+
+def kill_attempt(proc: subprocess.Popen, start: int | None, grace: float) -> int:
+    """Stop every process of the attempt, and say how many were still running.
+
+    Each gets SIGTERM, then SIGKILL once `grace` seconds have passed. This returns only when none
+    is left running, so a rerun never shares the GPU with what it replaces, or KILL_WAIT seconds
+    after the SIGKILL when a process is stuck in the kernel.
+    """
+    signalled: dict[tuple[int, int], int] = {}  # (pid, start) -> the last signal sent to it
     deadline = time.monotonic() + grace
     while True:
-        proc.poll()
-        if not group_alive(proc.pid):
+        procs = read_procs()
+        keys = {(pid, p.start) for pid, p in attempt_procs(proc.pid, start, procs).items()}
+        # One signalled already can have left the tree and session: its parent died before it did.
+        keys |= {key for key in signalled if key[0] in procs and procs[key[0]].start == key[1]}
+        running = [key for key in keys if procs[key[0]].state not in "ZX"]
+        now = time.monotonic()
+        if not running or now >= deadline + KILL_WAIT:
             break
-        if time.monotonic() >= deadline:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            break
-        time.sleep(0.2)
+        sig = signal.SIGKILL if now >= deadline else signal.SIGTERM
+        for key in running:
+            if signalled.get(key) != sig:
+                signal_process(*key, sig)
+                signalled[key] = sig
+        time.sleep(0.1)
     proc.wait()
+    return len(signalled)
 
 
 def exit_status(returncode: int) -> int:
@@ -143,6 +183,7 @@ def run_once(
     seconds of samples shows under `min_cpu_rate` cores on average, or after `max_wall` seconds.
     """
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    start = process_start(proc.pid)  # not reaped before poll(), so readable even if it exited
     started = time.monotonic()
     used, last_total = 0.0, 0.0
     window = deque([(started, used)])
@@ -150,7 +191,8 @@ def run_once(
         code = proc.poll()
         if code is not None:
             return exit_status(code), f"exited {exit_status(code)}"
-        total = tree_cpu_seconds(proc.pid)
+        # A child reaped inside the tree moves into its parent's cutime, so the sum keeps it.
+        total = sum(p.cpu for p in attempt_procs(proc.pid, start, read_procs()).values())
         now = time.monotonic()
         # A member reaped outside the tree takes its CPU with it; that is not negative work.
         used += max(0.0, total - last_total)
@@ -170,11 +212,11 @@ def run_once(
             why = f"stalled: still running after {max_wall:.0f}s wall"
         if why:
             print(
-                f"[simwatch] {why} ({used:.1f}s CPU in all); killing process group {proc.pid}",
+                f"[simwatch] {why} ({used:.1f}s CPU in all); killing the attempt's processes",
                 file=log,
                 flush=True,
             )
-            kill_group(proc, grace)
+            kill_attempt(proc, start, grace)
             return None, why
         time.sleep(poll)
 
