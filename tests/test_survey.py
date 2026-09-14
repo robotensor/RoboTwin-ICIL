@@ -190,10 +190,11 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     assert f"the simulator died before {second}" in captured.err
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert not out.with_suffix(".json.tmp").exists()  # written whole, then renamed into place
-    assert [entry["task"] for entry in payload] == [first]
-    assert payload[0]["seeds"] == 3
-    assert (payload[0]["one_arm_demonstrations"], payload[0]["two_arm_demonstrations"]) == (2, 0)
-    detail = payload[0]["seeds_detail"]
+    assert payload["images"] is False
+    [entry] = payload["tasks"]
+    assert entry["task"] == first and entry["seeds"] == 3
+    assert (entry["one_arm_demonstrations"], entry["two_arm_demonstrations"]) == (2, 0)
+    detail = entry["seeds_detail"]
     assert [r["seed"] for r in detail] == seeds
     assert [r["outcome"] for r in detail] == ["ok", "plan_failed", "ok"]
     assert [r["arms_moved"] for r in detail] == [["left"], None, ["left"]]
@@ -241,7 +242,11 @@ def test_the_survey_command_renders_nothing_by_default(tmp_path, monkeypatch, ca
     assert cli.main(["survey", "--task", "click_bell", "--seeds", "2", "--json", str(out)]) == 0
     assert "click_bell: expert solved 2/2" in capsys.readouterr().out
     assert len(envs) == 1 and envs[0].get_obs_calls == 0
-    assert [entry["images"] for entry in json.loads(out.read_text(encoding="utf-8"))] == [False]
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["images"] is False
+    assert [(entry["task"], entry["images"]) for entry in payload["tasks"]] == [
+        ("click_bell", False)
+    ]
 
 
 def test_the_survey_command_renders_every_frame_with_images(tmp_path, monkeypatch, capsys):
@@ -251,4 +256,8 @@ def test_the_survey_command_renders_every_frame_with_images(tmp_path, monkeypatc
     assert cli.main(argv) == 0
     assert "click_bell: expert solved 2/2" in capsys.readouterr().out
     assert envs[0].get_obs_calls == 2 * (envs[0].expert_steps + 1)
-    assert [entry["images"] for entry in json.loads(out.read_text(encoding="utf-8"))] == [True]
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["images"] is True
+    assert [(entry["task"], entry["images"]) for entry in payload["tasks"]] == [
+        ("click_bell", True)
+    ]

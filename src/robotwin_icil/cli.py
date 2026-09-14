@@ -86,8 +86,9 @@ def _survey(args: argparse.Namespace) -> int:
         if out is not None:
             # Rewritten whole after every task: an interrupted survey keeps what it has measured,
             # and a kill that lands mid-write leaves the previous file rather than a torn one.
+            # `images` heads the file as well as each task, so no reader takes it for a rendered run.
             out.parent.mkdir(parents=True, exist_ok=True)
-            write_json(out, [r.to_json() for r in results])
+            write_json(out, {"images": args.images, "tasks": [r.to_json() for r in results]})
     print()
     print(render(results), end="")
     return 0
