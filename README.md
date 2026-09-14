@@ -176,6 +176,10 @@ call with an error fails its unit; one that cannot be spoken to (nothing listeni
 refused, a timeout, a hang-up, a malformed reply) voids it with `void_cause` "policy", and every
 other void carries "harness" — see [`docs/policies.md`](docs/policies.md).
 
+The competition orchestrator runs the benchmark through [`competition/`](competition/README.md),
+a distribution of its own that it imports without a simulator: the catalogue, the unit list of
+a duel, prompt verification and results, and the argv of `materialize` and `run-unit`.
+
 ## Layout
 
 ```
@@ -196,6 +200,7 @@ src/robotwin_icil/
   survey.py                 the expert's own success rate per task, and which arms it moved
   robotwin.py               the only module that imports RoboTwin
   cli.py
+competition/                the orchestrator plugin, its own distribution (competition/README.md)
 docs/                       installation, policy adapters, the expert survey
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```

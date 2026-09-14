@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- (feat): the benchmark plugs into the competition orchestrator as its own distribution.
+  `competition/` is `robotwin-icil-competition`, package `icil_benchmark_robotwin`, found through
+  the `icil.benchmarks` entry point `robotwin` and never importing the orchestrator. Its pure half
+  needs no simulator: `info` (robots and action widths, cameras, protocol, channel map, commits,
+  command line), `catalogue` (suites, categories, each task's category and arms), `derive_units`
+  (a sha256 counter over the seed material, pinned by a test and run on Python 3.10 and 3.12 in
+  CI; each unit holds four candidate `scene_seeds` and its robot), `verify_prompt` (reads
+  `prompt.npz` without unpickling and holds its task, seed, robot, arrays and scene digest to the
+  unit) and `read_result` (with `void_cause`). `materialize_command` and `run_command` return the
+  argv of `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON`. The `franka_1arm` suite
+  is PROVISIONAL until the Franka survey names it (#83): the one-arm pick-and-place and press/push
+  tasks and the arm-switching stacking tasks, with arms copied from the arms-and-embodiment table.
+  `icil-orchestrator benchmarks check robotwin` reports it ok, noting the unpinned version and
+  wheel (#86).
 - (feat): an episode runs against a policy served at an address, and a lost policy voids it.
   `robotwin-icil run-unit --policy-address ADDR --authkey-env NAME [--act-timeout-s S]
   [--policy-log PATH]`, in place of `--policy`, drives a policy served by `python -m
