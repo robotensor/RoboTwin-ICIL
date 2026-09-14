@@ -128,7 +128,9 @@ def survey_task(
 
     Everything recorded is read from the joints, so by default no camera renders a frame
     (`robotwin.capture`): ray tracing every camera is expected to be most of a seed's cost (not
-    yet timed), and no expert reads an image. `images=True` renders them as an episode does.
+    yet timed), and no expert reads an image. `images=True` renders them as an episode does, and
+    is the one whose rejections match an episode's on a GPU short of memory: rendering holds
+    memory, and RoboTwin's CuRobo batch planner reports an out-of-memory error as a failed plan.
     """
     result = TaskSurvey(
         task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]), images=images

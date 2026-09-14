@@ -60,7 +60,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets. One simulator
   process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
 - Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval` and `survey` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks, and combines with `--embodiment` (`survey --suite all --embodiment franka-panda --arms 1`).
-  `survey` renders no camera unless given `--images`, and its JSON records which.
+  `survey` renders no camera unless given `--images`, and its JSON records which. Pass `--images` when its rejections must predict `eval`'s on a GPU short of memory: rendering holds memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed plan.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules

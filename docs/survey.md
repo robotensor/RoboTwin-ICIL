@@ -15,8 +15,8 @@ it records its demonstrations without images: each frame reads the joint vector 
 straight from the robot, from the accessors `get_obs` uses, and `get_obs` is never called.
 RoboTwin ray-traces every camera at 32 samples per pixel for each frame, which we expect to be
 most of a seed's cost (not yet timed), and SAPIEN's camera read is where a run hangs on a shared
-GPU. Nothing the survey measures
-changes: at the pinned commit no expert (`play_once`, `check_success` or a helper they call) reads
+GPU. What an expert reads does not
+change: at the pinned commit no expert (`play_once`, `check_success` or a helper they call) reads
 an observation, an image or a camera, and the one side effect of `get_obs` an expert could see —
 the light colours `crazy_random_light` draws from numpy's RNG — is kept (`robotwin.robot_state`
 says how this was checked). `tests/sim/test_capture_without_images.py` runs the check on two
@@ -24,7 +24,12 @@ Frankas: with and without images, a seed ends the same way, in as many frames, w
 joints, endposes and arms moved. The Franka expert does not always repeat itself, so a mismatch
 is run again with images; a seed whose two rendered runs differ is only an expected failure, and
 only while the run without images ends as one of them does, in a frame count between theirs.
-`--images` renders every frame as `eval` does; `eval` always
+One thing can still differ, on a GPU short of memory. Rendering holds GPU memory, and the batch
+planner RoboTwin picks a grasp with (`CuroboPlanner.plan_batch`, `envs/robot/planner.py`) catches
+every exception, a CUDA out-of-memory error included, and reports a failed plan. There a rendered
+run can reject, as *plan failed* or *error*, a seed a run without images keeps, so a survey meant
+to predict `eval`'s rejections on a shared GPU should pass `--images`. How much memory rendering
+takes has not been measured. `--images` renders every frame as `eval` does; `eval` always
 renders, since the demonstration it hands a policy needs its images. The JSON says which: it is
 `{"images": false, "tasks": [...]}`, and every task entry carries `images` too.
 
@@ -61,8 +66,9 @@ with a survey run without `--images`.
 | press_stapler | Press / Push | 95% (19/20) | 120 | 25.5 | error 1 |
 
 **Timing caveat.** For most of the survey the GPU was shared with an unrelated training job
-holding about 40 GiB, so the *s / seed* column is inflated by contention. Success rates are not
-affected: each seed's scene and expert are deterministic.
+holding about 40 GiB, so the *s / seed* column is inflated by contention. Contention alone does
+not change success rates: each seed's scene and expert are deterministic. Running short of GPU
+memory could, and would read as *plan failed* or *error* (see *No camera renders* above).
 
 **The rule.** A task stays in `v1` while its expert solves at least 70% of surveyed seeds.
 place_object_basket, at 45%, needs about 2.2 expert runs (~90 s) per scored episode and has the

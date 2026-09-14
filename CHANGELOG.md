@@ -9,8 +9,10 @@
   as before. The survey JSON becomes an object, `{"images": …, "tasks": [...]}`, and every task
   entry records `images`. At the pinned RoboTwin no expert reads an observation or a camera, and
   the one `get_obs` side effect an expert could see, the `crazy_random_light` RNG draw, is kept;
-  a sim test compares attempts with and without images on dual Franka. `eval` always renders
-  (#83).
+  a sim test compares attempts with and without images on dual Franka. Rendering still holds GPU
+  memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed
+  plan, so on a GPU short of memory a survey without images can keep seeds `eval` would reject;
+  `--images` measures what `eval` sees. `eval` always renders (#83).
 - (feat): the survey records every seed, and for every demonstration which arms moved and by how
   much. Each task's JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection),
   frames, `arms_moved`, `displacement`, seconds — and the counts `one_arm_demonstrations`,
