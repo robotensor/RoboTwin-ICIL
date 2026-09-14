@@ -396,22 +396,61 @@ def _images(raw: dict[str, Any]) -> dict[str, np.ndarray]:
     return images
 
 
+def robot_state(env) -> dict[str, Any]:
+    """`observation` without its images: the same qpos and endpose, and no camera takes a picture.
+
+    `get_obs` (`envs/_base_task.py:437`) ray-traces every camera, then reads the joint vector from
+    `robot.get_left_arm_jointState() + get_right_arm_jointState()` and, where the config's
+    `data_type` asks for it, the endpose from `get_arm_pose` and the gripper values. Those reads
+    are joint drive targets, link poses and a stored gripper opening (`envs/robot/robot.py`); none
+    renders, so reading them here gives the frame `get_obs` would have given, less its images.
+
+    Nothing an expert reads depends on the rest of `get_obs` at the pinned commit: no task's
+    `play_once` or `check_success`, nor any `Base_Task` helper they reach, reads an observation,
+    `now_obs` or a camera, and the wrist cameras `get_obs` re-poses carry no physics. Its one draw
+    from numpy's global RNG, the light colours `_update_render` redraws when a config turns on
+    `crazy_random_light`, is made here too, in the same place, so the expert sees the same stream.
+    """
+    if getattr(env, "crazy_random_light", False):
+        env._update_render()
+    left = env.robot.get_left_arm_jointState()
+    right = env.robot.get_right_arm_jointState()
+    endpose: dict[str, Any] = {}
+    if (getattr(env, "data_type", None) or {}).get("endpose", False):
+        endpose = {
+            "left_endpose": env.get_arm_pose("left"),
+            "left_gripper": env.robot.get_left_gripper_val(),
+            "right_endpose": env.get_arm_pose("right"),
+            "right_gripper": env.robot.get_right_gripper_val(),
+        }
+    return {
+        "images": {},
+        "qpos": np.asarray(left + right, dtype=np.float64),
+        "endpose": endpose,
+    }
+
+
 @contextlib.contextmanager
-def capture(env, save_freq: int) -> Iterator[list[Frame]]:
+def capture(env, save_freq: int, images: bool = True) -> Iterator[list[Frame]]:
     """Record every frame the expert's `_take_picture` would have pickled, in memory.
 
     RoboTwin drives recording from inside `take_dense_action`, which calls `_take_picture()` every
     `save_freq` control steps when `save_data` is set. Overriding the method on the instance keeps
     the expert, its timing and the submodule untouched — the frames are simply kept rather than
     written to a cache directory that would then be read back and deleted.
+
+    With `images=False` a frame is `robot_state`: the same joints and endpose at the same steps,
+    no image, and `get_obs` is never called, so no camera ray-traces. Only a caller that never
+    hands the demonstration to a policy may ask for that; the survey does.
     """
     frames: list[Frame] = []
     original_take_picture = env._take_picture
     original_save_data = env.save_data
     original_save_freq = env.save_freq
+    read = observation if images else robot_state
 
     def _capture() -> None:
-        obs = observation(env)
+        obs = read(env)
         frames.append(
             Frame(
                 index=len(frames),

@@ -1,9 +1,11 @@
 """A duck-typed stand-in for a RoboTwin task env, to test the protocol without a simulator.
 
 It implements exactly the surface the benchmark touches — `setup_demo`, `play_once`,
-`check_success`, `take_action`, `get_obs`, `close_env`, and what `robotwin.fingerprint` reads — and,
-like RoboTwin, builds its scene as a pure function of the seed: a cube placement and the joint
-target the expert must reach are drawn from `np.random.default_rng(seed)`.
+`check_success`, `take_action`, `get_obs`, `close_env`, and what `robotwin.fingerprint` and
+`robotwin.robot_state` read — and counts the calls that would render (`get_obs`) or redraw the
+lights (`_update_render`). Like RoboTwin, it builds its scene as a pure function of the seed: a
+cube placement and the joint target the expert must reach are drawn from
+`np.random.default_rng(seed)`.
 """
 
 from types import SimpleNamespace
@@ -98,6 +100,8 @@ class FakeTaskEnv:
         self.moves = set(moves)  # the arms the expert drives; the others stay at their start
         self.save_data = False
         self.save_freq = None
+        self.get_obs_calls = 0  # each one would ray-trace every camera
+        self.update_renders = 0
         self.builds: dict[int, int] = {}
         self.setups: list[int] = []
         self.task_names: list[str | None] = []
@@ -121,6 +125,8 @@ class FakeTaskEnv:
         if self.drift and self.builds[seed] > 1:
             cube = cube + 0.01  # what an unseeded RNG in scene construction would do
         self.seed = seed
+        # demo_clean's: rgb, qpos and endpose. `get_obs` fills endpose only when asked, as upstream.
+        self.data_type = kwargs.get("data_type", {"rgb": True, "qpos": True, "endpose": True})
         self.qpos = np.zeros(self.qpos_dim)
         # Like RoboTwin, each arm reports its joints then its gripper; the vector is left + right.
         half = self.qpos_dim // 2
@@ -138,6 +144,8 @@ class FakeTaskEnv:
         self.robot = SimpleNamespace(
             get_left_arm_jointState=lambda: list(self.qpos[:half]),
             get_right_arm_jointState=lambda: list(self.qpos[half:]),
+            get_left_gripper_val=lambda: float(self.qpos[half - 1]),
+            get_right_gripper_val=lambda: float(self.qpos[-1]),
             left_urdf_path="./assets/embodiments/fake/fake.urdf",
             right_urdf_path="./assets/embodiments/fake/fake.urdf",
             is_dual_arm=True,
@@ -174,11 +182,31 @@ class FakeTaskEnv:
     def check_success(self):
         return bool(np.allclose(self.qpos, self.target, atol=1e-9))
 
+    def get_arm_pose(self, arm_tag):
+        # A pose that follows the arm's first joints, so two frames' endposes differ as it moves.
+        half = self.qpos_dim // 2
+        joints = self.qpos[:half] if arm_tag == "left" else self.qpos[half:]
+        return [float(value) for value in joints[:3]] + [1.0, 0.0, 0.0, 0.0]
+
+    def _update_render(self):
+        self.update_renders += 1
+
     def get_obs(self):
+        # Upstream's order: sync the renderer, take every camera's picture, then read the robot.
+        self.get_obs_calls += 1
+        self._update_render()
+        endpose = {}
+        if self.data_type.get("endpose", False):
+            endpose = {
+                "left_endpose": self.get_arm_pose("left"),
+                "left_gripper": self.robot.get_left_gripper_val(),
+                "right_endpose": self.get_arm_pose("right"),
+                "right_gripper": self.robot.get_right_gripper_val(),
+            }
         return {
             "observation": {"head_camera": {"rgb": np.zeros((16, 16, 3), dtype=np.uint8)}},
             "joint_action": {"vector": self.qpos.copy()},
-            "endpose": {},
+            "endpose": endpose,
         }
 
     def take_action(self, action, action_type="qpos"):
