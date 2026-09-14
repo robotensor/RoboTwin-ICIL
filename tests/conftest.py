@@ -55,6 +55,10 @@ class Flaky:
         k = min(self.step, len(self.actions) - 1)
         self.step += 1
         return {"action": self.actions[k]}
+
+    def close(self):
+        if self.where == "close":
+            time.sleep(self.sleep_s)
 """
 
 
@@ -85,7 +89,8 @@ def replay_manifest():
 @pytest.fixture
 def policy_repo(tmp_path):
     """`policy_repo(**kwargs)`: the `icil.yaml` of a repository serving `FLAKY_POLICY`, built
-    with `kwargs` (`where`: init, reset, prompt, act or hang; `at`: the act step; `sleep_s`)."""
+    with `kwargs` (`where`: init, reset, prompt, act, hang or close; `at`: the act step; `sleep_s`,
+    how long `hang` stalls that act and `close` stalls closing)."""
 
     def write(**kwargs):
         root = tmp_path / "flaky-repo"

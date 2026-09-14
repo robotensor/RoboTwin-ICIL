@@ -89,6 +89,7 @@ class FakeClient:
 
     def close(self):
         self.closed = True
+        self.closed_within = self.timeout_s
 
     def ops(self):
         return [op for op, _, _ in self.calls]
@@ -171,6 +172,19 @@ def test_an_error_reply_is_the_policys_failure_never_a_void(tmp_path, errors, op
         f"the served policy answered {op} with an error: {op}: RuntimeError: boom"
         in (result["detail"])
     )
+
+
+def test_close_has_its_own_short_timeout_whatever_the_last_call_had(tmp_path, errors):
+    # A unit whose policy raised in reset has its result; the close after it must not wait out
+    # the 300s reset had.
+    failure = errors.PolicyUnavailable("reset: RuntimeError: boom", op="reset", remote_type="E")
+    script = Script(fail={"reset": failure})
+    _, policy, result = run(tmp_path, script)
+    assert result["success"] is False
+    [client] = script.clients
+    assert client.timeout_s == remote.SETUP_TIMEOUT_S
+    policy.close()
+    assert client.closed and client.closed_within == remote.CLOSE_TIMEOUT_S
 
 
 @pytest.mark.parametrize(

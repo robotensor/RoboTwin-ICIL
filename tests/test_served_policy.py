@@ -13,11 +13,12 @@ import socket
 import struct
 import tempfile
 import threading
+import time
 
 import pytest
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
-from robotwin_icil import cli, prompt, records, robotwin, unit
+from robotwin_icil import cli, prompt, records, remote, robotwin, unit
 
 pytest.importorskip("icil_policy")
 pytest.importorskip("imageio_ffmpeg")
@@ -119,6 +120,20 @@ def test_a_policy_that_hangs_is_void_at_its_act_timeout_and_its_server_exits(
     assert result["void"] is True and result["void_cause"] == "policy"
     assert result["error"].startswith("the policy is unreachable: act: no answer within 1s")
     # No server outlives its unit: the client hung up mid-call, and the server exits on that.
+    assert served.process.wait(timeout=15) == 0
+
+
+def test_a_policy_that_stalls_its_close_does_not_keep_run_unit_running(
+    tmp_path, serve_policy, policy_repo, monkeypatch
+):
+    path = materialize(tmp_path)
+    served = serve_policy(policy_repo(where="close", sleep_s=120))
+    monkeypatch.setattr(remote, "CLOSE_TIMEOUT_S", 1.0)
+    started = time.monotonic()
+    result = run_unit(tmp_path, path, served)
+    assert time.monotonic() - started < 15
+    assert result["success"] is True and result["void"] is False
+    # The client gave up on close and hung up; the server's hang-up watch ends it.
     assert served.process.wait(timeout=15) == 0
 
 

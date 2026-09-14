@@ -63,6 +63,9 @@ CONNECT_TIMEOUT_S = 60.0
 SETUP_TIMEOUT_S = 300.0
 #: How long one `act` may take unless run-unit is told otherwise (`--act-timeout-s`).
 ACT_TIMEOUT_S = 60.0
+#: How long saying `close` may take. By then the unit's result is written, and a policy that
+#: stalls its close must not keep run-unit, and the unit, running past it.
+CLOSE_TIMEOUT_S = 5.0
 
 
 def authkey_from_env(name: str, environ: MutableMapping[str, str] | None = None) -> bytes:
@@ -117,6 +120,7 @@ class RemotePolicy(ICILPolicy):
         act_timeout_s: float = ACT_TIMEOUT_S,
         setup_timeout_s: float = SETUP_TIMEOUT_S,
         connect_timeout_s: float = CONNECT_TIMEOUT_S,
+        close_timeout_s: float | None = None,
         log_file: str | os.PathLike[str] | None = None,
         client_factory: Any = None,
     ) -> None:
@@ -130,10 +134,12 @@ class RemotePolicy(ICILPolicy):
             raise PolicyError(
                 f"a policy served at an address needs icil-policy installed: {exc}"
             ) from exc
+        close_timeout_s = CLOSE_TIMEOUT_S if close_timeout_s is None else close_timeout_s
         for what, seconds in (
             ("act", act_timeout_s),
             ("setup", setup_timeout_s),
             ("connect", connect_timeout_s),
+            ("close", close_timeout_s),
         ):
             if not seconds > 0:
                 raise PolicyError(f"the {what} timeout must be positive, not {seconds!r}")
@@ -141,6 +147,7 @@ class RemotePolicy(ICILPolicy):
         self.act_timeout_s = float(act_timeout_s)
         self.setup_timeout_s = float(setup_timeout_s)
         self.connect_timeout_s = float(connect_timeout_s)
+        self.close_timeout_s = float(close_timeout_s)
         # Absolute before the RoboTwin seam moves the working directory, and never resolved: the
         # policy can write beside its log, and `icil_policy.logs.tail` refuses to follow a log
         # swapped for a link only while the path it opens still ends in that link.
@@ -165,9 +172,11 @@ class RemotePolicy(ICILPolicy):
         return described
 
     def close(self) -> None:
-        """Say `close` and drop the connection, if there is one. Idempotent; raises nothing."""
+        """Say `close` and drop the connection, if there is one, within `close_timeout_s`, not
+        whatever timeout the last call had. Idempotent; raises nothing."""
         client, self._client = self._client, None
         if client is not None:
+            client.timeout_s = self.close_timeout_s
             client.close()
 
     def _reset(self) -> None:
