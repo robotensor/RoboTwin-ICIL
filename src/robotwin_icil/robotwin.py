@@ -410,6 +410,13 @@ def robot_state(env) -> dict[str, Any]:
     `now_obs` or a camera, and the wrist cameras `get_obs` re-poses carry no physics. Its one draw
     from numpy's global RNG, the light colours `_update_render` redraws when a config turns on
     `crazy_random_light`, is made here too, in the same place, so the expert sees the same stream.
+
+    How that was checked, at `vendor/RoboTwin` 96c1feab: a grep of `envs/` for `get_obs`, `now_obs`,
+    `get_rgb`, `cameras.`, `take_picture`, `_update_render` and `update_picture`, which hits no
+    task file; and a walk of the AST from every task's `play_once` and `check_success` through the
+    `Base_Task` and task methods they call. On those paths the only hits are the recording calls
+    in `take_dense_action` and `together_move_to_pose`, around the `_take_picture` that `capture`
+    replaces; `take_action`, which reads `now_obs` for the eval video, is not on them.
     """
     if getattr(env, "crazy_random_light", False):
         env._update_render()
