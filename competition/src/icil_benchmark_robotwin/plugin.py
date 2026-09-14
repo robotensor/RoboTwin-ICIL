@@ -106,7 +106,8 @@ class RoboTwinBenchmark:
             "catalogue_sha256": units.catalogue_sha256(table),
             "pinned_catalogue_sha256": units.CATALOGUE_SHA256,
             "derivation": units.DERIVATION,
-            # The survey that chose the one-arm Franka suite, and its categories' tasks and arms.
+            # The survey that chose the one-arm Franka suite, its categories' tasks and arms, and
+            # which of its tasks stands in although its expert is not a one-arm one.
             "franka_1arm": catalogue_.franka_1arm_basis(table),
             "void_causes": list(prompts.VOID_CAUSES),
             # What run-unit gives a served policy unless `extra` says otherwise. A unit's

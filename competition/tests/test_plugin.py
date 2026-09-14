@@ -5,6 +5,7 @@ and ABI version, every method callable with the keywords the orchestrator passes
 the `icil.benchmarks` group, and a pure half that imports no simulator.
 """
 
+import dataclasses
 import inspect
 import json
 import subprocess
@@ -150,6 +151,24 @@ def test_the_franka_suite_is_the_task_tables_and_nothing_is_provisional():
         "stacking": {"tasks": ["stack_bowls_two"], "arms": ["switching"]},
         "press_push": {"tasks": ["click_bell", "press_stapler"], "arms": ["1"]},
     }
+
+
+def test_info_names_stack_bowls_two_as_the_arm_switching_stand_in_for_stacking():
+    [(name, note)] = BENCHMARK.info()["franka_1arm"]["stand_ins"].items()
+    assert name == "stack_bowls_two"
+    assert note.startswith(
+        "stack_bowls_two is an arm-switching stand-in for stacking, which has no one-arm task: "
+    )
+    assert "a scene the survey did not see can still make its expert move both arms" in note
+    # Read off the table: a stand-in for a category that has one-arm tasks claims no such thing.
+    table = tasks.table()
+    switching = dataclasses.replace(table["press_stapler"], arms="switching")
+    changed = dataclasses.replace(table, tasks={**table.tasks, "press_stapler": switching})
+    notes = catalogue.stand_ins(changed)
+    assert list(notes) == ["stack_bowls_two", "press_stapler"]
+    assert notes["press_stapler"].startswith(
+        "press_stapler is an arm-switching stand-in for press_push: every demonstration"
+    )
 
 
 def test_the_catalogue_shows_the_arms_robotwin_icils_table_records():
