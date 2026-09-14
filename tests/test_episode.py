@@ -1,11 +1,14 @@
 """The Same Scene protocol, end to end, against a fake RoboTwin env."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import robotwin, tasks
-from robotwin_icil.episode import EpisodeSpec, run_episode
+from robotwin_icil.demo import Demonstration, Frame
+from robotwin_icil.episode import EpisodeSpec, rollout, run_episode
 from robotwin_icil.generate import scene_seeds
 from robotwin_icil.policy import DummyPolicy, ICILPolicy, PolicyError, ReplayPolicy
 from robotwin_icil.records import SAME_SCENE, Status
@@ -25,13 +28,17 @@ def spec(episode=0, attempts=5, global_seed=0):
     )
 
 
-def test_replay_succeeds_from_the_same_scene():
-    env = FakeTaskEnv()
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_replay_succeeds_from_the_same_scene(qpos_dim):
+    # 14 is aloha-agilex, 16 a dual Franka: the loop takes its widths from the robot it is given.
+    env = FakeTaskEnv(qpos_dim=qpos_dim)
     record = run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)
     assert record.status is Status.SCORED and record.success
     assert record.evaluation_setting == SAME_SCENE and record.skill_category == "pick_and_place"
     assert record.steps == env.expert_steps and record.demonstration_frames == env.expert_steps + 1
     assert record.scene_seed == scene_seeds(0, 0, 5)[0]
+    assert record.embodiment == "fake-arms"
+    assert robotwin.action_dims(env) == {"qpos": qpos_dim, "ee": 16}
 
 
 def test_the_rollout_starts_from_a_rebuilt_scene_not_the_experts_final_state():
@@ -118,6 +125,20 @@ def test_a_simulator_error_mid_rollout_is_a_failed_rollout():
     )
     assert record.status is Status.SCORED and record.success is False
     assert record.detail.startswith("rollout error")
+
+
+def test_a_robot_whose_widths_cannot_be_read_is_a_harness_bug_not_a_failed_rollout():
+    # The widths are read off the arms before the policy acts; a seam that cannot read them would
+    # otherwise score every episode as a "rollout error" failure, a stream of zeros to average.
+    env = FakeTaskEnv()
+    env.setup_demo(seed=scene_seeds(0, 0, 5)[0])
+    env.robot = SimpleNamespace()  # no get_left_arm_jointState / get_right_arm_jointState
+    policy = ReplayPolicy()
+    policy.reset()
+    frames = tuple(Frame(index, {}, np.zeros(14), {}) for index in range(2))
+    policy.set_demonstration(Demonstration(frames=frames, frequency=1.0))
+    with pytest.raises(AttributeError):
+        rollout(env, policy)
 
 
 def test_both_scenes_are_built_under_the_tasks_name():

@@ -22,8 +22,16 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   Same Scene. `check_stable()` raises `UnStableError` on a bad placement.
 - Demonstrations are recorded by `_take_picture()`, called from `take_dense_action()` every
   `save_freq` control steps when `save_data` is set; it pickles `get_obs()` frames to a cache dir.
-  `get_obs()` returns per-camera rgb, `endpose`, and `joint_action` (`vector` is the 14-dim
-  bimanual qpos). We capture frames in memory instead of via that cache.
+  `get_obs()` returns per-camera rgb, `endpose`, and `joint_action` (`vector` is the left arm's
+  joint state followed by the right's — joints then a gripper per arm, so 14-dim on aloha-agilex
+  and 16-dim on two Frankas). We capture frames in memory instead of via that cache.
+- `env_cfg/task_config/_embodiment_config.yml` names the embodiments, and `robot.py:_init_robot_`
+  always builds a left and a right arm: a one-entry `embodiment` (`[aloha-agilex]`) is one URDF
+  holding both arms (`dual_arm_embodied`); a single-arm robot such as franka-panda must be given
+  as `[franka-panda, franka-panda, <distance>]`, one URDF per arm, bases `distance` metres apart
+  (0.8 m, from RoboTwin's configuration guide). `SceneConfig.embodiment` picks the form;
+  `robotwin.action_dims` reads each arm's live joint count, which is also how `take_action`
+  splits a qpos action, so 16-dim actions need no upstream change.
 - Rollout is `take_action(action, action_type='qpos'|'ee')`; it stops at `step_lim`
   (`env_cfg/task_config/_eval_step_limit.yml`, per task, needs `eval_mode`) or once `eval_success`
   is set.
@@ -46,7 +54,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
 - Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets. One simulator
   process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
-- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
+- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval` and `survey` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules
@@ -78,9 +86,9 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time.
-- Every episode records episode id, setting, skill category, task, scene seed, expert generation
-  attempts, success, rollout steps and model/checkpoint; every run also records the global seed,
-  both configs and both git commits. Videos go to
+- Every episode records episode id, setting, skill category, task, scene seed, embodiment, expert
+  generation attempts, success, rollout steps and model/checkpoint; every run also records the
+  global seed, the embodiment, both configs and both git commits. Videos go to
   `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
 ## Conventions

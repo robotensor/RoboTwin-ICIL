@@ -53,6 +53,10 @@ class EpisodeRecord:
     rejections: dict[str, int]
     scene_max_error: float
     model: str
+    # The robot, as `robotwin.embodiment_name` names it (the `--embodiment` choice, or the arms and
+    # their distance): a 14-wide aloha-agilex episode and a 16-wide franka-panda one are not the
+    # same measurement, and neither are two Frankas at different distances.
+    embodiment: str
     checkpoint: str | None = None
     detail: str = ""
     duration_s: float = 0.0
@@ -78,7 +82,9 @@ class EpisodeRecord:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> EpisodeRecord:
-        return cls(**data)
+        # Before a run could choose its robot, every episode ran on aloha-agilex, the embodiment of
+        # every shipped task config; records from then still load, and say so.
+        return cls(**{"embodiment": "aloha-agilex", **data})
 
 
 @dataclass(frozen=True)

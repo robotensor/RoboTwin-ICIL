@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+# aloha-agilex's joint vector: six joints and a gripper per arm. A dual Franka is 16.
 QPOS_DIM = 14
 
 
@@ -27,8 +28,16 @@ class FakeConfig:
     head_camera = None
     overrides = None
 
+    def __init__(self, embodiment="fake-arms"):
+        self.embodiment = embodiment
+
     def resolve(self, task_name=None):
-        return {"save_freq": self.save_freq, "task_name": task_name}
+        return {
+            "save_freq": self.save_freq,
+            "task_name": task_name,
+            "embodiment": [self.embodiment],
+            "embodiment_name": self.embodiment,
+        }
 
 
 class _Pose:
@@ -65,6 +74,7 @@ class FakeTaskEnv:
         rollout_error="simulator exploded",
         step_lim=50,
         expert_steps=6,
+        qpos_dim=QPOS_DIM,
     ):
         self.unstable_seeds = set(unstable_seeds)
         self.plan_fails_on = set(plan_fails_on)
@@ -79,6 +89,7 @@ class FakeTaskEnv:
         self.rollout_error = rollout_error
         self.step_lim_setting = step_lim
         self.expert_steps = expert_steps
+        self.qpos_dim = qpos_dim
         self.save_data = False
         self.save_freq = None
         self.builds: dict[int, int] = {}
@@ -95,12 +106,14 @@ class FakeTaskEnv:
             raise RuntimeError(f"planner failed to construct for seed {seed}")
         self.builds[seed] = self.builds.get(seed, 0) + 1
         rng = np.random.default_rng(seed)
-        self.target = rng.uniform(-1.0, 1.0, QPOS_DIM)
+        self.target = rng.uniform(-1.0, 1.0, self.qpos_dim)
         cube = rng.uniform(-0.3, 0.3, 3)
         if self.drift and self.builds[seed] > 1:
             cube = cube + 0.01  # what an unseeded RNG in scene construction would do
         self.seed = seed
-        self.qpos = np.zeros(QPOS_DIM)
+        self.qpos = np.zeros(self.qpos_dim)
+        # Like RoboTwin, each arm reports its joints then its gripper; the vector is left + right.
+        half = self.qpos_dim // 2
         self.scene = SimpleNamespace(
             get_all_actors=lambda: [
                 _Actor("table", _Pose([0.0, 0.0, 0.74])),
@@ -113,8 +126,11 @@ class FakeTaskEnv:
             get_config=lambda: {"head_camera": {"extrinsic_cv": np.eye(4)[:3]}}
         )
         self.robot = SimpleNamespace(
-            get_left_arm_jointState=lambda: list(self.qpos[:7]),
-            get_right_arm_jointState=lambda: list(self.qpos[7:]),
+            get_left_arm_jointState=lambda: list(self.qpos[:half]),
+            get_right_arm_jointState=lambda: list(self.qpos[half:]),
+            left_urdf_path="./assets/embodiments/fake/fake.urdf",
+            right_urdf_path="./assets/embodiments/fake/fake.urdf",
+            is_dual_arm=True,
         )
         self.info = {"texture_info": {"wall_texture": 0, "table_texture": 0}}
         self.crazy_random_light = False

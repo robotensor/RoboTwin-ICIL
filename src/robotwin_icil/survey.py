@@ -20,6 +20,8 @@ from .tasks import Task
 @dataclass
 class TaskSurvey:
     task: Task
+    # The robot the expert ran on: its success rate is the pair's, not the task's alone.
+    embodiment: str | None = None
     seeds: int = 0
     successes: int = 0
     rejections: Counter = field(default_factory=Counter)
@@ -38,6 +40,7 @@ class TaskSurvey:
         return {
             "task": self.task.name,
             "skill_category": self.task.category,
+            "embodiment": self.embodiment,
             "seeds": self.seeds,
             "successes": self.successes,
             "success_rate": self.success_rate,
@@ -49,12 +52,13 @@ class TaskSurvey:
 
 def survey_task(task_env, task: Task, seeds: list[int], config, attempt_fn=attempt) -> TaskSurvey:
     """Run the expert once per seed, exactly as an episode's generator would, and tally."""
-    result = TaskSurvey(task=task)
+    result = TaskSurvey(task=task, embodiment=str(config.resolve(task.name)["embodiment_name"]))
     for index, seed in enumerate(seeds):
         started = time.monotonic()
-        outcome, demonstration, _ = attempt_fn(
-            task_env, seed, config.resolve(task.name), config.save_freq, index
-        )
+        # Resolved afresh per seed, as the generator does: nothing RoboTwin mutates while building
+        # one scene leaks into the next.
+        args = config.resolve(task.name)
+        outcome, demonstration, _ = attempt_fn(task_env, seed, args, config.save_freq, index)
         result.seconds += time.monotonic() - started
         result.seeds += 1
         if outcome.rejection is None:
@@ -70,9 +74,12 @@ def _percent(value: float | None) -> str:
 
 
 def render(results: list[TaskSurvey]) -> str:
+    """The plain-text table, one row per task; a rate is the task's on the robot the row names."""
     width = max([len(r.task.name) for r in results] + [4])
+    robot_width = max([len(r.embodiment or "?") for r in results] + [5])
     lines = [
-        f"{'task':<{width}}  {'category':<14}  {'expert':>13}  {'frames':>6}  {'s/seed':>6}  rejections"
+        f"{'task':<{width}}  {'category':<14}  {'robot':<{robot_width}}  {'expert':>13}  "
+        f"{'frames':>6}  {'s/seed':>6}  rejections"
     ]
     for r in results:
         rejections = ", ".join(f"{k} {v}" for k, v in sorted(r.rejections.items())) or "—"
@@ -80,6 +87,7 @@ def render(results: list[TaskSurvey]) -> str:
         per_seed = f"{r.seconds / r.seeds:.1f}" if r.seeds else "—"
         expert = f"{_percent(r.success_rate)} ({r.successes}/{r.seeds})"
         lines.append(
-            f"{r.task.name:<{width}}  {r.task.category:<14}  {expert:>13}  {frames:>6}  {per_seed:>6}  {rejections}"
+            f"{r.task.name:<{width}}  {r.task.category:<14}  {r.embodiment or '?':<{robot_width}}  "
+            f"{expert:>13}  {frames:>6}  {per_seed:>6}  {rejections}"
         )
     return "\n".join(lines) + "\n"

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- (feat): a run chooses its robot. `eval` and `survey` take `--embodiment aloha-agilex` (one
+  dual-arm URDF) or `franka-panda` (two Franka arms 0.8 m apart, the distance RoboTwin's
+  configuration guide gives), resolved into RoboTwin's one-entry or `[left, right, distance]`
+  form by `SceneConfig.embodiment`; without the flag the task config's own robot runs, aloha-agilex
+  in every shipped config. Frame and action widths come from
+  the live robot — `Demonstration.qpos_dim`, `robotwin.action_dims` — instead of the 14/16
+  constants that fitted only aloha-agilex, so a dual Franka's 16-wide qpos runs end to end. Every
+  episode record, the run manifest and the scene fingerprint name the robot — by its flag name, or
+  by its arms and their distance (`franka-panda@0.6`) for any other list a task config gives — and
+  a run directory refuses to continue on another one. Verified on an RTX 5090: the click_bell
+  replay scores 1/1 on both robots, seed 42 (aloha 60 steps, Franka 36 steps from a 44- or
+  45-frame, 16-wide demonstration: the Franka expert's trajectory length varies between runs of
+  the same scene), and the aloha record is unchanged (#81).
 - (feat): the simulator installs and runs on Blackwell GPUs. `scripts/install_robotwin.sh` picks
   a GPU path from the compute capability — the reference torch 2.4.1 + CUDA 12.1 below 10.0, torch
   2.8 + CUDA 12.8 from 10.0 up — builds CuRobo for it, and makes SAPIEN render in containers that

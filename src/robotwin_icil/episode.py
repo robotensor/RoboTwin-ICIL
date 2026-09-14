@@ -54,6 +54,7 @@ def run_episode(
     started = time.monotonic()
     task_env = task_env if task_env is not None else robotwin.load_task(spec.task.name)
     seeds = scene_seeds(spec.global_seed, spec.episode, spec.max_expert_attempts)
+    embodiment = str(config.resolve(spec.task.name)["embodiment_name"])
     generated = generate(
         task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
     )
@@ -71,6 +72,7 @@ def run_episode(
             rejections=_rejections(generated),
             rejection_details=_rejection_details(generated),
             model=str(describe.get("model", describe["policy"])),
+            embodiment=embodiment,
             checkpoint=describe.get("checkpoint"),
             duration_s=round(time.monotonic() - started, 3),
             **fields,
@@ -143,10 +145,13 @@ def rollout(
 
     Success is RoboTwin's own: `take_action` runs `check_success()` after every step and latches
     `eval_success`. An exception from the simulator mid-rollout ends the episode as a failure, as
-    upstream's evaluator does.
+    upstream's evaluator does. The policy's actions are checked against the widths this robot
+    takes, read off its arms here rather than assumed — outside that catch-all, because a seam
+    that cannot read them is a harness bug, not a stream of failed rollouts.
     """
     from . import robotwin
 
+    action_dims = robotwin.action_dims(task_env)
     try:
         while not robotwin.episode_over(task_env):
             raw = robotwin.observation(task_env)
@@ -158,7 +163,7 @@ def rollout(
                 qpos=raw["qpos"],
                 endpose=raw["endpose"],
             )
-            for action in policy.act(observation):
+            for action in policy.act(observation, action_dims):
                 task_env.take_action(action, action_type=policy.action_type)
                 if robotwin.episode_over(task_env):
                     break

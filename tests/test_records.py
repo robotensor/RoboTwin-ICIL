@@ -29,6 +29,7 @@ def record(episode=0, status=Status.SCORED, success=True, **overrides) -> Episod
         rejections={},
         scene_max_error=0.0,
         model="replay",
+        embodiment="aloha-agilex",
     )
     base.update(overrides)
     return EpisodeRecord(**base)
@@ -45,8 +46,12 @@ def manifest(**overrides) -> RunManifest:
         policy={"policy": "replay"},
         benchmark_commit="abc",
         robotwin_commit="def",
-        benchmark_config={},
-        robotwin_config={"task_config": "demo_clean"},
+        benchmark_config={"embodiment": "aloha-agilex"},
+        robotwin_config={
+            "task_config": "demo_clean",
+            "embodiment": ["aloha-agilex"],
+            "embodiment_name": "aloha-agilex",
+        },
     )
     base.update(overrides)
     return RunManifest(**base)
@@ -87,6 +92,25 @@ def test_resuming_the_same_run_is_allowed_but_not_a_different_one(tmp_path):
         run.start(manifest(global_seed=7))
 
 
+def test_a_run_on_another_robot_cannot_continue_this_one(tmp_path):
+    # Same seed, suite and policy, but 16-wide Franka episodes would be averaged with 14-wide
+    # aloha ones: the embodiment is part of what a resumed run must share.
+    run = RunDir(tmp_path)
+    run.start(manifest())
+    with pytest.raises(RecordError, match="different run"):
+        run.start(manifest(benchmark_config={"embodiment": "franka-panda"}))
+    with pytest.raises(RecordError, match="different run"):
+        run.start(
+            manifest(
+                robotwin_config={
+                    "task_config": "demo_clean",
+                    "embodiment": ["franka-panda", "franka-panda", 0.8],
+                    "embodiment_name": "franka-panda",
+                }
+            )
+        )
+
+
 def test_a_torn_final_line_is_ignored_but_earlier_corruption_is_not(tmp_path):
     run = RunDir(tmp_path)
     run.start(manifest())
@@ -119,3 +143,10 @@ def test_records_written_before_rejection_details_still_load():
     data = record().to_json()
     data.pop("rejection_details")
     assert EpisodeRecord.from_json(data).rejection_details == {}
+
+
+def test_records_written_before_a_run_could_choose_its_robot_are_aloha():
+    data = record(embodiment="franka-panda").to_json()
+    assert EpisodeRecord.from_json(data).embodiment == "franka-panda"
+    data.pop("embodiment")
+    assert EpisodeRecord.from_json(data).embodiment == "aloha-agilex"

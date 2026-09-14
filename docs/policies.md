@@ -16,11 +16,15 @@ subclasses `ICILPolicy`. Adapters live outside `robotwin_icil`.
 For every episode, in this order and no other:
 
 ```text
-policy.reset()                      # forget everything from the previous episode
-policy.set_demonstration(demo)      # exactly once
+policy.reset()                            # forget everything from the previous episode
+policy.set_demonstration(demo)            # exactly once
 loop:
-    actions = policy.act(obs)       # (k, action_dim); all k run before the next observation
+    actions = policy.act(obs, action_dims)  # (k, action_dim); all k run before the next observation
 ```
+
+`action_dims` is the live robot's action width per action type, read off its arms every rollout —
+`{"qpos": 14, "ee": 16}` on aloha-agilex, `{"qpos": 16, "ee": 16}` on two Franka arms. The base
+class checks `_act`'s result against it; an adapter never has to pass it anywhere.
 
 `ICILPolicy` enforces this. Acting before a demonstration, or receiving a second one without a
 reset, raises `PolicyError` and stops the run — an adapter breaking the protocol is a bug, not a
@@ -50,13 +54,13 @@ class MyPolicy(ICILPolicy):
         with torch.inference_mode():
             self.context = self.model.encode(
                 images=demo.images("head_camera"),  # (T, h, w, 3) uint8
-                states=demo.qpos(),  # (T, 14)
-                actions=demo.actions(),  # (T-1, 14)
+                states=demo.qpos(),  # (T, qpos_dim)
+                actions=demo.actions(),  # (T-1, qpos_dim)
             )
 
     def _act(self, obs):
-        with torch.inference_mode():
-            return self.model.act(self.context, obs.images["head_camera"], obs.qpos)  # (k, 14)
+        with torch.inference_mode():  # returns (k, qpos_dim)
+            return self.model.act(self.context, obs.images["head_camera"], obs.qpos)
 
     def describe(self):
         return {**super().describe(), "model": self.name, "checkpoint": self.checkpoint}
@@ -71,18 +75,22 @@ trajectory from the very scene the rollout will start in:
 
 | | |
 | --- | --- |
-| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` (14,), `endpose` |
+| `frames` | per frame: `images` (camera name -> `(h, w, 3)` uint8 rgb), `qpos` `(qpos_dim,)`, `endpose` |
 | `frequency` | frames per second of the recording |
 | `cameras` | the camera names present in every frame |
-| `qpos()` | `(T, 14)` robot state over the demonstration |
-| `actions()` | `(T-1, 14)` the position target of each transition — the next frame's `qpos` |
+| `qpos_dim` | the width of `qpos`, the same in every frame: the robot's |
+| `qpos()` | `(T, qpos_dim)` robot state over the demonstration |
+| `actions()` | `(T-1, qpos_dim)` the position target of each transition — the next frame's `qpos` |
 | `images(camera)` | `(T, h, w, 3)` from one camera |
 
 **Each observation** (`robotwin_icil.policy.Observation`) has the same modalities as a frame —
 `images`, `qpos`, `endpose` — plus `step` and `instruction`.
 
-The 14-dim `qpos` is RoboTwin's bimanual joint vector: left arm joints (6), left gripper, right arm
-joints (6), right gripper. Grippers run from 0 (closed) to 1 (open).
+`qpos` is RoboTwin's joint vector: the left arm's joints then its gripper, then the right's. Its
+width is the robot's, chosen per run with `--embodiment`: aloha-agilex (what every shipped task
+config names) has six joints per arm, 14 in all; franka-panda is two seven-joint arms, 16.
+Grippers run from 0 (closed) to 1
+(open). Every episode record and the run manifest name the robot.
 
 ## What the policy never receives
 
@@ -102,10 +110,11 @@ unchanged; the episode ends as soon as RoboTwin latches success or the task's st
 
 | `action_type` | `action_dim` | layout |
 | --- | --- | --- |
-| `qpos` | 14 | the same joint vector as `qpos` above: absolute position targets |
-| `ee` | 16 | per arm: end-effector pose (7) then gripper, as RoboTwin's `take_action(action_type='ee')` reads it |
+| `qpos` | `qpos_dim` (14 on aloha-agilex, 16 on franka-panda) | the same joint vector as `qpos` above: absolute position targets |
+| `ee` | 16 on any robot | per arm: end-effector pose (7) then gripper, as RoboTwin's `take_action(action_type='ee')` reads it |
 
-Actions of the wrong width or containing non-finite values raise `PolicyError`.
+The widths are read off the live robot before every rollout, not assumed. Actions of the wrong
+width or containing non-finite values raise `PolicyError`.
 
 ## The policy is frozen
 

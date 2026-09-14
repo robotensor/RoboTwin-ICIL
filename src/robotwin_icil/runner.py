@@ -34,6 +34,7 @@ DEFAULT_MAX_EXPERT_ATTEMPTS = 20
 _ROBOTWIN_CONFIG_KEYS = (
     "task_config",
     "embodiment",
+    "embodiment_name",
     "camera",
     "data_type",
     "domain_randomization",
@@ -80,6 +81,7 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
             "save_freq": config.save_freq,
             "head_camera": config.head_camera,
             "overrides": dict(config.overrides or {}),
+            "embodiment": config.embodiment,
         },
         robotwin_config={key: args.get(key) for key in _ROBOTWIN_CONFIG_KEYS},
         environment=environment(),

@@ -23,7 +23,7 @@ import importlib
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -173,6 +173,37 @@ def unstable_error() -> type[Exception]:
     return UnStableError
 
 
+# The distance between two Franka arms' bases. RoboTwin's configuration guide gives
+# `embodiment: [franka-panda, franka-panda, 0.8]` as its dual-Franka example and says the interval
+# is "typically 0.6–0.8 meters": https://robotwin-platform.github.io/doc/usage/configurations.html
+FRANKA_ARM_DISTANCE_M = 0.8
+
+# The robots a run can choose, in the form RoboTwin's `embodiment` config takes. RoboTwin always
+# builds a left and a right arm (`envs/robot/robot.py:_init_robot_`): a dual-arm robot is one entry,
+# one URDF holding both arms; two single-arm robots are `[left, right, distance]`, one URDF each,
+# their bases `distance` metres apart along x. The names are `_embodiment_config.yml`'s.
+EMBODIMENTS: dict[str, tuple[Any, ...]] = {
+    "aloha-agilex": ("aloha-agilex",),
+    "franka-panda": ("franka-panda", "franka-panda", FRANKA_ARM_DISTANCE_M),
+}
+
+
+def embodiment_name(embodiment: Sequence[Any]) -> str:
+    """The name a run records for a RoboTwin `embodiment` list.
+
+    A list that is one of `EMBODIMENTS` is named by its key, whose distance is fixed. Any other is
+    named by its arms — `x` for `[x]`, `x@d` for `[x, x, d]`, `left+right@d` for two different arms
+    (upstream's scripts spell those `left+right` and drop the distance) — because the same arms
+    stood another distance apart are another scene, and the name is all an episode record keeps.
+    """
+    for name, form in EMBODIMENTS.items():
+        if tuple(embodiment) == form:
+            return name
+    names = [str(name) for name in embodiment[:2]]
+    arms = names[0] if len(set(names)) == 1 else "+".join(names)
+    return arms if len(embodiment) < 3 else f"{arms}@{embodiment[2]}"
+
+
 @dataclass(frozen=True)
 class SceneConfig:
     """The RoboTwin config a run holds fixed across every episode.
@@ -185,13 +216,27 @@ class SceneConfig:
     task_config: str = "demo_clean"
     save_freq: int = 15
     head_camera: str | None = None
+    # Applied last, over everything `resolve` derives; the robot is not an override, see below.
     overrides: dict[str, Any] | None = None
+    # A name from `EMBODIMENTS`, or None for the task config's own `embodiment` list.
+    embodiment: str | None = None
+
+    def __post_init__(self) -> None:
+        if "embodiment" in (self.overrides or {}):
+            # The URDFs, the arm distance and the recorded name are all derived from the list
+            # before overrides apply; replacing it there would record a robot no scene was built with.
+            raise RoboTwinError(
+                "choose the robot with SceneConfig.embodiment, not overrides['embodiment']"
+            )
 
     def resolve(self, task_name: str | None = None) -> dict[str, Any]:
         """Build the `args` dict `setup_demo` takes, from RoboTwin's own config files.
 
         Pass `task_name` for any scene that is built: RoboTwin reads it back as `self.task_name` to
         look up the task's evaluation step limit, and silently allows 1000 steps without it.
+        `embodiment_name` in the result is the benchmark's name for the robot, from the
+        `embodiment_name()` helper; upstream's envs never read that key, only its collection
+        scripts do.
         """
         _ensure_importable()
         config_dir = ROBOTWIN_ROOT / "env_cfg" / "task_config"
@@ -200,25 +245,36 @@ class SceneConfig:
         embodiments = yaml.safe_load(
             (config_dir / "_embodiment_config.yml").read_text(encoding="utf-8")
         )
+        if self.embodiment is not None:
+            if self.embodiment not in EMBODIMENTS:
+                raise RoboTwinError(
+                    f"unknown embodiment {self.embodiment!r}; the benchmark runs "
+                    f"{', '.join(sorted(EMBODIMENTS))} (RoboTwin ships {', '.join(sorted(embodiments))})"
+                )
+            args["embodiment"] = list(EMBODIMENTS[self.embodiment])
         embodiment = args["embodiment"]
+        if len(embodiment) not in (1, 3):
+            raise RoboTwinError(f"embodiment config must have 1 or 3 entries, got {embodiment}")
+        for name in embodiment[:2]:
+            if name not in embodiments:
+                raise RoboTwinError(
+                    f"embodiment {name!r} is not in _embodiment_config.yml, which has "
+                    f"{', '.join(sorted(embodiments))}"
+                )
         if len(embodiment) == 1:
             left = right = embodiments[embodiment[0]]["file_path"]
             args["dual_arm_embodied"] = True
-            embodiment_name = str(embodiment[0])
-        elif len(embodiment) == 3:
+        else:
             left = embodiments[embodiment[0]]["file_path"]
             right = embodiments[embodiment[1]]["file_path"]
             args["embodiment_dis"] = embodiment[2]
             args["dual_arm_embodied"] = False
-            embodiment_name = f"{embodiment[0]}+{embodiment[1]}"
-        else:
-            raise RoboTwinError(f"embodiment config must have 1 or 3 entries, got {embodiment}")
 
         args["left_robot_file"] = left
         args["right_robot_file"] = right
         args["left_embodiment_config"] = _embodiment_config(left)
         args["right_embodiment_config"] = _embodiment_config(right)
-        args["embodiment_name"] = embodiment_name
+        args["embodiment_name"] = embodiment_name(embodiment)
         args["task_config"] = self.task_config
         if task_name is not None:
             args["task_name"] = task_name
@@ -304,6 +360,23 @@ def episode_over(env) -> bool:
     return bool(env.eval_success) or (step_lim is not None and env.take_action_cnt >= step_lim)
 
 
+# `take_action(action_type='ee')` reads a pose (7) and a gripper per arm, whatever the arm.
+EE_ACTION_DIM = 2 * (7 + 1)
+
+
+def action_dims(env) -> dict[str, int]:
+    """The width `take_action` expects per action type, read off the live robot's arms.
+
+    A `qpos` action has the layout of `get_obs()['joint_action']['vector']`: the left arm's joints
+    and gripper, then the right's — 14 on aloha-agilex's six-joint arms, 16 on two seven-joint
+    Frankas. `take_action` splits a qpos action by these same lengths (`len(jointstate) - 1` per
+    arm), so the harness reads them from the same place rather than assuming a robot.
+    """
+    left = len(env.robot.get_left_arm_jointState())
+    right = len(env.robot.get_right_arm_jointState())
+    return {"qpos": left + right, "ee": EE_ACTION_DIM}
+
+
 def observation(env) -> dict[str, Any]:
     """One observation of the live scene, in the shape a `Frame` carries."""
     raw = env.get_obs()
@@ -378,8 +451,8 @@ def fingerprint(env) -> SceneFingerprint:
 
     Covers what makes a scene this scene: every actor's pose (object instances, placements, the
     table), every articulation's root pose and joints (the robot, articulated objects), camera
-    extrinsics, the robot's commanded qpos, and the texture and lighting draws recorded in
-    `env.info`. Harness-only: none of it is ever handed to a policy.
+    extrinsics, the robot's commanded qpos, which robot was built, and the texture and lighting
+    draws recorded in `env.info`. Harness-only: none of it is ever handed to a policy.
     """
     actors = env.scene.get_all_actors()
     articulations = env.scene.get_all_articulations()
@@ -409,12 +482,20 @@ def fingerprint(env) -> SceneFingerprint:
             dtype=np.float64,
         ),
         extras={
+            "embodiment": _embodiment_built(env.robot),
             "wall_texture": textures.get("wall_texture"),
             "table_texture": textures.get("table_texture"),
             "crazy_random_light": bool(getattr(env, "crazy_random_light", False)),
             "table_z_bias": float(getattr(env, "table_z_bias", 0.0)),
         },
     )
+
+
+def _embodiment_built(robot) -> str:
+    """The robot as `_init_robot_` built it: one URDF holding both arms, or one URDF per arm."""
+    if robot.is_dual_arm:
+        return str(robot.left_urdf_path)
+    return f"{robot.left_urdf_path}|{robot.right_urdf_path}"
 
 
 def _pose7(pose) -> np.ndarray:

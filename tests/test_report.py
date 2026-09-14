@@ -4,6 +4,7 @@ import pytest
 
 from robotwin_icil import report, tasks
 from robotwin_icil.records import SAME_SCENE, EpisodeRecord, Status
+from test_records import manifest
 
 
 def record(
@@ -25,6 +26,7 @@ def record(
         rejections=rejections or {},
         scene_max_error=0.0,
         model="replay",
+        embodiment="aloha-agilex",
     )
 
 
@@ -96,6 +98,20 @@ def test_an_empty_run_reports_without_crashing():
     empty = report.build([], tasks.table())
     assert empty.overall.value is None and empty.by_category == {}
     assert "—" in report.render(empty, None, tasks.table())
+
+
+def test_a_run_recorded_before_it_could_choose_its_robot_still_names_it(built):
+    # Manifests from before #81 have no `embodiment_name`, but every one carries RoboTwin's
+    # `embodiment` list, which names the robot on its own; only a manifest with neither says "?".
+    def embodiment_line(robotwin_config):
+        text = report.render(built, manifest(robotwin_config=robotwin_config), tasks.table())
+        return next(line for line in text.splitlines() if line.startswith("Embodiment:"))
+
+    assert embodiment_line({"embodiment": ["aloha-agilex"]}).endswith(" aloha-agilex")
+    assert embodiment_line({"embodiment": ["franka-panda", "franka-panda", 0.8]}).endswith(
+        " franka-panda"
+    )
+    assert embodiment_line({"task_config": "demo_clean"}).endswith(" ?")
 
 
 def test_the_report_says_what_rejections_actually_were():

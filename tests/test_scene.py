@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 
 from robotwin_icil import scene
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM
 
 IDENTITY = [1.0, 0.0, 0.0, 0.0]
+# aloha-agilex's joint vector: the fingerprint compares whatever width the robot reports.
+QPOS_DIM = 14
 
 
 def fingerprint(**overrides) -> scene.SceneFingerprint:
@@ -18,8 +19,8 @@ def fingerprint(**overrides) -> scene.SceneFingerprint:
         articulations={"aloha": np.zeros(16)},
         articulation_roots={"aloha": np.array([0.0, -0.65, 0.0, *IDENTITY])},
         cameras={"head_camera": np.eye(4)},
-        robot_qpos=np.zeros(BIMANUAL_QPOS_DIM),
-        extras={"wall_texture": 3, "table_texture": 7},
+        robot_qpos=np.zeros(QPOS_DIM),
+        extras={"embodiment": "aloha.urdf", "wall_texture": 3, "table_texture": 7},
     )
     return dataclasses.replace(base, **overrides)
 
@@ -63,16 +64,24 @@ def test_a_different_object_instance_is_caught():
 
 def test_robot_state_camera_and_texture_drift_are_caught():
     drifted = fingerprint(
-        robot_qpos=np.full(BIMANUAL_QPOS_DIM, 1e-3),
+        robot_qpos=np.full(QPOS_DIM, 1e-3),
         cameras={"head_camera": np.eye(4) * 1.01},
-        extras={"wall_texture": 4, "table_texture": 7},
+        extras={"embodiment": "aloha.urdf", "wall_texture": 4, "table_texture": 7},
     )
     parts = {m.part for m in scene.compare(fingerprint(), drifted)}
     assert parts == {"robot", "camera", "extra"}
 
 
+def test_another_robot_is_another_scene():
+    other = fingerprint(
+        extras={"embodiment": "panda.urdf|panda.urdf", "wall_texture": 3, "table_texture": 7}
+    )
+    found = scene.compare(fingerprint(), other)
+    assert [(m.part, m.name) for m in found] == [("extra", "embodiment")]
+
+
 def test_float_noise_below_tolerance_passes():
-    noisy = fingerprint(robot_qpos=np.full(BIMANUAL_QPOS_DIM, scene.JOINT_TOL / 10))
+    noisy = fingerprint(robot_qpos=np.full(QPOS_DIM, scene.JOINT_TOL / 10))
     assert scene.compare(fingerprint(), noisy) == []
 
 

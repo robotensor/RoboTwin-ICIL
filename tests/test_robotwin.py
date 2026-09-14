@@ -1,9 +1,10 @@
-"""The RoboTwin seam's error reporting, exercised without importing RoboTwin."""
+"""The RoboTwin seam's config resolution and error reporting, exercised without importing RoboTwin."""
 
 import sys
 import types
 
 import pytest
+import yaml
 
 from robotwin_icil import robotwin
 
@@ -155,3 +156,97 @@ def test_a_lost_gpu_device_is_recognised():
     assert robotwin.gpu_lost(RuntimeError("VK_ERROR_DEVICE_LOST"))
     assert not robotwin.gpu_lost(RuntimeError("simulator exploded"))
     assert not robotwin.gpu_lost(AssertionError("target_pose cannot be None for move action."))
+
+
+@pytest.fixture
+def robotwin_root(tmp_path, monkeypatch):
+    """A RoboTwin checkout in miniature: a task config, the embodiment index, and their assets."""
+    config_dir = tmp_path / "env_cfg" / "task_config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "demo_clean.yml").write_text(
+        yaml.safe_dump({"embodiment": ["aloha-agilex"], "camera": {"head_camera_type": "D435"}})
+    )
+    (config_dir / "_embodiment_config.yml").write_text(
+        yaml.safe_dump(
+            {
+                name: {"file_path": f"./assets/embodiments/{name}/"}
+                for name in ("aloha-agilex", "franka-panda", "piper")
+            }
+        )
+    )
+    for name, dual_arm in (("aloha-agilex", True), ("franka-panda", False), ("piper", False)):
+        asset = tmp_path / "assets" / "embodiments" / name
+        asset.mkdir(parents=True)
+        (asset / "config.yml").write_text(yaml.safe_dump({"dual_arm": dual_arm}))
+    monkeypatch.setattr(robotwin, "ROBOTWIN_ROOT", tmp_path)
+    monkeypatch.setattr(robotwin, "_ensure_importable", lambda: None)
+    return tmp_path
+
+
+def test_the_default_embodiment_is_the_task_configs_own(robotwin_root):
+    args = robotwin.SceneConfig().resolve("click_bell")
+    assert args["embodiment"] == ["aloha-agilex"] and args["embodiment_name"] == "aloha-agilex"
+    assert args["dual_arm_embodied"] is True and "embodiment_dis" not in args
+    assert (
+        args["left_robot_file"] == args["right_robot_file"] == "./assets/embodiments/aloha-agilex/"
+    )
+    assert args["left_embodiment_config"] == {"dual_arm": True}
+
+
+def test_franka_is_two_arms_the_documented_distance_apart(robotwin_root):
+    # RoboTwin builds a single-arm robot twice, `[left, right, distance]`; its guide's dual-Franka
+    # example puts them 0.8 m apart.
+    args = robotwin.SceneConfig(embodiment="franka-panda").resolve("click_bell")
+    assert args["embodiment"] == ["franka-panda", "franka-panda", 0.8]
+    assert args["embodiment_dis"] == robotwin.FRANKA_ARM_DISTANCE_M == 0.8
+    assert args["dual_arm_embodied"] is False and args["embodiment_name"] == "franka-panda"
+    assert (
+        args["left_robot_file"] == args["right_robot_file"] == "./assets/embodiments/franka-panda/"
+    )
+    assert args["right_embodiment_config"] == {"dual_arm": False}
+
+
+def test_choosing_aloha_explicitly_is_the_default(robotwin_root):
+    assert robotwin.SceneConfig(embodiment="aloha-agilex").resolve("click_bell") == (
+        robotwin.SceneConfig().resolve("click_bell")
+    )
+
+
+def test_an_unknown_embodiment_is_refused_with_the_known_ones(robotwin_root):
+    with pytest.raises(robotwin.RoboTwinError, match="unknown embodiment 'ur5-wsg'") as exc:
+        robotwin.SceneConfig(embodiment="ur5-wsg").resolve("click_bell")
+    assert "aloha-agilex, franka-panda" in str(exc.value) and "piper" in str(exc.value)
+
+
+def test_a_task_config_naming_an_unshipped_robot_is_refused(robotwin_root):
+    config = robotwin_root / "env_cfg" / "task_config" / "demo_clean.yml"
+    config.write_text(yaml.safe_dump({"embodiment": ["piper", "ur5-wsg", 0.6]}))
+    with pytest.raises(robotwin.RoboTwinError, match="'ur5-wsg' is not in _embodiment_config.yml"):
+        robotwin.SceneConfig().resolve("click_bell")
+    config.write_text(yaml.safe_dump({"embodiment": ["piper", "franka-panda"]}))
+    with pytest.raises(robotwin.RoboTwinError, match="1 or 3 entries"):
+        robotwin.SceneConfig().resolve("click_bell")
+
+
+def test_an_embodiment_override_is_refused_in_favour_of_the_field():
+    # `overrides` are applied last, after the robot's URDFs, arm distance and name were derived
+    # from `embodiment`; one that replaced the list would record a robot the scene never built.
+    with pytest.raises(robotwin.RoboTwinError, match="SceneConfig.embodiment"):
+        robotwin.SceneConfig(overrides={"embodiment": ["piper", "piper", 0.6]})
+    assert robotwin.SceneConfig(overrides={"render_freq": 0}).overrides == {"render_freq": 0}
+
+
+def test_embodiment_names_read_back_what_the_flag_takes():
+    assert robotwin.embodiment_name(["aloha-agilex"]) == "aloha-agilex"
+    assert robotwin.embodiment_name(["franka-panda", "franka-panda", 0.8]) == "franka-panda"
+    assert robotwin.embodiment_name(["piper", "franka-panda", 0.6]) == "piper+franka-panda@0.6"
+
+
+def test_two_arms_at_another_distance_are_another_robot_by_name(robotwin_root):
+    # `--embodiment franka-panda` fixes the distance, so its name need not say it; a task config
+    # that stands the same arms elsewhere is another scene, and every record must tell them apart.
+    assert robotwin.embodiment_name(["franka-panda", "franka-panda", 0.6]) == "franka-panda@0.6"
+    assert robotwin.embodiment_name(["piper", "piper", 0.8]) == "piper@0.8"
+    config = robotwin_root / "env_cfg" / "task_config" / "demo_clean.yml"
+    config.write_text(yaml.safe_dump({"embodiment": ["franka-panda", "franka-panda", 0.6]}))
+    assert robotwin.SceneConfig().resolve("click_bell")["embodiment_name"] == "franka-panda@0.6"
