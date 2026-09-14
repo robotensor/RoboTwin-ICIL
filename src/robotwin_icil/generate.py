@@ -65,9 +65,13 @@ def scene_seeds(global_seed: int, episode: int, count: int) -> list[int]:
 
 
 def attempt(
-    task_env, seed: int, args: dict, save_freq: int, episode: int
+    task_env, seed: int, args: dict, save_freq: int, episode: int, images: bool = True
 ) -> tuple[Attempt, Demonstration | None, SceneFingerprint | None]:
-    """Build the scene for one seed, run the expert once, and keep what it did if it succeeded."""
+    """Build the scene for one seed, run the expert once, and keep what it did if it succeeded.
+
+    `images=False` records the demonstration without rendering a camera (`robotwin.capture`): the
+    same joints, frames and outcome, fit for measuring the expert but not for a policy's context.
+    """
     from . import robotwin
 
     try:
@@ -87,7 +91,7 @@ def attempt(
 
     try:
         initial = robotwin.fingerprint(task_env)
-        with robotwin.capture(task_env, save_freq) as frames:
+        with robotwin.capture(task_env, save_freq, images=images) as frames:
             task_env.play_once()
         if not task_env.plan_success:
             return Attempt(seed, Rejection.PLAN_FAILED), None, None
