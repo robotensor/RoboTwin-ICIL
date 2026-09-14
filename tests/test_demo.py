@@ -107,6 +107,24 @@ def test_unknown_camera_is_rejected():
         demo().images("wrist_camera")
 
 
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_a_demonstration_may_hold_joints_and_no_image(qpos_dim):
+    # The survey reads only joints, so it records frames without rendering a camera; everything
+    # it measures must work on such a demonstration, and asking it for an image must not.
+    rows = [np.zeros(qpos_dim), np.zeros(qpos_dim)]
+    rows[1][qpos_dim - 1] = 1.0  # the right gripper opens
+    frames = tuple(
+        Frame(index=i, images={}, qpos=row, endpose={"right_gripper": row[-1]})
+        for i, row in enumerate(rows)
+    )
+    d = Demonstration(frames=frames, frequency=15)
+    assert d.cameras == () and d.qpos_dim == qpos_dim and len(d) == 2
+    assert arm_displacements(d) == {"left": 0.0, "right": 1.0}
+    assert arms_moved(d) == ("right",)
+    with pytest.raises(DemonstrationError, match="no camera 'head_camera'; have \\[\\]"):
+        d.images("head_camera")
+
+
 def trajectory(*rows) -> Demonstration:
     frames = tuple(
         Frame(index=i, images={}, qpos=np.asarray(row, dtype=float), endpose={})
