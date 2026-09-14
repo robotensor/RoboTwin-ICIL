@@ -30,10 +30,8 @@ BENCHMARK_ID = "robotwin"
 #: The orchestrator ABI this plugin was written against (`BENCHMARK_API_VERSION`).
 API_VERSION = 1
 
-#: The cameras a policy observes under the task config every unit uses (`commands.TASK_CONFIG`):
-#: RoboTwin's `demo_clean` collects the head camera and both wrist cameras, named as
-#: `envs/camera/camera.py` names them. A prompt and an observation hold `frames_<camera>` of each.
-CAMERAS = ("head_camera", "left_camera", "right_camera")
+#: The cameras a policy observes, which `verify_prompt` holds a prompt's frames to.
+CAMERAS = prompts.CAMERAS
 #: The demonstration starts in the very scene the rollout is scored in.
 PROTOCOL = "same_initial_state"
 #: What a demonstration shows: frames, the action trajectory and proprioception.

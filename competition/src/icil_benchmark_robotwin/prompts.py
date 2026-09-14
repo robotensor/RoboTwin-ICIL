@@ -32,6 +32,11 @@ QPOS_DIMS = {"aloha-agilex": 14, "franka-panda": 16}
 #: Whose a void is, in a result: `void_cause` as `robotwin-icil` writes it.
 VOID_CAUSES = ("harness", "policy")
 
+#: The cameras a policy observes under the task config every unit uses (`commands.TASK_CONFIG`):
+#: RoboTwin's `demo_clean` collects the head camera and both wrist cameras, named as
+#: `envs/camera/camera.py` names them. A prompt and an observation hold `frames_<camera>` of each.
+CAMERAS = ("head_camera", "left_camera", "right_camera")
+
 #: The scene config every unit is materialized with, as a prompt's `meta` records it: the argv's
 #: task config and frame spacing, no head camera or override, the Same Scene setting.
 SCENE_CONFIG: dict[str, Any] = {
@@ -58,9 +63,10 @@ def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
     `meta` must name the unit's task, one of its candidate scene seeds and its robot, as that robot
     was chosen, and the scene config every unit is built with (`SCENE_CONFIG`), which run-unit
     rebuilds the scene from; every array must belong to the published channel map and together
-    hold a demonstration of the robot's width; and the recorded scene fingerprint must digest to
-    the digest beside it. Returns `{"ok", "sha256", "problems"}`, where `sha256` is the file's bytes'
-    (None if it cannot be read), plus the `task`, `scene_seed` and `embodiment` it found.
+    hold a demonstration of the robot's width, from no camera but `CAMERAS`; and the recorded scene
+    fingerprint must digest to the digest beside it. Returns `{"ok", "sha256", "problems"}`, where
+    `sha256` is the file's bytes' (None if it cannot be read), plus the `task`, `scene_seed` and
+    `embodiment` it found.
     """
     file = Path(path)
     problems: list[str] = []
@@ -137,6 +143,14 @@ def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
             problems.append(
                 f"meta names cameras {meta.get('cameras')!r}; the arrays hold "
                 f"{list(demonstration.cameras)}"
+            )
+        # run-unit hands the policy every camera the prompt holds, so one no unit collects would
+        # reach the policy as if the benchmark observed it.
+        unobserved = sorted(set(demonstration.cameras) - set(CAMERAS))
+        if unobserved:
+            problems.append(
+                f"frames of camera(s) {', '.join(unobserved)}, which no unit observes; the "
+                f"benchmark's cameras are {', '.join(CAMERAS)}"
             )
 
     scene = meta.get("scene")

@@ -106,6 +106,20 @@ def test_a_prompt_built_under_another_scene_config_is_refused(make_prompt, frank
     assert any(f"the prompt's {key} is {value!r}" in p for p in verdict["problems"]), verdict
 
 
+def test_a_prompt_holding_a_camera_no_unit_observes_is_refused(make_prompt, franka_unit):
+    # run-unit hands the policy every camera a prompt holds; meta edited to match hides nothing.
+    path = make_prompt()
+
+    def extra_camera(arrays):
+        return {**arrays, "frames_extra": np.zeros_like(arrays["frames_head_camera"])}
+
+    _rewrite(path, extra_camera, lambda m: {**m, "cameras": ["extra", "head_camera"]})
+    verdict = BENCHMARK.verify_prompt(path=str(path), unit=franka_unit)
+    assert verdict["ok"] is False
+    assert any("camera(s) extra, which no unit observes" in p for p in verdict["problems"])
+    assert len(verdict["problems"]) == 1, verdict  # the arrays and meta agree with each other
+
+
 def test_a_prompt_whose_meta_leaves_out_its_scene_config_is_refused(make_prompt, franka_unit):
     path = make_prompt()
     _rewrite(path, meta=lambda m: {k: v for k, v in m.items() if k != "overrides"})
