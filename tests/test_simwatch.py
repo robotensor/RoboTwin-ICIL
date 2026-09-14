@@ -53,14 +53,23 @@ def live_group(pgid):
     return [pid for pid, p in simwatch.read_procs().items() if p.pgrp == pgid and p.state != "Z"]
 
 
-def test_a_device_lost_crash_is_rerun_until_the_retries_run_out(tmp_path):
-    crash = "print('RuntimeError: vk::Queue::submit: ErrorDeviceLost'); raise SystemExit(1)"
+@pytest.mark.parametrize(
+    "error",
+    [
+        "RuntimeError: vk::Queue::submit: ErrorDeviceLost",
+        # robotwin_icil's gpu_lost() takes Vulkan's C spelling as a lost GPU too.
+        "error: the renderer lost the GPU while the expert ran seed 3: VK_ERROR_DEVICE_LOST",
+    ],
+)
+def test_a_device_lost_crash_is_rerun_until_the_retries_run_out(tmp_path, error):
+    crash = f"print({error!r}); raise SystemExit(1)"
     code, log, _ = watch(tmp_path, "--retries", "2", "--poll", "0.1", *python(crash))
+    marker = next(m for m in ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST") if m in error)
 
     assert code == simwatch.GAVE_UP == 124
     assert [n for n in (1, 2, 3, 4) if f"[simwatch] attempt {n}/3: " in log] == [1, 2, 3]
-    assert log.count("output matches 'ErrorDeviceLost'; rerunning") == 2
-    assert "attempt 3/3 exited 1, output matches 'ErrorDeviceLost'; no retries left" in log
+    assert log.count(f"output matches {marker!r}; rerunning") == 2
+    assert f"attempt 3/3 exited 1, output matches {marker!r}; no retries left" in log
     assert log.rstrip().endswith("gave up after 3 attempts; exiting 124")
 
 

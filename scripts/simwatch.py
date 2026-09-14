@@ -10,7 +10,8 @@ three ways:
               sliding window, not whether CPU time moved at all. The process group is killed
               (SIGTERM, then SIGKILL) and the command rerun.
   transient   The attempt exited non-zero and its own output, the last 64 KB it appended to --log,
-              matches a --rerun-on pattern (by default SAPIEN's ErrorDeviceLost). It is rerun.
+              matches a --rerun-on pattern (by default Vulkan's device-lost error in either
+              spelling, ErrorDeviceLost or VK_ERROR_DEVICE_LOST). It is rerun.
   final       Any other exit. The watch ends with the attempt's exit code (128+N for signal N).
 
 At most --retries reruns follow the first attempt. When the last allowed attempt also stalls or
@@ -38,7 +39,8 @@ from typing import NamedTuple
 
 GAVE_UP = 124
 TAIL_BYTES = 64 * 1024
-DEFAULT_RERUN_ON = ("ErrorDeviceLost",)
+# What robotwin_icil.robotwin.gpu_lost() takes for a lost GPU: SAPIEN's C++ spelling and Vulkan's C one.
+DEFAULT_RERUN_ON = ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST")
 DEFAULT_MIN_CPU_RATE = 0.25
 
 
