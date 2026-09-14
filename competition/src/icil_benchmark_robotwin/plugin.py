@@ -2,15 +2,16 @@
 loads it.
 
 The orchestrator checks a plugin structurally, so nothing here subclasses or imports anything of
-the orchestrator's: `RoboTwinBenchmark` simply has the id, the ABI version and the methods
-`icil_orchestrator.benchmarks.api.Benchmark` names. The pure ones run with no simulator, no assets
-and no GPU: they read `robotwin_icil`'s task table, prompt format and results.
+the orchestrator's: `RoboTwinBenchmark` simply has the id, the ABI version and the seven methods
+`icil_orchestrator.benchmarks.api.Benchmark` names. The five pure ones run with no simulator, no
+assets and no GPU (they read `robotwin_icil`'s task table, prompt format and results); the two
+command builders return the argv of `robotwin-icil` in the simulator's environment.
 """
 
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from robotwin_icil.records import git_commit
 from robotwin_icil.robotwin import EE_ACTION_DIM, EMBODIMENTS, REPO_ROOT
 
 from . import catalogue as catalogue_
-from . import prompts, units
+from . import commands, prompts, units
 
 #: This distribution's version, as its pyproject.toml gives it.
 VERSION = "0.1.0.dev0"
@@ -29,9 +30,9 @@ BENCHMARK_ID = "robotwin"
 #: The orchestrator ABI this plugin was written against (`BENCHMARK_API_VERSION`).
 API_VERSION = 1
 
-#: The cameras a policy observes under the task config every unit uses (`demo_clean`): RoboTwin
-#: collects the head camera and both wrist cameras, named as `envs/camera/camera.py` names them. A
-#: prompt and an observation hold `frames_<camera>` of each.
+#: The cameras a policy observes under the task config every unit uses (`commands.TASK_CONFIG`):
+#: RoboTwin's `demo_clean` collects the head camera and both wrist cameras, named as
+#: `envs/camera/camera.py` names them. A prompt and an observation hold `frames_<camera>` of each.
 CAMERAS = ("head_camera", "left_camera", "right_camera")
 #: The demonstration starts in the very scene the rollout is scored in.
 PROTOCOL = "same_initial_state"
@@ -65,7 +66,7 @@ class RoboTwinBenchmark:
 
     def info(self) -> dict[str, Any]:
         """Identity and shape: the robots and their action widths, the cameras, the protocol, the
-        prompt's channel map, the commits, and what is still provisional."""
+        prompt's channel map, the commits, the command line, and what is still provisional."""
         table = tasks.table()
         return {
             "id": self.id,
@@ -90,8 +91,19 @@ class RoboTwinBenchmark:
             "channels": {name: list(arrays) for name, arrays in prompt_.CHANNELS.items()},
             "prefix_channels": list(prompt_.PREFIX_CHANNELS),
             "metadata": list(prompt_.METADATA),
+            "task_config": commands.TASK_CONFIG,
+            "save_freq": commands.SAVE_FREQ,
             "scene_seed_candidates": units.SCENE_SEED_CANDIDATES,
             "void_causes": list(prompts.VOID_CAUSES),
+            "cli": {
+                "python": commands.simulator_python(),
+                "python_env": commands.PYTHON_ENV,
+                "module": commands.CLI_MODULE,
+                "materialize": "materialize --task T --embodiment E --task-config C "
+                "--save-freq F --scene-seed S [--scene-seed S ...] --out DIR",
+                "run": "run-unit --prompt PROMPT --policy-address ADDR --authkey-env NAME "
+                "[--act-timeout-s S] [--policy-log PATH] --out DIR",
+            },
             "provisional": catalogue_.provisional(table),
         }
 
@@ -131,6 +143,33 @@ class RoboTwinBenchmark:
           of the harness, and a `result.json` that is missing or unreadable.
         """
         return prompts.read_result(out_dir=out_dir)
+
+    # -- commands -----------------------------------------------------------------------
+
+    def materialize_command(self, *, unit: Mapping[str, Any], out_dir: str) -> Sequence[str]:
+        """`materialize` of the unit's task on its robot, every candidate seed in order."""
+        return commands.materialize_command(unit=unit, out_dir=out_dir)
+
+    def run_command(
+        self,
+        *,
+        unit: Mapping[str, Any],
+        prompt: str,
+        out_dir: str,
+        policy_address: str,
+        authkey_env: str,
+        **extra: Any,
+    ) -> Sequence[str]:
+        """`run-unit --policy-address`, with `--act-timeout-s` and `--policy-log` when `extra`
+        carries `act_timeout_s` and `policy_log`."""
+        return commands.run_command(
+            unit=unit,
+            prompt=prompt,
+            out_dir=out_dir,
+            policy_address=policy_address,
+            authkey_env=authkey_env,
+            **extra,
+        )
 
 
 #: What the `icil.benchmarks` entry point `robotwin` loads.

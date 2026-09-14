@@ -25,6 +25,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 ROOT = Path(__file__).resolve().parents[1]
 PURE_METHODS = ("info", "catalogue", "derive_units", "verify_prompt", "read_result")
+COMMAND_METHODS = ("materialize_command", "run_command")
 REQUIRED_KEYWORDS = {
     "derive_units": ("seed_material", "count", "suite", "category"),
     "verify_prompt": ("path", "unit"),
@@ -43,7 +44,7 @@ def test_the_plugin_has_the_id_and_abi_version_the_orchestrator_speaks():
     assert type(BENCHMARK.api_version) is int and BENCHMARK.api_version == 1
 
 
-@pytest.mark.parametrize("name", PURE_METHODS)
+@pytest.mark.parametrize("name", PURE_METHODS + COMMAND_METHODS)
 def test_every_method_takes_the_keywords_the_orchestrator_passes(name):
     method = getattr(BENCHMARK, name)
     assert callable(method)
@@ -82,7 +83,7 @@ def test_the_plugin_never_imports_the_orchestrator():
         assert "import icil_orchestrator" not in text and "from icil_orchestrator" not in text
 
 
-def test_the_pure_half_imports_no_simulator_and_no_orchestrator(tmp_path):
+def test_the_pure_half_and_the_builders_import_no_simulator_and_no_orchestrator(tmp_path):
     code = f"""
 import json, sys
 from icil_benchmark_robotwin import BENCHMARK
@@ -90,6 +91,8 @@ unit = BENCHMARK.derive_units(seed_material="m", count=1, suite="franka_1arm", c
 BENCHMARK.info(); BENCHMARK.catalogue()
 BENCHMARK.verify_prompt(path={str(tmp_path / "missing.npz")!r}, unit=unit)
 BENCHMARK.read_result(out_dir={str(tmp_path)!r})
+BENCHMARK.materialize_command(unit=unit, out_dir="/o")
+BENCHMARK.run_command(unit=unit, prompt="/p.npz", out_dir="/o", policy_address="/s", authkey_env="K")
 print(json.dumps(sorted({{m.split(".")[0] for m in sys.modules}})))
 """
     loaded = set(
@@ -144,7 +147,7 @@ def test_the_provisional_arms_cover_the_task_table_and_agree_with_it_once_it_has
     assert recorded == catalogue.PROVISIONAL_ARMS
 
 
-def test_info_names_the_robots_cameras_protocol_and_commits():
+def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
     info = BENCHMARK.info()
     assert (info["id"], info["api_version"]) == ("robotwin", 1)
     assert info["protocol"] == "same_initial_state" and info["views"] == ["sensorimotor"]
@@ -153,4 +156,6 @@ def test_info_names_the_robots_cameras_protocol_and_commits():
     assert info["embodiment_of_suite"]["franka_1arm"] == "franka-panda"
     assert info["action_types"] == ["qpos", "ee"] and info["cameras"]
     assert set(info["commits"]) == {"benchmark", "robotwin"}
+    assert info["cli"]["module"] == "robotwin_icil.cli"
+    assert info["cli"]["python_env"] == "ROBOTWIN_ICIL_PYTHON"
     assert json.loads(json.dumps(info)) == info
