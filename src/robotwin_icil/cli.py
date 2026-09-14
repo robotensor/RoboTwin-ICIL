@@ -23,10 +23,6 @@ from .records import RecordError, RunDir, write_json
 from .robotwin import EMBODIMENTS, RoboTwinError
 from .unit import UnitError
 
-# `materialize` exits with this when the expert was rejected on the seed: a legitimate outcome,
-# recorded in result.json, that the caller tells apart from a harness error (1).
-EXIT_REJECTED = 3
-
 
 def _eval(args: argparse.Namespace) -> int:
     from .robotwin import SceneConfig
@@ -114,7 +110,9 @@ def _materialize(args: argparse.Namespace) -> int:
     )
     done = materialize(task.name, args.scene_seed, config, out)
     print(json.dumps(done.result, indent=2, sort_keys=True))
-    return 0 if done.ok else EXIT_REJECTED
+    # A rejected seed is a result, written to result.json like a prompt; only a harness error
+    # exits 1, and then no result.json holds a reason the caller would read past a non-zero exit.
+    return 0
 
 
 def _run_unit(args: argparse.Namespace) -> int:
@@ -229,7 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     mat = commands.add_parser(
         "materialize",
         help="build one seed's demonstration and save it: prompt.npz, demonstration.mp4, "
-        "result.json; exits 3 when the expert was rejected on the seed",
+        "result.json; exits 0 whenever result.json was written, a rejected seed included",
     )
     mat.add_argument("--task", required=True, help="a single RoboTwin task")
     mat.add_argument("--scene-seed", type=int, required=True, help="the scene to build")

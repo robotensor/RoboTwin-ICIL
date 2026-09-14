@@ -154,11 +154,13 @@ def test_materialize_then_run_unit_through_the_cli(tmp_path, fake_sim, capsys):
     assert (run / "evaluation.mp4").is_file()
 
 
-def test_a_rejected_seed_exits_3_with_its_result(tmp_path, fake_sim, capsys):
+def test_a_rejected_seed_exits_0_with_its_result(tmp_path, fake_sim, capsys):
+    # The orchestrator reads result.json whatever the exit; a non-zero exit for an outcome it
+    # expects would have it void the unit on the log tail and lose the rejection's reason.
     from fake_robotwin import FakeTaskEnv
 
     fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11})
-    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == cli.EXIT_REJECTED == 3
+    assert cli.main([*MATERIALIZE, "--out", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["rejection"] == "unstable"
     assert json.loads((tmp_path / "result.json").read_text())["ok"] is False
     assert not (tmp_path / "prompt.npz").exists()
