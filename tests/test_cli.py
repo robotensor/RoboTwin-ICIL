@@ -91,3 +91,18 @@ def test_a_run_chooses_its_robot_or_keeps_the_task_configs(command, capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main([*command, "--embodiment", "ur5-wsg"])
     assert exc.value.code == 2 and "aloha-agilex" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [EVAL, SURVEY])
+def test_a_run_takes_its_robot_and_its_arms_together(command):
+    # Independent choices: --embodiment picks the robot, --arms which tasks it is given.
+    argv = [*command, "--embodiment", "franka-panda", "--arms", "1"]
+    args = cli.build_parser().parse_args(argv)
+    assert (args.embodiment, args.arms) == ("franka-panda", "1")
+
+
+def test_a_one_arm_survey_of_every_task_selects_the_26_one_arm_tasks():
+    argv = ["survey", "--suite", "all", "--embodiment", "franka-panda", "--arms", "1"]
+    args = cli.build_parser().parse_args(argv)
+    selected = tasks.table().select(suite=args.suite, task=args.task, arms=args.arms)
+    assert len(selected) == 26 and {task.arms for task in selected} == {"1"}
