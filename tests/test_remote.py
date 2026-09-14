@@ -232,6 +232,34 @@ def test_a_policy_log_swapped_for_a_link_is_never_followed(tmp_path, errors, mon
     assert logs.tail(policy.log_file) == ""
 
 
+def test_what_a_hostile_server_says_is_bounded_before_it_reaches_the_result(tmp_path, errors):
+    # icil_policy.serve cuts its messages short; a server that is not icil_policy.serve need not.
+    name = {**REPLAY, "policy": "P" * 3_000_000}
+    raised = errors.PolicyUnavailable(
+        "reset: RoboTwinError: " + "M" * 1_000_000,
+        op="reset",
+        remote_type="RoboTwinError",
+        log_tail="T" * 2_000_000,
+    )
+    _, _, failed = run(tmp_path / "failed", Script(hello=name, fail={"reset": raised}))
+    assert failed["success"] is False and failed["void"] is False
+    assert len(failed["served_policy"]) == len(failed["model"]) <= remote.MAX_NAME_CHARS + 40
+    assert failed["served_policy"].startswith("P" * 100)
+    detail = failed["detail"]
+    assert len(detail) < 13_000 and "reset: RoboTwinError: MMM" in detail
+    assert detail.endswith("T" * 100) and "characters ...]" in detail
+    assert (tmp_path / "failed" / "run" / "result.json").stat().st_size < 64_000
+
+    lost = errors.PolicyUnavailable("act: the policy went away", op="act", log_tail="T" * 2_000_000)
+    _, _, void = run(tmp_path / "void", Script(hello=name, fail={"act": lost}))
+    assert void["void_cause"] == "policy" and len(void["error"]) < 13_000
+    assert void["error"].startswith("the policy is unreachable: act: the policy went away")
+
+    torque = {**REPLAY, "action_type": "t" * 3_000_000}
+    _, _, refused = run(tmp_path / "refused", Script(hello=torque))
+    assert refused["void_cause"] == "policy" and len(refused["error"]) < 1_000
+
+
 def test_an_action_type_the_benchmark_cannot_execute_is_refused_at_hello(tmp_path, errors):
     script = Script(hello={**REPLAY, "action_type": "torque"})
     _, policy, result = run(tmp_path, script)

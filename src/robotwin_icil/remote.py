@@ -59,6 +59,14 @@ NUMERIC_KINDS = ("b", "i", "u", "f")
 #: The most rows of one action chunk that are kept. More than any task's step limit (the longest
 #: in RoboTwin's `_eval_step_limit.yml` is 1700), so a row dropped here could never have run.
 MAX_ACTION_ROWS = 4096
+#: The longest name a served policy is recorded under: `hello`'s `policy` is whatever the server
+#: says, and it goes into result.json twice.
+MAX_NAME_CHARS = 200
+#: How much of a remote failure's text reaches result.json: its start, which names the call and
+#: the reason, and its end, which holds the server's log tail. `icil_policy.serve` bounds both; a
+#: hostile server bounds neither.
+REASON_HEAD_CHARS = 4000
+REASON_TAIL_CHARS = 8192
 #: How long reaching the address and authenticating may take. The orchestrator runs run-unit once
 #: the policy listens, so a server that is not there by then is not coming.
 CONNECT_TIMEOUT_S = 60.0
@@ -93,6 +101,19 @@ def authkey_from_env(name: str, environ: MutableMapping[str, str] | None = None)
             f"--authkey-env {name}: the key is {len(key)} bytes; at least {MIN_AUTHKEY_BYTES}"
         )
     return key
+
+
+def bounded(text: str, head: int, tail: int = 0) -> str:
+    """`text` if it is at most `head + tail` characters; otherwise its first `head` and last `tail`
+    characters, with how many were left out between them."""
+    if len(text) <= head + tail:
+        return text
+    end = text[len(text) - tail :] if tail else ""
+    return f"{text[:head]} [... {len(text) - head - tail} characters ...] {end}".rstrip()
+
+
+def _reason(exc: BaseException) -> str:
+    return bounded(str(exc), REASON_HEAD_CHARS, REASON_TAIL_CHARS)
 
 
 def observation_arrays(observation: Observation) -> dict[str, np.ndarray]:
@@ -253,17 +274,18 @@ class RemotePolicy(ICILPolicy):
                 log_file=self.log_file,
             )
         except self._unavailable as exc:
-            raise PolicyUnreachable(f"the policy is unreachable: {exc}") from exc
+            raise PolicyUnreachable(f"the policy is unreachable: {_reason(exc)}") from exc
         hello = self._call("hello", self.setup_timeout_s)
         action_type = hello.get("action_type")
         if action_type not in ACTION_TYPES:
             self.close()
+            declared = bounded(repr(action_type), MAX_NAME_CHARS)
             raise PolicyUnreachable(
-                f"the policy is unreachable: hello: it declares action_type {action_type!r}; "
+                f"the policy is unreachable: hello: it declares action_type {declared}; "
                 f"the benchmark executes {' or '.join(ACTION_TYPES)}"
             )
         self.action_type = action_type
-        self.served_policy = str(hello.get("policy"))
+        self.served_policy = bounded(str(hello.get("policy")), MAX_NAME_CHARS)
 
     def _call(self, op: str, timeout_s: float, *args: Any) -> Any:
         """One client call under its own timeout, its failure mapped as the module docstring says."""
@@ -281,10 +303,12 @@ class RemotePolicy(ICILPolicy):
         try:
             return method(*args)
         except self._wire_error as exc:
-            raise Unscorable(f"the benchmark could not send {op} to the policy: {exc}") from exc
+            raise Unscorable(
+                f"the benchmark could not send {op} to the policy: {_reason(exc)}"
+            ) from exc
         except self._unavailable as exc:
             if exc.remote_type is not None and exc.op in POLICY_OPS:
                 raise PolicyError(
-                    f"the served policy answered {exc.op} with an error: {exc}"
+                    f"the served policy answered {exc.op} with an error: {_reason(exc)}"
                 ) from exc
-            raise PolicyUnreachable(f"the policy is unreachable: {exc}") from exc
+            raise PolicyUnreachable(f"the policy is unreachable: {_reason(exc)}") from exc
