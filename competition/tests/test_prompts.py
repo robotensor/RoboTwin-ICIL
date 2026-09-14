@@ -106,6 +106,53 @@ def test_a_prompt_built_under_another_scene_config_is_refused(make_prompt, frank
     assert any(f"the prompt's {key} is {value!r}" in p for p in verdict["problems"]), verdict
 
 
+def _expert(**changes):
+    """A meta edit replacing fields of the expert record `make_prompt` wrote."""
+    return lambda m: {**m, "expert": {**m["expert"], **changes}}
+
+
+KEPT_11 = {"seed": 11, "rejection": None, "detail": ""}
+
+
+@pytest.mark.parametrize(
+    ("edit", "reason"),
+    [
+        (_expert(scene_seeds=[11]), "was given candidates [11]; the unit's are [5, 11, 17, 23]"),
+        (
+            # A later candidate cherry-picked: the first was never tried.
+            _expert(attempts=[KEPT_11]),
+            "tried seeds [11], not the unit's candidates in order",
+        ),
+        (
+            _expert(attempts=[{"seed": 5, "rejection": None, "detail": ""}, KEPT_11]),
+            "keeps no rejection for candidate(s) [5]",
+        ),
+        (
+            _expert(attempts=[{"seed": 5, "rejection": "unstable", "detail": ""}]),
+            "last tried seed 5, not its scene seed 11",
+        ),
+        (
+            _expert(
+                attempts=[
+                    {"seed": 5, "rejection": "unstable", "detail": ""},
+                    {**KEPT_11, "rejection": "unstable"},
+                ]
+            ),
+            "rejects the seed the prompt was built on",
+        ),
+        (lambda m: {k: v for k, v in m.items() if k != "expert"}, "was given candidates None"),
+    ],
+)
+def test_a_prompt_whose_expert_record_is_not_the_units_is_refused(
+    make_prompt, franka_unit, edit, reason
+):
+    # The scene seed alone being a candidate says nothing of how it was chosen.
+    path = make_prompt()
+    _rewrite(path, meta=edit)
+    verdict = BENCHMARK.verify_prompt(path=str(path), unit=franka_unit)
+    assert verdict["ok"] is False and any(reason in p for p in verdict["problems"]), verdict
+
+
 def test_a_prompt_holding_a_camera_no_unit_observes_is_refused(make_prompt, franka_unit):
     # run-unit hands the policy every camera a prompt holds; meta edited to match hides nothing.
     path = make_prompt()

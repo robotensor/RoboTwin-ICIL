@@ -62,7 +62,16 @@ def make_prompt(tmp_path):
             overrides=None,
         )
         args = {"embodiment_name": embodiment, "embodiment": list(EMBODIMENTS[embodiment])}
-        meta = unit.build_meta(task, scene_seed, config, args, demo, initial)
+        # As materialize records it: the unit's candidates tried in order up to the one kept, every
+        # earlier one rejected. A seed that is no candidate keeps build_meta's one-seed record.
+        expert = None
+        if scene_seed in CANDIDATES:
+            tried = CANDIDATES[: CANDIDATES.index(scene_seed) + 1]
+            attempts = [{"seed": s, "rejection": "unstable", "detail": "moved"} for s in tried[:-1]]
+            attempts.append({"seed": scene_seed, "rejection": None, "detail": ""})
+            rejected = {"unstable": len(tried) - 1} if len(tried) > 1 else {}
+            expert = {"scene_seeds": list(CANDIDATES), "attempts": attempts, "rejections": rejected}
+        meta = unit.build_meta(task, scene_seed, config, args, demo, initial, expert)
         path = tmp_path / name / "prompt.npz"
         prompt.write_prompt(path, demo, meta)
         return path

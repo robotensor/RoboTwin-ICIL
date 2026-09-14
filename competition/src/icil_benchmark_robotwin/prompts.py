@@ -56,6 +56,41 @@ def sha256_of(path: Path) -> str:
     return digest_.hexdigest()
 
 
+def expert_problems(expert: Any, seed: int, candidates: list[int]) -> list[str]:
+    """What is wrong with a prompt's expert record for a unit whose candidates hold its seed.
+
+    materialize tries the candidates in order and keeps the first the expert solves, so the record
+    must name the unit's candidates, have tried a prefix of them ending at the scene seed, and
+    reject every one before it: a scene seed that is merely a candidate could have been picked.
+    """
+    expert = expert if isinstance(expert, dict) else {}
+    if expert.get("scene_seeds") != candidates:
+        return [
+            f"the prompt's expert was given candidates {expert.get('scene_seeds')!r}; the unit's "
+            f"are {candidates}"
+        ]
+    attempts = expert.get("attempts")
+    if not isinstance(attempts, list) or not all(isinstance(a, dict) for a in attempts):
+        return [f"the prompt's expert record has no attempts, but {attempts!r}"]
+    tried = [a.get("seed") for a in attempts]
+    if not tried or tried != candidates[: len(tried)]:
+        return [f"the prompt's expert tried seeds {tried}, not the unit's candidates in order"]
+    problems = []
+    if tried[-1] != seed:
+        problems.append(
+            f"the prompt's expert last tried seed {tried[-1]}, not its scene seed {seed}"
+        )
+    elif attempts[-1].get("rejection") is not None:
+        problems.append("the prompt's expert record rejects the seed the prompt was built on")
+    kept = [a.get("seed") for a in attempts[:-1] if not a.get("rejection")]
+    if kept:
+        problems.append(
+            f"the prompt's expert record keeps no rejection for candidate(s) {kept} tried before "
+            "its scene seed"
+        )
+    return problems
+
+
 def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
     """Whether the prompt at `path` is the one `unit` asked for; every problem, not the first.
 
@@ -107,6 +142,8 @@ def verify_prompt(*, path: str, unit: Mapping[str, Any]) -> dict[str, Any]:
         problems.append(
             f"the prompt's scene seed {seed!r} is not one of the unit's candidates {candidates}"
         )
+    else:
+        problems.extend(expert_problems(meta.get("expert"), seed, candidates))
 
     wanted = params.get("embodiment")
     name, choice = embodiment.get("name"), embodiment.get("choice")
