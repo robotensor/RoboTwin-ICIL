@@ -67,7 +67,7 @@ class RoboTwinBenchmark:
 
     def info(self) -> dict[str, Any]:
         """Identity and shape: the robots and their action widths, the cameras, the protocol, the
-        prompt's channel map, the commits, the command line, and what is still provisional."""
+        prompt's channel map, the commits, the command line, and what `franka_1arm` is made of."""
         table = tasks.table()
         return {
             "id": self.id,
@@ -106,7 +106,7 @@ class RoboTwinBenchmark:
             "catalogue_sha256": units.catalogue_sha256(table),
             "pinned_catalogue_sha256": units.CATALOGUE_SHA256,
             "derivation": units.DERIVATION,
-            # Which categories of the one-arm track have no one-arm task, and what stands in.
+            # The survey that chose the one-arm Franka suite, and its categories' tasks and arms.
             "franka_1arm": catalogue_.franka_1arm_basis(table),
             "void_causes": list(prompts.VOID_CAUSES),
             # What run-unit gives a served policy unless `extra` says otherwise. A unit's
@@ -131,12 +131,11 @@ class RoboTwinBenchmark:
                 "[--act-timeout-s S] [--policy-budget-s S] [--unit-timeout-s S] "
                 "[--policy-log PATH] --expect-source-sha256 HEX --out DIR",
             },
-            "provisional": catalogue_.provisional(table),
         }
 
     def catalogue(self) -> dict[str, Any]:
         """`{"suites": {suite: [task]}, "categories": {id: label}, "tasks": {task: {"category",
-        "arms", "label"}}, "embodiments": {suite: robot}, "provisional": [note]}`."""
+        "arms", "label"}}, "embodiments": {suite: robot}}`."""
         return catalogue_.catalogue()
 
     def derive_units(

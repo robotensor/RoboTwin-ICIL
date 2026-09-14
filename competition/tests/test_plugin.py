@@ -5,7 +5,6 @@ and ABI version, every method callable with the keywords the orchestrator passes
 the `icil.benchmarks` group, and a pure half that imports no simulator.
 """
 
-import dataclasses
 import inspect
 import json
 import subprocess
@@ -17,7 +16,7 @@ import pytest
 
 import icil_benchmark_robotwin
 import robotwin_icil
-from icil_benchmark_robotwin import BENCHMARK, catalogue, plugin, units
+from icil_benchmark_robotwin import BENCHMARK, catalogue, plugin
 from robotwin_icil import remote, tasks
 
 try:
@@ -132,31 +131,25 @@ def test_the_catalogue_has_the_shape_the_orchestrator_reads_and_the_spec_needs()
     assert json.loads(json.dumps(shown)) == shown
 
 
-def test_the_provisional_franka_suite_is_one_arm_but_for_stacking_and_says_so():
+def test_the_franka_suite_is_the_task_tables_and_nothing_is_provisional():
+    # franka_1arm is the suite the Franka survey named in robotwin_icil's table: the plugin
+    # derives no suite of its own and serves nothing as provisional.
     table = tasks.table()
-    members = catalogue.provisional_franka_1arm(table)
-    arms = {name: table[name].arms for name in members}
-    by_category = {c: [n for n in members if table[n].category == c] for c in SPEC_CATEGORIES}
-    assert all(by_category.values())
-    assert {arms[n] for n in by_category["pick_and_place"] + by_category["press_push"]} == {"1"}
-    assert {arms[n] for n in by_category["stacking"]} == {"switching"}
-    assert "2" not in arms.values() and len(members) == 25
-    assert "PROVISIONAL" in Path(catalogue.__file__).read_text()
-    # info() says which category has no one-arm task and what the plugin serves for it.
-    info = BENCHMARK.info()
-    [note] = info["provisional"]
-    assert note.startswith("franka_1arm is PROVISIONAL")
-    assert "the one-arm tasks of pick_and_place and press_push" in note
-    assert "stacking has no one-arm task, so its arm-switching tasks stand in" in note
+    assert catalogue.suites(table) == table.suites
+    shown, info = BENCHMARK.catalogue(), BENCHMARK.info()
+    assert shown["suites"][SPEC_SUITE] == list(table.suites[SPEC_SUITE])
+    assert "provisional" not in shown and "provisional" not in info
+    package = Path(icil_benchmark_robotwin.__file__).parent
+    assert not [p.name for p in package.glob("*.py") if "PROVISIONAL" in p.read_text()]
+    # info() says where the suite was chosen and what each category of the track holds.
     basis = info["franka_1arm"]
-    assert basis["provisional"] is True and basis["without_one_arm_task"] == ["stacking"]
-    assert basis["categories"]["stacking"] == {
-        "tasks": by_category["stacking"],
-        "arms": ["switching"],
+    assert basis["survey"] == catalogue.SURVEY == "docs/survey.md#franka-one-arm-survey"
+    assert "\n## Franka one-arm survey\n" in (ROOT.parent / "docs" / "survey.md").read_text()
+    assert basis["categories"] == {
+        "pick_and_place": {"tasks": ["place_empty_cup"], "arms": ["1"]},
+        "stacking": {"tasks": ["stack_bowls_two"], "arms": ["switching"]},
+        "press_push": {"tasks": ["click_bell", "press_stapler"], "arms": ["1"]},
     }
-    assert basis["categories"]["pick_and_place"]["arms"] == ["1"]
-    assert basis["categories"]["press_push"]["arms"] == ["1"]
-    assert basis["stand_in"] == catalogue.STAND_IN_RULE
 
 
 def test_the_catalogue_shows_the_arms_robotwin_icils_table_records():
@@ -165,40 +158,6 @@ def test_the_catalogue_shows_the_arms_robotwin_icils_table_records():
     assert {name: task["arms"] for name, task in shown.items()} == {
         name: task.arms for name, task in table.tasks.items()
     }
-    assert not any("arms are PROVISIONAL" in note for note in BENCHMARK.info()["provisional"])
-
-
-def _with_arms(**arms):
-    """The task table with some tasks' arms changed."""
-    table = tasks.table()
-    changed = {
-        name: dataclasses.replace(task, arms=arms.get(name, task.arms))
-        for name, task in table.tasks.items()
-    }
-    return dataclasses.replace(table, tasks=changed)
-
-
-def test_a_category_that_gains_a_one_arm_task_serves_only_its_one_arm_tasks():
-    table = _with_arms(stack_blocks_two="1")
-    members = catalogue.suites(table)["franka_1arm"]
-    assert [n for n in members if table[n].category == "stacking"] == ["stack_blocks_two"]
-    assert catalogue.franka_1arm_basis(table)["without_one_arm_task"] == []
-    [note] = catalogue.provisional(table)
-    assert "pick_and_place, stacking and press_push" in note and "stand in" not in note
-
-
-def test_a_category_with_neither_one_arm_nor_switching_tasks_has_no_units():
-    stacking = [n for n, t in tasks.table().tasks.items() if t.category == "stacking"]
-    table = _with_arms(**dict.fromkeys(stacking, "2"))
-    assert not [n for n in catalogue.suites(table)["franka_1arm"] if n in stacking]
-    assert catalogue.franka_1arm_basis(table)["categories"]["stacking"] == {
-        "tasks": [],
-        "arms": [],
-    }
-    [note] = catalogue.provisional(table)
-    assert "stacking has no one-arm or arm-switching task, so it has no units" in note
-    with pytest.raises(ValueError, match="has no task in category 'stacking'"):
-        units.suite_tasks(table, "franka_1arm", "stacking")
 
 
 def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
@@ -212,7 +171,7 @@ def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
     assert set(info["commits"]) == {"benchmark", "robotwin"}
     assert info["benchmark"]["source_sha256"] == robotwin_icil.source_sha256()
     assert info["catalogue_sha256"] == info["pinned_catalogue_sha256"]
-    assert info["derivation"] == "robotwin-icil-competition/units/1"
+    assert info["derivation"] == "robotwin-icil-competition/units/2"
     assert info["cli"]["module"] == "robotwin_icil.cli"
     assert info["cli"]["python_env"] == "ROBOTWIN_ICIL_PYTHON"
     assert json.loads(json.dumps(info)) == info

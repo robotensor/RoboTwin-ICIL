@@ -20,8 +20,9 @@ def test_tasks_lists_categories_arms_and_suite_membership(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
-    assert "click_bell  (one arm)  [v1]" in out
-    assert "stack_bowls_two  (switching arms)  [v1]" in out
+    assert "click_bell  (one arm)  [franka_1arm, v1]" in out
+    assert "stack_bowls_two  (switching arms)  [franka_1arm, v1]" in out
+    assert "place_a2b_left  (one arm)  [v1]" in out
     assert "lift_pot  (two arms)" in out
     assert listed(out) == list(tasks.table().tasks)
 

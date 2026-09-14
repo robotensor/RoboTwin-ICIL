@@ -39,9 +39,11 @@ def test_units_are_drawn_only_from_the_requested_suite_and_category():
     for category in catalogue.FRANKA_1ARM_CATEGORIES:
         derived = derive(category=category, count=30)
         allowed = {name for name in suite if table[name].category == category}
-        assert {u["task"] for u in derived} == allowed
+        assert {u["task"] for u in derived} == allowed == set(PINNED_FRANKA_1ARM[category])
         assert all(u["category"] == category and u["suite"] == "franka_1arm" for u in derived)
-    # Without a category, the whole suite and nothing else; v1 is nine tasks.
+    # Without a category, the whole suite and nothing else: franka_1arm is four tasks, v1 nine.
+    franka = derive(category=None, count=8)
+    assert collections.Counter(u["task"] for u in franka) == dict.fromkeys(suite, 2)
     everything = derive(suite="v1", category=None, count=27)
     assert collections.Counter(u["task"] for u in everything) == dict.fromkeys(
         table.suites["v1"], 3
@@ -49,9 +51,11 @@ def test_units_are_drawn_only_from_the_requested_suite_and_category():
 
 
 def test_tasks_are_spread_evenly_over_the_suite():
-    derived = derive(category="pick_and_place", count=20)  # 13 tasks
+    derived = derive(suite="v1", category=None, count=20)  # nine tasks
     counts = collections.Counter(u["task"] for u in derived)
-    assert len(counts) == 13 and max(counts.values()) - min(counts.values()) <= 1
+    assert len(counts) == 9 and max(counts.values()) - min(counts.values()) <= 1
+    press_push = collections.Counter(u["task"] for u in derive(count=7))  # two tasks
+    assert sorted(press_push.values()) == [3, 4]
 
 
 def test_each_unit_carries_its_candidates_and_its_robot():
@@ -74,20 +78,42 @@ def test_a_smaller_duel_is_the_start_of_a_larger_one():
     assert derive(count=0) == []
 
 
+def _sha256(derived):
+    return hashlib.sha256(
+        json.dumps(derived, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def test_derivation_is_pinned_across_python_versions():
-    # CI derives this on Python 3.10 and 3.12; a different digest is a different unit list.
+    # CI derives these on Python 3.10 and 3.12; a different digest is a different unit list.
     derived = BENCHMARK.derive_units(seed_material="pinned", count=9, suite="v1")
-    text = json.dumps(derived, sort_keys=True, separators=(",", ":"))
     assert [u["task"] for u in derived[:3]] == PINNED_TASKS
     assert derived[0]["instance_params"]["scene_seeds"] == PINNED_SEEDS
-    assert hashlib.sha256(text.encode()).hexdigest() == PINNED_SHA256
+    assert _sha256(derived) == PINNED_SHA256
+    # The one-arm Franka track's skills, one category of franka_1arm each.
+    franka = {
+        category: BENCHMARK.derive_units(
+            seed_material="pinned", count=4, suite="franka_1arm", category=category
+        )
+        for category in catalogue.FRANKA_1ARM_CATEGORIES
+    }
+    assert {c: [u["task"] for u in derived] for c, derived in franka.items()} == (
+        PINNED_FRANKA_TASKS
+    )
+    assert _sha256(franka) == PINNED_FRANKA_SHA256
 
 
-#: What `derive_units(seed_material="pinned", count=9, suite="v1")` returned when the derivation
-#: was written, on Python 3.10 and 3.12: a change here changes every duel's units.
-PINNED_TASKS = ["stack_bowls_two", "place_empty_cup", "click_alarmclock"]
-PINNED_SEEDS = [1911900973, 111348362, 833122392, 158406989]
-PINNED_SHA256 = "252476905dd8bc77004693c44457673dbf45ef7ecb861fbe866595864f37d8c7"
+#: What `derive_units(seed_material="pinned", ...)` returned under DERIVATION units/2, on Python
+#: 3.10 and 3.12: a change here changes every duel's units.
+PINNED_TASKS = ["place_container_plate", "stack_blocks_two", "stack_bowls_two"]
+PINNED_SEEDS = [172790807, 1332496579, 252100986, 1975177743]
+PINNED_SHA256 = "4d9f244345c0077c7f33098403b3127108e0572873fb40f337b42b7e92c395b3"
+PINNED_FRANKA_TASKS = {
+    "pick_and_place": ["place_empty_cup"] * 4,
+    "stacking": ["stack_bowls_two"] * 4,
+    "press_push": ["click_bell", "press_stapler", "click_bell", "press_stapler"],
+}
+PINNED_FRANKA_SHA256 = "e7f7c2e9e39a3580da7e52581f8c7e4c382de384be1c7a1eb8229b4423fd37b0"
 
 
 def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
@@ -96,47 +122,19 @@ def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
     assert units.catalogue_sha256(tasks.table()) == units.CATALOGUE_SHA256
 
 
-#: The provisional `franka_1arm` per category, derived from each task's `arms` in robotwin_icil's
-#: table when `CATALOGUE_SHA256` was pinned. Stacking has no one-arm task: its arm-switching tasks
-#: stand in for one, so the track's stacking skill can draw units.
+#: `franka_1arm` per category as robotwin_icil's table named it, from the Franka survey
+#: (docs/survey.md), when `CATALOGUE_SHA256` was pinned. Stacking has no one-arm task:
+#: stack_bowls_two, an arm-switching task, stands in for it.
 PINNED_FRANKA_1ARM = {
-    "pick_and_place": [
-        "move_can_pot",
-        "move_pillbottle_pad",
-        "move_playingcard_away",
-        "move_stapler_pad",
-        "place_a2b_left",
-        "place_a2b_right",
-        "place_container_plate",
-        "place_empty_cup",
-        "place_fan",
-        "place_mouse_pad",
-        "place_object_scale",
-        "place_object_stand",
-        "place_shoe",
-    ],
-    "stacking": [
-        "blocks_ranking_rgb",
-        "blocks_ranking_size",
-        "stack_blocks_three",
-        "stack_blocks_two",
-        "stack_bowls_three",
-        "stack_bowls_two",
-    ],
-    "press_push": [
-        "beat_block_hammer",
-        "click_alarmclock",
-        "click_bell",
-        "press_stapler",
-        "stamp_seal",
-        "turn_switch",
-    ],
+    "pick_and_place": ["place_empty_cup"],
+    "stacking": ["stack_bowls_two"],
+    "press_push": ["click_bell", "press_stapler"],
 }
 
 
 def test_the_franka_suite_the_digest_covers_is_the_pinned_one():
-    # The digest covers franka_1arm's members; this names them, so a table whose arms move a task
-    # in or out of the suite says which one before the digest refuses to derive.
+    # The digest covers franka_1arm's members; this names them, so a table that moves a task in
+    # or out of the suite says which one before the digest refuses to derive.
     table = tasks.table()
     members = catalogue.suites(table)["franka_1arm"]
     by_category = {
