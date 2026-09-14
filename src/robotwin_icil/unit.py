@@ -24,7 +24,8 @@ import json
 import sys
 import time
 import traceback
-from collections.abc import Callable
+from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -72,99 +73,173 @@ def clear_outputs(
     return out
 
 
+#: The seeds `np.random.seed`, which RoboTwin feeds the scene seed to, accepts.
+SEED_RANGE = range(0, 2**32)
+
+
 @dataclass(frozen=True)
 class Materialized:
-    """What `materialize` did: a prompt written, or a seed rejected, and the result it recorded."""
+    """What `materialize` did: a prompt written, or every candidate seed rejected, and the result
+    it recorded. `generated` holds every attempt, in the order the candidates were tried."""
 
     ok: bool
-    attempt: generate.Attempt
+    generated: generate.Generated
     result: dict[str, Any]
-    demonstration: Demonstration | None = None
-    initial: SceneFingerprint | None = None
+
+    @property
+    def demonstration(self) -> Demonstration | None:
+        return self.generated.demonstration
+
+    @property
+    def initial(self) -> SceneFingerprint | None:
+        return self.generated.initial
+
+
+def candidate_seeds(scene_seeds: int | Sequence[int]) -> list[int]:
+    """The candidates `materialize` tries, in order; `UnitError` for a list it must not try.
+
+    A seed given twice would build the same scene twice, and the expert is not reproducible from
+    its seed, so the second try could succeed where the first failed: which prompt a unit gets
+    would depend on the retry, not on the list.
+    """
+    seeds = [scene_seeds] if isinstance(scene_seeds, int) else list(scene_seeds)
+    if not seeds:
+        raise UnitError("materialize needs at least one candidate scene seed")
+    for seed in seeds:
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed not in SEED_RANGE:
+            raise UnitError(f"scene seed {seed!r} is not an integer in [0, 2**32)")
+    repeated = sorted({seed for seed in seeds if seeds.count(seed) > 1})
+    if repeated:
+        raise UnitError(f"scene seed {', '.join(map(str, repeated))} is given more than once")
+    return seeds
+
+
+def attempts_json(generated: generate.Generated) -> list[dict[str, Any]]:
+    """Every candidate tried, in order: its seed, why the expert was rejected on it (None for the
+    seed that was kept) and the rejection's detail."""
+    return [
+        {
+            "seed": attempt.seed,
+            "rejection": None if attempt.rejection is None else attempt.rejection.value,
+            "detail": attempt.detail,
+        }
+        for attempt in generated.attempts
+    ]
 
 
 def materialize(
     task: str,
-    scene_seed: int,
+    scene_seeds: int | Sequence[int],
     config,
     out_dir: str | Path,
     *,
     task_env=None,
     video: bool = True,
 ) -> Materialized:
-    """Build the scene for `scene_seed`, run the expert once, and save what it did.
+    """Try the candidate `scene_seeds` in order until the expert solves one, and save that one.
 
-    A rejected seed is a legitimate outcome, not an error: `result.json` says why and no prompt
-    is written. The result carries what the orchestrator's `read_result` reads from either
-    command — `success`, `void`, `steps`, `error` — next to `ok`: a written prompt is a success
-    whose `steps` are the demonstration's actions, a rejected seed is void with the rejection as
-    its `error`. A simulator that cannot build any scene raises `RoboTwinError`, as `generate`
-    does. Stale files from an earlier command in the same directory are removed first, so what
-    the directory holds afterwards is this call's.
+    Each candidate is one scene built and one expert run, as `generate.generate` tries an
+    episode's seeds; the first demonstration that succeeds is written and the remaining
+    candidates are never built. A single seed is a list of one. Rejected candidates are
+    legitimate outcomes, not errors: the result and the prompt's `meta` record every attempt, and
+    when all of them are rejected `result.json` says why and no prompt is written.
+
+    The result carries what the orchestrator's `read_result` reads from either command —
+    `success`, `void`, `void_cause`, `steps`, `error` — next to `ok`: a written prompt is a
+    success whose `steps` are the demonstration's actions and whose `scene_seed` is the candidate
+    it was built from; every candidate rejected is void with `void_cause` "harness" (the expert
+    failed, not a policy), `scene_seed` None and the rejections as its `error`. A simulator that
+    cannot build any scene raises `RoboTwinError`, as `generate` does, and a candidate list it
+    must not try raises `UnitError`. Stale files from an earlier command in the same directory
+    are removed first, so what the directory holds afterwards is this call's.
     """
     from . import robotwin
 
     started = time.monotonic()
     out = clear_outputs(out_dir, MATERIALIZE_OUTPUTS)
+    candidates = candidate_seeds(scene_seeds)
 
     args = config.resolve(task)
     embodiment = str(args["embodiment_name"])
     task_env = task_env if task_env is not None else robotwin.load_task(task)
     try:
-        attempt, demonstration, initial = generate.attempt(
-            task_env, int(scene_seed), args, config.save_freq, 0
+        generated = generate.generate(
+            task_env, candidates, lambda: config.resolve(task), config.save_freq, 0
         )
     finally:
         robotwin.free_gpu()
+    attempts = attempts_json(generated)
+    rejections = _rejection_counts(generated)
 
     def finish(**fields: Any) -> dict[str, Any]:
         result = {
             "task": task,
-            "scene_seed": int(scene_seed),
+            "scene_seeds": candidates,
             "embodiment": embodiment,
-            "attempts": 1,
+            "attempts": attempts,
+            "rejections": rejections,
             **fields,
             "duration_s": round(time.monotonic() - started, 3),
         }
         _write_json(out / RESULT_FILE, result)
         return result
 
+    demonstration, initial = generated.demonstration, generated.initial
     if demonstration is None or initial is None:
-        assert attempt.rejection is not None
-        reason = attempt.rejection.value + (f": {attempt.detail}" if attempt.detail else "")
+        last = generated.attempts[-1]
+        assert last.rejection is not None
+        if len(generated.attempts) == 1:
+            error = f"expert rejected the seed: {_why(last)}"
+        else:
+            error = f"expert rejected all {len(generated.attempts)} candidate seeds: " + "; ".join(
+                f"seed {attempt.seed}: {_why(attempt)}" for attempt in generated.attempts
+            )
         result = finish(
             ok=False,
+            scene_seed=None,
             success=None,
             void=True,
+            void_cause="harness",
             steps=None,
-            error=f"expert rejected the seed: {reason}",
-            rejection=attempt.rejection.value,
-            detail=attempt.detail,
+            error=error,
+            rejection=last.rejection.value,
+            detail=last.detail,
         )
-        return Materialized(ok=False, attempt=attempt, result=result)
+        return Materialized(ok=False, generated=generated, result=result)
 
-    meta = build_meta(task, int(scene_seed), config, args, demonstration, initial)
+    assert generated.seed is not None
+    expert = {"scene_seeds": candidates, "attempts": attempts, "rejections": rejections}
+    meta = build_meta(task, generated.seed, config, args, demonstration, initial, expert)
     prompt_sha256 = write_prompt(out / PROMPT_FILE, demonstration, meta)
     note = ""
     if video:
         note = _film(lambda: EpisodeVideo(out).demonstration(demonstration))
     result = finish(
         ok=True,
+        scene_seed=generated.seed,
         success=True,
         void=False,
+        void_cause=None,
         steps=len(demonstration) - 1,
         error=None,
         frames=len(demonstration),
         cameras=list(demonstration.cameras),
         prompt_sha256=prompt_sha256,
         scene_sha256=meta["scene"]["sha256"],
-        rejections={},
         video=DEMONSTRATION_CLIP if (out / DEMONSTRATION_CLIP).is_file() else None,
         detail=note.strip(),
     )
-    return Materialized(
-        ok=True, attempt=attempt, result=result, demonstration=demonstration, initial=initial
-    )
+    return Materialized(ok=True, generated=generated, result=result)
+
+
+def _why(attempt: generate.Attempt) -> str:
+    assert attempt.rejection is not None
+    return attempt.rejection.value + (f": {attempt.detail}" if attempt.detail else "")
+
+
+def _rejection_counts(generated: generate.Generated) -> dict[str, int]:
+    counts = Counter(a.rejection.value for a in generated.attempts if a.rejection is not None)
+    return dict(sorted(counts.items()))
 
 
 def build_meta(
@@ -174,11 +249,13 @@ def build_meta(
     args: dict[str, Any],
     demonstration: Demonstration,
     initial: SceneFingerprint,
+    expert: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The privileged `meta` of a prompt: enough to rebuild its scene and to prove it is the same.
 
     `config` and `args` are the `SceneConfig` the scene was built with and what it resolved to;
-    `initial` is the fingerprint taken before the expert acted.
+    `initial` is the fingerprint taken before the expert acted. `expert` is how the seed was
+    found — the candidates, every attempt and the rejections — and defaults to the one seed given.
     """
     from . import robotwin
 
@@ -202,7 +279,13 @@ def build_meta(
         "scene": {"fingerprint": initial.to_json(), "sha256": digest(initial)},
         "benchmark_commit": git_commit(robotwin.REPO_ROOT),
         "robotwin_commit": git_commit(robotwin.ROBOTWIN_ROOT),
-        "expert": {"attempts": 1, "rejections": {}, "rejection_details": {}},
+        "expert": expert
+        if expert is not None
+        else {
+            "scene_seeds": [int(scene_seed)],
+            "attempts": [{"seed": int(scene_seed), "rejection": None, "detail": ""}],
+            "rejections": {},
+        },
         "frames": len(demonstration),
         "cameras": list(demonstration.cameras),
     }

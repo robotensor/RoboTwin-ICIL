@@ -166,6 +166,30 @@ def test_a_rejected_seed_exits_0_with_its_result(tmp_path, fake_sim, capsys):
     assert not (tmp_path / "prompt.npz").exists()
 
 
+def test_materialize_takes_every_candidate_seed_in_order(tmp_path, fake_sim, capsys):
+    from fake_robotwin import FakeTaskEnv
+
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11, 12})
+    argv = [*MATERIALIZE, "--scene-seed", "12", "--scene-seed", "13", "--out", str(tmp_path)]
+    assert cli.build_parser().parse_args(argv).scene_seeds == [11, 12, 13]
+    assert cli.main(argv) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["ok"] is True and printed["scene_seed"] == 13
+    assert [a["seed"] for a in printed["attempts"]] == [11, 12, 13]
+
+    # Every candidate rejected is still a result, and still exit 0.
+    fake_sim["next"] = lambda name: FakeTaskEnv(unstable_seeds={11, 12, 13})
+    assert cli.main(argv) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["void"] is True and printed["void_cause"] == "harness"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["result.json"]
+
+    # A seed given twice is a caller's mistake: exit 1, and nothing written.
+    assert cli.main([*MATERIALIZE, "--scene-seed", "11", "--out", str(tmp_path)]) == 1
+    assert "given more than once" in capsys.readouterr().err
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
 def test_a_task_the_benchmark_does_not_score_is_refused_before_the_simulator(
     tmp_path, fake_sim, capsys
 ):

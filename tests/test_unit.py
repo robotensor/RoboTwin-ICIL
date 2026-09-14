@@ -44,7 +44,7 @@ def materialized(tmp_path, env=None, **config):
 def test_materialize_writes_the_prompt_the_clip_and_the_result(tmp_path):
     env = FakeTaskEnv()
     done, out = materialized(tmp_path, env, save_freq=5)
-    assert done.ok and done.attempt.rejection is None
+    assert done.ok and [a.rejection for a in done.generated.attempts] == [None]
     assert {p.name for p in out.iterdir()} == {"prompt.npz", "demonstration.mp4", "result.json"}
     assert env.setups == [SEED] and env.closed == 1
 
@@ -69,7 +69,13 @@ def test_materialize_writes_the_prompt_the_clip_and_the_result(tmp_path):
     assert meta["task_config"] == "fake" and meta["save_freq"] == 5
     assert meta["head_camera"] is None and meta["overrides"] == {}
     assert meta["frames"] == len(demonstration) and meta["cameras"] == ["head_camera"]
-    assert meta["expert"] == {"attempts": 1, "rejections": {}, "rejection_details": {}}
+    assert meta["expert"] == {
+        "scene_seeds": [SEED],
+        "attempts": [{"seed": SEED, "rejection": None, "detail": ""}],
+        "rejections": {},
+    }
+    assert result["scene_seeds"] == [SEED] and result["attempts"] == meta["expert"]["attempts"]
+    assert result["rejections"] == {} and result["void_cause"] is None
     assert meta["benchmark_commit"] and meta["robotwin_commit"]
     recorded = scene.SceneFingerprint.from_json(meta["scene"]["fingerprint"])
     assert scene.digest(recorded) == meta["scene"]["sha256"] == result["scene_sha256"]
@@ -88,10 +94,17 @@ def test_a_rejected_seed_writes_its_rejection_and_no_prompt(tmp_path):
     result = unit.read_result(out)
     assert result["ok"] is False and result["rejection"] == "unstable"
     assert result["detail"] == f"objects unstable in seed {SEED}"
-    assert result["task"] == TASK and result["scene_seed"] == SEED and result["attempts"] == 1
-    # Read as the orchestrator reads any result: void, with the rejection as the reason.
+    assert result["task"] == TASK and result["scene_seeds"] == [SEED]
+    assert result["attempts"] == [
+        {"seed": SEED, "rejection": "unstable", "detail": f"objects unstable in seed {SEED}"}
+    ]
+    # No seed was chosen: the attempts say which one was tried.
+    assert result["scene_seed"] is None and result["rejections"] == {"unstable": 1}
+    # Read as the orchestrator reads any result: void, with the rejection as the reason, and the
+    # harness's - the expert's - to answer for, never a policy's.
     assert_read_result_shape(result)
     assert result["void"] is True and result["success"] is None and result["steps"] is None
+    assert result["void_cause"] == "harness"
     assert result["error"] == f"expert rejected the seed: unstable: objects unstable in seed {SEED}"
 
 
@@ -103,6 +116,78 @@ def test_an_expert_that_fails_is_a_rejection_too(tmp_path):
 def test_a_broken_simulator_is_an_error_not_a_rejection(tmp_path):
     with pytest.raises(robotwin.RoboTwinError, match="planner failed to construct"):
         materialized(tmp_path, FakeTaskEnv(broken_setup=True))
+
+
+def test_materialize_tries_candidates_in_order_and_keeps_the_first_the_expert_solves(tmp_path):
+    env = FakeTaskEnv(unstable_seeds={3}, expert_misses_on={5})
+    out = tmp_path / "prompt"
+    done = unit.materialize(TASK, [3, 5, 8, 13], FakeConfig(), out, task_env=env)
+    assert done.ok and done.generated.seed == 8
+    # 13 is never built: the first success ends the search.
+    assert env.setups == [3, 5, 8] and env.closed == 3
+    assert {p.name for p in out.iterdir()} == {"prompt.npz", "demonstration.mp4", "result.json"}
+
+    result = unit.read_result(out)
+    assert_read_result_shape(result)
+    assert result["ok"] and result["success"] and result["scene_seed"] == 8
+    assert result["scene_seeds"] == [3, 5, 8, 13]
+    assert result["attempts"] == [
+        {"seed": 3, "rejection": "unstable", "detail": "objects unstable in seed 3"},
+        {"seed": 5, "rejection": "expert_failed", "detail": ""},
+        {"seed": 8, "rejection": None, "detail": ""},
+    ]
+    assert result["rejections"] == {"expert_failed": 1, "unstable": 1}
+
+    # The prompt is the chosen seed's, and meta records how it was found.
+    _, meta = prompt.read_raw(out / "prompt.npz")
+    assert meta["scene_seed"] == 8
+    assert meta["expert"] == {
+        "scene_seeds": [3, 5, 8, 13],
+        "attempts": result["attempts"],
+        "rejections": result["rejections"],
+    }
+    run = unit.run_unit(
+        out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=FakeTaskEnv()
+    )
+    assert run["success"] is True and run["scene_seed"] == 8
+
+
+def test_every_candidate_rejected_is_a_void_harness_result_naming_each(tmp_path):
+    env = FakeTaskEnv(unstable_seeds={3}, plan_fails_on={5})
+    out = tmp_path / "prompt"
+    done = unit.materialize(TASK, [3, 5], FakeConfig(), out, task_env=env)
+    assert not done.ok and done.demonstration is None and env.setups == [3, 5]
+    assert {p.name for p in out.iterdir()} == {"result.json"}
+
+    result = unit.read_result(out)
+    assert_read_result_shape(result)
+    assert result["ok"] is False and result["void"] is True and result["success"] is None
+    assert result["void_cause"] == "harness" and result["scene_seed"] is None
+    assert result["rejections"] == {"plan_failed": 1, "unstable": 1}
+    assert [a["seed"] for a in result["attempts"]] == [3, 5]
+    assert result["error"] == (
+        "expert rejected all 2 candidate seeds: "
+        "seed 3: unstable: objects unstable in seed 3; seed 5: plan_failed"
+    )
+    # The last candidate's rejection, where a single seed's result has always kept it.
+    assert result["rejection"] == "plan_failed" and result["detail"] == ""
+
+
+@pytest.mark.parametrize(
+    ("seeds", "reason"),
+    [
+        ([], "at least one candidate"),
+        ([3, 5, 3], "scene seed 3 is given more than once"),
+        ([-1], "not an integer in [0, 2**32)"),
+        ([2**32], "not an integer in [0, 2**32)"),
+        ([True], "not an integer"),
+    ],
+)
+def test_a_candidate_list_it_must_not_try_is_refused_before_any_scene(tmp_path, seeds, reason):
+    env = FakeTaskEnv()
+    with pytest.raises(unit.UnitError) as refused:
+        unit.materialize(TASK, seeds, FakeConfig(), tmp_path / "prompt", task_env=env)
+    assert reason in str(refused.value) and env.setups == []
 
 
 def test_run_unit_succeeds_with_replay_from_the_file(tmp_path):

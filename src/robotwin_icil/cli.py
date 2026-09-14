@@ -108,7 +108,7 @@ def _materialize(args: argparse.Namespace) -> int:
     config = robotwin.SceneConfig(
         task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
     )
-    done = materialize(task.name, args.scene_seed, config, out)
+    done = materialize(task.name, args.scene_seeds, config, out)
     print(json.dumps(done.result, indent=2, sort_keys=True))
     # A rejected seed is a result, written to result.json like a prompt; only a harness error
     # exits 1, and then no result.json holds a reason the caller would read past a non-zero exit.
@@ -226,11 +226,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     mat = commands.add_parser(
         "materialize",
-        help="build one seed's demonstration and save it: prompt.npz, demonstration.mp4, "
-        "result.json; exits 0 whenever result.json was written, a rejected seed included",
+        help="build one demonstration and save it: prompt.npz, demonstration.mp4, result.json; "
+        "exits 0 whenever result.json was written, every candidate seed rejected included",
     )
     mat.add_argument("--task", required=True, help="a single RoboTwin task")
-    mat.add_argument("--scene-seed", type=int, required=True, help="the scene to build")
+    mat.add_argument(
+        "--scene-seed",
+        dest="scene_seeds",
+        type=int,
+        action="append",
+        required=True,
+        metavar="SEED",
+        help="a candidate scene; repeat it to give more, tried in order until the expert solves one",
+    )
     mat.add_argument("--out", required=True, help="directory the three files are written into")
     mat.add_argument(
         "--task-config", default="demo_clean", help="RoboTwin env_cfg/task_config name"
