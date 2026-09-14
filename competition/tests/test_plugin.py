@@ -1,0 +1,156 @@
+"""The plugin as the orchestrator sees it, checked structurally without importing the orchestrator.
+
+The rules below mirror `icil_orchestrator.benchmarks.api.validate_plugin` and `plugins.py`: an id
+and ABI version, every method callable with the keywords the orchestrator passes, an entry point in
+the `icil.benchmarks` group, and a pure half that imports no simulator.
+"""
+
+import inspect
+import json
+import subprocess
+import sys
+from importlib import metadata
+from pathlib import Path
+
+import pytest
+
+import icil_benchmark_robotwin
+from icil_benchmark_robotwin import BENCHMARK, catalogue
+from robotwin_icil import tasks
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
+
+ROOT = Path(__file__).resolve().parents[1]
+PURE_METHODS = ("info", "catalogue", "derive_units", "verify_prompt", "read_result")
+REQUIRED_KEYWORDS = {
+    "derive_units": ("seed_material", "count", "suite", "category"),
+    "verify_prompt": ("path", "unit"),
+    "read_result": ("out_dir",),
+    "materialize_command": ("unit", "out_dir"),
+    "run_command": ("unit", "prompt", "out_dir", "policy_address", "authkey_env"),
+}
+#: What `plugins.SIMULATOR_MODULES` refuses a plugin's import and pure calls to bring in.
+SIMULATOR_MODULES = {"sapien", "mujoco", "robosuite", "torch", "curobo", "isaacgym"}
+#: The spec's franka_1arm track: its suite and the categories its skills name.
+SPEC_SUITE, SPEC_CATEGORIES = "franka_1arm", ("pick_and_place", "stacking", "press_push")
+
+
+def test_the_plugin_has_the_id_and_abi_version_the_orchestrator_speaks():
+    assert BENCHMARK.id == "robotwin"
+    assert type(BENCHMARK.api_version) is int and BENCHMARK.api_version == 1
+
+
+@pytest.mark.parametrize("name", PURE_METHODS)
+def test_every_method_takes_the_keywords_the_orchestrator_passes(name):
+    method = getattr(BENCHMARK, name)
+    assert callable(method)
+    parameters = inspect.signature(method).parameters
+    accepted = {
+        n
+        for n, p in parameters.items()
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    assert set(REQUIRED_KEYWORDS.get(name, ())) <= accepted
+    if name == "run_command":
+        assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+
+
+def test_the_entry_point_names_the_plugin_object():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert project["name"] == "robotwin-icil-competition"
+    assert project["entry-points"]["icil.benchmarks"] == {
+        "robotwin": "icil_benchmark_robotwin:BENCHMARK"
+    }
+    assert set(project["dependencies"]) == {"robotwin-icil", "icil-policy"}
+    installed = [
+        ep for ep in metadata.entry_points(group="icil.benchmarks") if ep.name == "robotwin"
+    ]
+    if not installed:
+        pytest.skip("robotwin-icil-competition is not installed; its metadata cannot be read")
+    [entry_point] = installed
+    assert entry_point.value == "icil_benchmark_robotwin:BENCHMARK"
+    assert entry_point.load() is BENCHMARK
+
+
+def test_the_plugin_never_imports_the_orchestrator():
+    package = Path(icil_benchmark_robotwin.__file__).parent
+    for source in package.glob("*.py"):
+        text = source.read_text()
+        assert "import icil_orchestrator" not in text and "from icil_orchestrator" not in text
+
+
+def test_the_pure_half_imports_no_simulator_and_no_orchestrator(tmp_path):
+    code = f"""
+import json, sys
+from icil_benchmark_robotwin import BENCHMARK
+unit = BENCHMARK.derive_units(seed_material="m", count=1, suite="franka_1arm", category="stacking")[0]
+BENCHMARK.info(); BENCHMARK.catalogue()
+BENCHMARK.verify_prompt(path={str(tmp_path / "missing.npz")!r}, unit=unit)
+BENCHMARK.read_result(out_dir={str(tmp_path)!r})
+print(json.dumps(sorted({{m.split(".")[0] for m in sys.modules}})))
+"""
+    loaded = set(
+        json.loads(
+            subprocess.run(
+                [sys.executable, "-c", code], capture_output=True, text=True, check=True
+            ).stdout
+        )
+    )
+    assert not loaded & SIMULATOR_MODULES
+    assert "icil_orchestrator" not in loaded and "icil_policy" not in loaded
+
+
+def test_the_catalogue_has_the_shape_the_orchestrator_reads_and_the_spec_needs():
+    shown = BENCHMARK.catalogue()
+    assert isinstance(shown["suites"], dict) and all(
+        isinstance(v, list) for v in shown["suites"].values()
+    )
+    assert SPEC_SUITE in shown["suites"] and "v1" in shown["suites"]
+    assert set(SPEC_CATEGORIES) <= set(shown["categories"])
+    table = tasks.table()
+    assert set(shown["tasks"]) == set(table.tasks)
+    for name, task in shown["tasks"].items():
+        assert task["category"] == table[name].category and task["arms"] in ("1", "switching", "2")
+    # Every skill of the track can draw a unit.
+    for category in SPEC_CATEGORIES:
+        assert BENCHMARK.derive_units(
+            seed_material="m", count=1, suite=SPEC_SUITE, category=category
+        )
+    assert json.loads(json.dumps(shown)) == shown
+
+
+def test_the_provisional_franka_suite_is_one_arm_but_for_stacking_and_says_so():
+    table = tasks.table()
+    members = catalogue.provisional_franka_1arm(table)
+    arms = {name: catalogue.arms_of(table[name]) for name in members}
+    by_category = {c: [n for n in members if table[n].category == c] for c in SPEC_CATEGORIES}
+    assert all(by_category.values())
+    assert {arms[n] for n in by_category["pick_and_place"] + by_category["press_push"]} == {"1"}
+    assert {arms[n] for n in by_category["stacking"]} == {"switching"}
+    assert "2" not in arms.values() and len(members) == 25
+    assert any("PROVISIONAL" in note for note in BENCHMARK.info()["provisional"])
+    assert "PROVISIONAL" in Path(catalogue.__file__).read_text()
+
+
+def test_the_provisional_arms_cover_the_task_table_and_agree_with_it_once_it_has_them():
+    table = tasks.table()
+    assert set(catalogue.PROVISIONAL_ARMS) == set(table.tasks)
+    recorded = {name: getattr(task, "arms", None) for name, task in table.tasks.items()}
+    if all(value is None for value in recorded.values()):
+        pytest.skip("robotwin_icil's task table records no arms on this branch")
+    assert recorded == catalogue.PROVISIONAL_ARMS
+
+
+def test_info_names_the_robots_cameras_protocol_and_commits():
+    info = BENCHMARK.info()
+    assert (info["id"], info["api_version"]) == ("robotwin", 1)
+    assert info["protocol"] == "same_initial_state" and info["views"] == ["sensorimotor"]
+    assert info["embodiments"]["franka-panda"]["action_dims"] == {"qpos": 16, "ee": 16}
+    assert info["embodiments"]["aloha-agilex"]["action_dims"] == {"qpos": 14, "ee": 16}
+    assert info["embodiment_of_suite"]["franka_1arm"] == "franka-panda"
+    assert info["action_types"] == ["qpos", "ee"] and info["cameras"]
+    assert set(info["commits"]) == {"benchmark", "robotwin"}
+    assert json.loads(json.dumps(info)) == info
