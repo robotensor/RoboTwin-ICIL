@@ -89,12 +89,14 @@ Commands — the argv of `python -m robotwin_icil.cli` in the simulator's enviro
 ## Provisional
 
 The `franka_1arm` suite is named by the Franka survey (robotensor/ICIL-robotwin-benchmark#83),
-which has not run. Until then the plugin serves a provisional one: the one-arm tasks of Pick and
-Place and Press / Push, and — since no stacking expert uses a single arm, each picks its arm per
-object — the stacking tasks whose expert switches arms. The arms each task needs come from
-`robotwin_icil.tasks` once its table records them; until this branch carries that table, from a
-copy in `catalogue.py`. `benchmarks check` prints only its pin notes and `ok`; the provisional
-notes are in `info()["provisional"]` and `catalogue()["provisional"]`.
+which has not finished. Until then the plugin derives a provisional one from each task's `arms`
+in `robotwin_icil.tasks`: per category of the one-arm track, its one-arm tasks. A category with
+no one-arm task serves its arm-switching tasks in their place, so its skill can still draw units;
+at the pinned RoboTwin that is Stacking, where every expert picks its arm per object. A category
+with neither kind has no `franka_1arm` task and derives no units. `info()["franka_1arm"]` lists
+each category's tasks and arms and the categories without a one-arm task, and the note in
+`info()["provisional"]` and `catalogue()["provisional"]` says the same; `benchmarks check`
+prints only its pin notes and `ok`.
 
 ## Tests
 

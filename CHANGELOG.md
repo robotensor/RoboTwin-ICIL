@@ -38,8 +38,9 @@
   `prompt.npz` without unpickling and holds its task, seed, robot, arrays and scene digest to the
   unit) and `read_result` (with `void_cause`). `materialize_command` and `run_command` return the
   argv of `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON`. The `franka_1arm` suite
-  is PROVISIONAL until the Franka survey names it (#83): the one-arm pick-and-place and press/push
-  tasks and the arm-switching stacking tasks, with arms copied from the arms-and-embodiment table.
+  is PROVISIONAL until the Franka survey names it (#83): derived from each task's `arms` in
+  `robotwin_icil.tasks`, the one-arm pick-and-place and press/push tasks and, since stacking has
+  no one-arm task, its arm-switching tasks in their place, which `info()["franka_1arm"]` names.
   `icil-orchestrator benchmarks check robotwin` reports it ok, noting the unpinned version and
   wheel (#86).
 - (feat): an episode runs against a policy served at an address, and a lost policy voids it.
