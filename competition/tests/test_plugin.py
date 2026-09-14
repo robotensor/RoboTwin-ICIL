@@ -16,7 +16,7 @@ import pytest
 
 import icil_benchmark_robotwin
 from icil_benchmark_robotwin import BENCHMARK, catalogue
-from robotwin_icil import tasks
+from robotwin_icil import remote, tasks
 
 try:
     import tomllib
@@ -159,3 +159,13 @@ def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
     assert info["cli"]["module"] == "robotwin_icil.cli"
     assert info["cli"]["python_env"] == "ROBOTWIN_ICIL_PYTHON"
     assert json.loads(json.dumps(info)) == info
+
+
+def test_info_names_the_time_limits_a_served_policy_gets_and_the_extra_that_sets_them():
+    info = BENCHMARK.info()
+    assert info["limits"]["policy_budget_s"] == remote.POLICY_BUDGET_S
+    assert info["limits"]["act_timeout_s"] == remote.ACT_TIMEOUT_S
+    assert info["limits"]["result_reserve_s"] == remote.RESULT_RESERVE_S
+    assert info["run_extra"] == ["act_timeout_s", "policy_budget_s", "unit_timeout_s", "policy_log"]
+    for flag in ("--act-timeout-s", "--policy-budget-s", "--unit-timeout-s", "--policy-log"):
+        assert flag in info["cli"]["run"]

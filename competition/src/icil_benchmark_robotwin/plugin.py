@@ -17,7 +17,7 @@ from typing import Any
 
 import robotwin_icil
 from robotwin_icil import prompt as prompt_
-from robotwin_icil import tasks
+from robotwin_icil import remote, tasks
 from robotwin_icil.records import git_commit
 from robotwin_icil.robotwin import EE_ACTION_DIM, EMBODIMENTS, REPO_ROOT
 
@@ -95,6 +95,17 @@ class RoboTwinBenchmark:
             "save_freq": commands.SAVE_FREQ,
             "scene_seed_candidates": units.SCENE_SEED_CANDIDATES,
             "void_causes": list(prompts.VOID_CAUSES),
+            # What run-unit gives a served policy unless `extra` says otherwise. A unit's
+            # `unit_timeout_s` must leave the harness its own time beyond the policy's budget.
+            "limits": {
+                "connect_timeout_s": remote.CONNECT_TIMEOUT_S,
+                "setup_timeout_s": remote.SETUP_TIMEOUT_S,
+                "act_timeout_s": remote.ACT_TIMEOUT_S,
+                "close_timeout_s": remote.CLOSE_TIMEOUT_S,
+                "policy_budget_s": remote.POLICY_BUDGET_S,
+                "result_reserve_s": remote.RESULT_RESERVE_S,
+            },
+            "run_extra": list(commands.RUN_EXTRA),
             "cli": {
                 "python": commands.simulator_python(),
                 "python_env": commands.PYTHON_ENV,
@@ -102,7 +113,8 @@ class RoboTwinBenchmark:
                 "materialize": "materialize --task T --embodiment E --task-config C "
                 "--save-freq F --scene-seed S [--scene-seed S ...] --out DIR",
                 "run": "run-unit --prompt PROMPT --policy-address ADDR --authkey-env NAME "
-                "[--act-timeout-s S] [--policy-log PATH] --out DIR",
+                "[--act-timeout-s S] [--policy-budget-s S] [--unit-timeout-s S] "
+                "[--policy-log PATH] --out DIR",
             },
             "provisional": catalogue_.provisional(table),
         }
@@ -160,8 +172,9 @@ class RoboTwinBenchmark:
         authkey_env: str,
         **extra: Any,
     ) -> Sequence[str]:
-        """`run-unit --policy-address`, with `--act-timeout-s` and `--policy-log` when `extra`
-        carries `act_timeout_s` and `policy_log`."""
+        """`run-unit --policy-address`, with `--act-timeout-s`, `--policy-budget-s`,
+        `--unit-timeout-s` and `--policy-log` when `extra` carries `act_timeout_s`,
+        `policy_budget_s`, `unit_timeout_s` and `policy_log`: see `commands.run_command`."""
         return commands.run_command(
             unit=unit,
             prompt=prompt,

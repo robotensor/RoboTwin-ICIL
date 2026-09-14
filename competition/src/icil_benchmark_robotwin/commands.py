@@ -8,6 +8,8 @@ directory and RoboTwin moves its own.
 
 from __future__ import annotations
 
+import math
+import numbers
 import os
 from collections.abc import Mapping
 from typing import Any
@@ -25,6 +27,17 @@ CLI_MODULE = "robotwin_icil.cli"
 #: rather than left to the command's defaults, so a changed default cannot change a unit.
 TASK_CONFIG = "demo_clean"
 SAVE_FREQ = 15
+
+#: The time limits `run_command` reads from the orchestrator's `extra`, and the run-unit flag each
+#: becomes: one act; all the policy's calls in the unit together; and the seconds the orchestrator
+#: gives run-unit before it kills it, so that a unit cut short still writes why.
+SECONDS_EXTRA = {
+    "act_timeout_s": "--act-timeout-s",
+    "policy_budget_s": "--policy-budget-s",
+    "unit_timeout_s": "--unit-timeout-s",
+}
+#: Every key of `extra` `run_command` reads.
+RUN_EXTRA = (*SECONDS_EXTRA, "policy_log")
 
 
 def simulator_python() -> str:
@@ -63,17 +76,19 @@ def run_command(
 
     The robot, task and scene come from the prompt's own meta, which `verify_prompt` has held to
     the unit; `unit` is checked all the same, so a unit that cannot be run is refused here. The key
-    travels as the name `authkey_env`, never as a value. `extra` may carry `act_timeout_s` and
-    `policy_log` (the served policy's log file); keywords a later orchestrator adds are ignored.
+    travels as the name `authkey_env`, never as a value. `extra` may carry the time limits of
+    `SECONDS_EXTRA` — refused here unless each is a positive, finite number, since run-unit would
+    refuse it only once the unit runs, voiding it — and `policy_log`, the served policy's log file;
+    keywords a later orchestrator adds are ignored.
     """
     _unit(unit)
     if not isinstance(authkey_env, str) or not authkey_env or "=" in authkey_env:
         raise ValueError(f"authkey_env must name an environment variable, not {authkey_env!r}")
     argv = [simulator_python(), "-m", CLI_MODULE, "run-unit", "--prompt", os.path.abspath(prompt)]
     argv += ["--policy-address", _address(policy_address), "--authkey-env", authkey_env]
-    act_timeout_s = extra.get("act_timeout_s")
-    if act_timeout_s is not None:
-        argv += ["--act-timeout-s", repr(float(act_timeout_s))]
+    for key, flag in SECONDS_EXTRA.items():
+        if extra.get(key) is not None:
+            argv += [flag, _seconds(key, extra[key])]
     policy_log = extra.get("policy_log")
     if policy_log:
         argv += ["--policy-log", os.path.abspath(str(policy_log))]
@@ -99,6 +114,17 @@ def _unit(unit: Mapping[str, Any]) -> tuple[str, str, list[int]]:
     ):
         raise ValueError(f"unit scene_seeds {seeds!r} are not distinct integers in [0, 2**32)")
     return task, str(embodiment), list(seeds)
+
+
+def _seconds(key: str, value: Any) -> str:
+    """`value` as run-unit's seconds flags take it, or `ValueError` naming `key`."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, numbers.Real)
+        or not 0 < float(value) < math.inf
+    ):
+        raise ValueError(f"{key} must be a positive, finite number of seconds, not {value!r}")
+    return repr(float(value))
 
 
 def _address(address: str) -> str:

@@ -62,6 +62,8 @@ def test_run_unit_drives_the_served_policy_and_never_names_its_key(tmp_path, mon
         policy_address="duel/policy.sock",
         authkey_env="ICIL_POLICY_AUTHKEY",
         act_timeout_s=30,
+        policy_budget_s=300,
+        unit_timeout_s=587.25,
         policy_log="duel/fu-000/challenger/policy.log",
         added_by_a_later_duel=True,
     )
@@ -71,6 +73,7 @@ def test_run_unit_drives_the_served_policy_and_never_names_its_key(tmp_path, mon
     assert args.out == str(tmp_path / "duel" / "fu-000" / "challenger")
     assert args.policy_address == str(tmp_path / "duel" / "policy.sock")
     assert args.authkey_env == "ICIL_POLICY_AUTHKEY" and args.act_timeout_s == 30.0
+    assert args.policy_budget_s == 300.0 and args.unit_timeout_s == 587.25
     assert args.policy_log == str(tmp_path / "duel" / "fu-000" / "challenger" / "policy.log")
     assert cli._run_unit_usage(args) is None  # the flags go together, as main() requires
     assert not any(KEY in arg for arg in argv)
@@ -88,6 +91,22 @@ def test_a_tcp_address_is_kept_and_optional_flags_are_left_out():
     )
     assert args.policy_address == "policy-host:5555"
     assert args.act_timeout_s is None and args.policy_log is None
+    assert args.policy_budget_s is None and args.unit_timeout_s is None
+
+
+@pytest.mark.parametrize("key", ["act_timeout_s", "policy_budget_s", "unit_timeout_s"])
+@pytest.mark.parametrize("value", [0, -1.0, float("inf"), float("nan"), True, "30"])
+def test_a_time_limit_run_unit_would_refuse_is_refused_when_the_argv_is_built(key, value):
+    # Passed on, run-unit would exit 2 once the unit ran, and the unit would be void.
+    with pytest.raises(ValueError, match=f"{key} must be a positive, finite number"):
+        BENCHMARK.run_command(
+            unit=UNIT,
+            prompt="/p.npz",
+            out_dir="/o",
+            policy_address="/s",
+            authkey_env="K",
+            **{key: value},
+        )
 
 
 def test_the_layout_benchmarks_check_uses_parses():
