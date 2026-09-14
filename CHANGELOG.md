@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- (feat): the survey renders no camera unless asked. Every frame called `get_obs`, which
+  ray-traces every camera, although the survey reads only joints; `robotwin.capture(images=False)`
+  now reads the joint vector and endpose straight from the robot (`robot_state`) and never calls
+  `get_obs`, `attempt` and `survey_task` pass the choice through, and `survey --images` renders
+  as before. The survey JSON becomes an object, `{"images": …, "tasks": [...]}`, and every task
+  entry records `images`. At the pinned RoboTwin no expert reads an observation or a camera, and
+  the one `get_obs` side effect an expert could see, the `crazy_random_light` RNG draw, is kept;
+  a sim test compares attempts with and without images on dual Franka. Rendering still holds GPU
+  memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed
+  plan, so on a GPU short of memory a survey without images can keep seeds `eval` would reject;
+  `--images` measures what `eval` sees. `eval` always renders (#83).
+- (feat): the survey records every seed, and for every demonstration which arms moved and by how
+  much. Each task's JSON entry gains `seeds_detail` — seed, outcome (`ok` or the rejection),
+  frames, `arms_moved`, `displacement`, seconds — and the counts `one_arm_demonstrations`,
+  `two_arm_demonstrations` and `no_arm_demonstrations`; the table gains a *one-arm* column.
+  `demo.arm_displacements` reads each arm's largest departure from its first-frame value off the
+  joint trajectory (the qpos row splits into a left and a right half on every embodiment RoboTwin
+  ships), and `demo.arms_moved` calls an arm moved when that exceeds 0.05 — radians for a joint,
+  a fraction of full travel for the gripper's normalised opening. A task's `arms: 1` is thereby
+  measured on what the expert did, not only read from its source, and the threshold can be
+  re-judged from the JSON after the run (#83).
+- (fix): the survey's `--json` file is rewritten whole after every task — written beside itself
+  and renamed into place — so a kill that lands mid-write leaves the previous complete file, not
+  a torn one; and a survey on an embodiment whose qpos does not split into two equal arms stops
+  with one line on stderr instead of a traceback (#83).
+- (fix): a frame whose qpos holds NaN or inf is refused, so such a seed is an `expert_error`
+  rejection with the reason on record rather than a demonstration in which the arm would have
+  read as still (#83).
+- (feat): every task declares how many arms its expert needs. `tasks.yml` entries become
+  `{category, arms}` with `arms: 1 | switching | 2` (26 / 6 / 18 tasks), `arms.py` re-derives the
+  value from a static read of each `play_once` in the pinned checkout, and a test fails naming any
+  task whose entry disagrees. The read follows an arm through a helper's parameter, a nested
+  def, an `if`/`else`, a lookup made per object, an attribute set in `load_actors` and
+  `Base_Task`'s `together_*` helpers, and errs towards more arms where it is unsure. `--arms 1`
+  on `eval`, `survey` and `tasks` keeps only one-arm tasks and refuses a task that needs more;
+  `2` is the default and changes nothing; the run manifest records `arms`, and a spec or
+  manifest refuses an `arms` it cannot honour. Two values differ from the issue's list, decided
+  from the source: `put_bottles_dustbin` hands right-side bottles to the left arm (2),
+  `shake_bottle_horizontally` drives one arm like `shake_bottle` (1) (#82).
 - (feat): a run chooses its robot. `eval` and `survey` take `--embodiment aloha-agilex` (one
   dual-arm URDF) or `franka-panda` (two Franka arms 0.8 m apart, the distance RoboTwin's
   configuration guide gives), resolved into RoboTwin's one-entry or `[left, right, distance]`

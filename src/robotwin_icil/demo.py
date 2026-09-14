@@ -16,6 +16,14 @@ from typing import Any
 
 import numpy as np
 
+# The order of the two halves of a qpos row, and of what `arms_moved` reports.
+ARMS = ("left", "right")
+# An arm moved if any of its values departs from its first-frame value by more than this. One
+# number gates two units — radians for an arm joint, a fraction of full travel for the gripper's
+# normalised [0, 1] opening — and 0.05 is small against either: about 3 degrees of a joint, a
+# twentieth of a gripper swing.
+MOVED_THRESHOLD = 0.05
+
 
 class DemonstrationError(ValueError):
     """A captured demonstration is not usable as policy context."""
@@ -44,6 +52,10 @@ class Frame:
             raise DemonstrationError(
                 f"frame {self.index}: qpos has shape {self.qpos.shape}, expected a flat joint vector"
             )
+        if not np.isfinite(self.qpos).all():
+            # No joint reads as NaN or inf; and a NaN compares false against every threshold, so
+            # `arms_moved` would count such an arm as still rather than refuse it.
+            raise DemonstrationError(f"frame {self.index}: qpos has a non-finite value")
         for name, image in self.images.items():
             if image.ndim != 3 or image.shape[2] != 3:
                 raise DemonstrationError(
@@ -115,3 +127,38 @@ class Demonstration:
         if camera not in self.cameras:
             raise DemonstrationError(f"no camera {camera!r}; have {list(self.cameras)}")
         return np.stack([frame.images[camera] for frame in self.frames])
+
+
+def arm_displacements(demonstration: Demonstration) -> dict[str, float]:
+    """Each arm's largest departure from its first-frame value, over every joint and every frame.
+
+    Assumes RoboTwin's `joint_action.vector` layout, which holds for every embodiment it ships:
+    the left arm's joints then its gripper, followed by the right arm's joints then its gripper,
+    both halves the same width (7+7 on aloha-agilex, 8+8 on two Franka Pandas). The row is split
+    at half of `Demonstration.qpos_dim`, the width the robot's frames carry, so the split follows
+    the robot the run chose; an odd width is refused rather than guessed at. The value is in
+    radians when a joint set it and a fraction of full travel when the gripper did, since the
+    gripper is upstream's normalised [0, 1] opening; the survey records it per seed so the
+    `arms_moved` threshold can be judged from the json without re-running the expert.
+    """
+    qpos = demonstration.qpos()
+    width = demonstration.qpos_dim
+    if width % 2:
+        raise DemonstrationError(f"qpos width {width} does not split into two equal arms")
+    excursion = np.abs(qpos - qpos[0]).max(axis=0)
+    halves = np.split(excursion, 2)
+    return {arm: float(half.max()) for arm, half in zip(ARMS, halves, strict=True)}
+
+
+def arms_moved(demonstration: Demonstration, threshold: float = MOVED_THRESHOLD) -> tuple[str, ...]:
+    """Which arms the expert drove, in `ARMS` order, read from the joint trajectory.
+
+    An arm moved if its `arm_displacements` entry exceeds `threshold`: any of its values, the
+    gripper included, departed from its first-frame value by more than that at some frame. The
+    one threshold reads in two units, radians for an arm joint and a fraction of full travel for
+    the gripper, and an open-close swing clears it by a wide margin either way.
+
+    The survey uses this to measure a task's `arms` entry against what its expert actually did.
+    """
+    displacements = arm_displacements(demonstration)
+    return tuple(arm for arm in ARMS if displacements[arm] > threshold)

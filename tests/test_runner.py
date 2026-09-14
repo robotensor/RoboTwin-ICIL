@@ -63,6 +63,25 @@ def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
     assert manifest.benchmark_config["embodiment"] == "fake-arms"
     assert manifest.robotwin_config["embodiment"] == ["fake-arms"]
     assert manifest.robotwin_config["embodiment_name"] == "fake-arms"
+    assert manifest.arms == "2"  # a run that asked for nothing special says so
+
+
+def test_the_manifest_records_a_one_arm_run(tmp_path, fake_sim):
+    one_arm = tasks.table().select(suite="v1", arms="1")
+    runner.run(spec(tmp_path, tasks=one_arm, arms="1"), ReplayPolicy(), FakeConfig(), log=quiet)
+    manifest = RunDir(tmp_path / "run").manifest()
+    assert manifest.arms == "1"
+    assert manifest.tasks == tuple(task.name for task in one_arm)
+
+
+def test_a_spec_refuses_arms_it_cannot_honour(tmp_path):
+    # The CLI selects through TaskTable.select; any other caller is held to the same rule, so a
+    # manifest can never claim a one-arm run over a two-arm task.
+    with pytest.raises(ValueError, match="task 'lift_pot' needs two arms"):
+        spec(tmp_path, tasks=(tasks.table()["lift_pot"],), arms="1")
+    with pytest.raises(ValueError, match="arms 1 or 2, not 'switching'"):
+        spec(tmp_path, arms="switching")
+    assert spec(tmp_path, tasks=(tasks.table()["click_bell"],), arms="1").arms == "1"
 
 
 def test_every_record_says_which_robot_ran(tmp_path, fake_sim):

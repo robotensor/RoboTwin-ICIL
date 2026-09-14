@@ -3,9 +3,11 @@
 import sys
 import types
 
+import numpy as np
 import pytest
 import yaml
 
+from fake_robotwin import FakeTaskEnv
 from robotwin_icil import robotwin
 
 
@@ -250,3 +252,64 @@ def test_two_arms_at_another_distance_are_another_robot_by_name(robotwin_root):
     config = robotwin_root / "env_cfg" / "task_config" / "demo_clean.yml"
     config.write_text(yaml.safe_dump({"embodiment": ["franka-panda", "franka-panda", 0.6]}))
     assert robotwin.SceneConfig().resolve("click_bell")["embodiment_name"] == "franka-panda@0.6"
+
+
+def _captured(images, qpos_dim=14, crazy_random_light=False, data_type=None):
+    """Run the fake expert on seed 3 inside `capture`, as `generate.attempt` does."""
+    env = FakeTaskEnv(qpos_dim=qpos_dim)
+    kwargs = {"save_freq": 1} if data_type is None else {"save_freq": 1, "data_type": data_type}
+    env.setup_demo(seed=3, **kwargs)
+    env.crazy_random_light = crazy_random_light
+    with robotwin.capture(env, 1, images=images) as frames:
+        env.play_once()
+    return env, frames
+
+
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_a_capture_without_images_records_the_same_frames_and_never_calls_get_obs(qpos_dim):
+    rendered_env, rendered = _captured(images=True, qpos_dim=qpos_dim)
+    env, frames = _captured(images=False, qpos_dim=qpos_dim)
+
+    assert env.get_obs_calls == 0 and env.update_renders == 0
+    assert rendered_env.get_obs_calls == len(rendered) > 2  # the default still renders each frame
+    assert [f.index for f in frames] == [f.index for f in rendered]
+    for plain, full in zip(frames, rendered, strict=True):
+        assert plain.images == {} and list(full.images) == ["head_camera"]
+        np.testing.assert_array_equal(plain.qpos, full.qpos)
+        assert plain.qpos.dtype == full.qpos.dtype == np.float64
+        assert plain.endpose == full.endpose
+    assert set(frames[-1].endpose) == {
+        "left_endpose",
+        "left_gripper",
+        "right_endpose",
+        "right_gripper",
+    }
+    assert frames[0].endpose != frames[-1].endpose  # read afresh at every frame
+
+
+def test_a_capture_without_images_leaves_out_an_endpose_the_config_does_not_ask_for():
+    # `get_obs` fills endpose only where `data_type` asks for it; the frame must not differ there.
+    no_endpose = {"rgb": True, "qpos": True}
+    _, rendered = _captured(images=True, data_type=no_endpose)
+    _, frames = _captured(images=False, data_type=no_endpose)
+    assert [f.endpose for f in frames] == [f.endpose for f in rendered] == [{}] * len(rendered)
+
+
+def test_a_capture_without_images_redraws_crazy_lights_where_get_obs_would():
+    # `_update_render` draws light colours from numpy's global RNG under `crazy_random_light`;
+    # skipping it would shift every later draw the expert makes.
+    rendered_env, rendered = _captured(images=True, crazy_random_light=True)
+    env, frames = _captured(images=False, crazy_random_light=True)
+    assert env.get_obs_calls == 0
+    assert env.update_renders == rendered_env.update_renders == len(frames) == len(rendered)
+
+
+def test_a_capture_puts_the_env_back_either_way():
+    for images in (True, False):
+        env = FakeTaskEnv()
+        env.setup_demo(seed=3, save_freq=7)
+        take_picture = env._take_picture
+        with robotwin.capture(env, 1, images=images):
+            assert env.save_data is True and env.save_freq == 1
+        assert env._take_picture == take_picture
+        assert (env.save_data, env.save_freq) == (False, 7)

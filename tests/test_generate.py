@@ -3,7 +3,7 @@ import pytest
 
 from fake_robotwin import QPOS_DIM, FakeTaskEnv, FakeUnstable
 from robotwin_icil import generate, robotwin
-from robotwin_icil.demo import Demonstration, Frame
+from robotwin_icil.demo import Demonstration, Frame, arms_moved
 from robotwin_icil.generate import Attempt, Rejection
 from robotwin_icil.scene import SceneFingerprint
 
@@ -103,3 +103,42 @@ def test_a_demonstration_is_as_wide_as_the_robot_that_made_it(qpos_dim, monkeypa
     assert result.rejection is None
     assert demonstration.qpos_dim == qpos_dim and demonstration.qpos().shape[1] == qpos_dim
     assert initial.robot_qpos.shape == (qpos_dim,)
+
+
+def test_a_seed_whose_joints_read_non_finite_is_rejected_not_measured(monkeypatch):
+    # The frame refuses the value while the expert runs, so the seed is a rejection with the
+    # reason on record — not a demonstration that arms_moved would silently read as still.
+    class NaNJointEnv(FakeTaskEnv):
+        def get_obs(self):
+            obs = super().get_obs()
+            obs["joint_action"]["vector"][3] = np.nan
+            return obs
+
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = NaNJointEnv()
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 1}, 1, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert "non-finite" in result.detail
+    assert env.closed == 1
+
+
+@pytest.mark.parametrize("plan_fails", [False, True])
+def test_an_attempt_without_images_renders_nothing_and_ends_the_same_way(plan_fails, monkeypatch):
+    # The survey's attempt: no camera takes a picture, and the seed's outcome, frames and joints
+    # are the ones the rendered attempt an episode makes would have recorded.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    fails = {4} if plan_fails else set()
+    rendered_env = FakeTaskEnv(moves=("left",), plan_fails_on=fails)
+    plain_env = FakeTaskEnv(moves=("left",), plan_fails_on=fails)
+    rendered, rendered_demo, _ = generate.attempt(rendered_env, 4, {"save_freq": 1}, 1, 0)
+    plain, plain_demo, _ = generate.attempt(plain_env, 4, {"save_freq": 1}, 1, 0, images=False)
+
+    assert plain == rendered and plain_env.get_obs_calls == 0 and plain_env.closed == 1
+    if plan_fails:
+        assert plain.rejection is Rejection.PLAN_FAILED and plain_demo is rendered_demo is None
+        return
+    assert rendered_env.get_obs_calls == len(rendered_demo) == len(plain_demo)
+    np.testing.assert_array_equal(plain_demo.qpos(), rendered_demo.qpos())
+    assert plain_demo.frequency == rendered_demo.frequency
+    assert (plain_demo.cameras, rendered_demo.cameras) == ((), ("head_camera",))
+    assert arms_moved(plain_demo) == arms_moved(rendered_demo) == ("left",)

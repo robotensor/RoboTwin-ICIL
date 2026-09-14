@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from .arms import ONE
 from .records import EpisodeRecord, RunManifest, Status
 from .robotwin import embodiment_name
 from .tasks import TaskTable
@@ -151,7 +152,8 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             "Demonstrations per episode:  1",
             f"Policy:                      {manifest.policy.get('policy', '?')}",
             f"Embodiment:                  {_embodiment(manifest)}",
-            f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}",
+            f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}"
+            + (" (one-arm tasks only)" if manifest.arms == ONE else ""),
             f"Global seed:                 {manifest.global_seed}",
             "",
         ]

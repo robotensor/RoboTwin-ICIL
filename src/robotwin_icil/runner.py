@@ -13,6 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .arms import LABELS, ONE, TWO
 from .episode import EpisodeSpec, run_episode
 from .policy import ICILPolicy
 from .records import (
@@ -53,6 +54,21 @@ class RunSpec:
     clear_cache_every: int = 5
     # Clips per episode; off by default. Not part of the run's identity: it changes no result.
     video: bool = False
+    # "1" when the run asked for one-arm tasks only; "2", the default, runs whatever was named.
+    arms: str = TWO
+
+    def __post_init__(self) -> None:
+        # The CLI selects through TaskTable.select; any other caller is held to the same rule, so
+        # no manifest can claim a one-arm run over a task whose expert needs more.
+        if self.arms not in (ONE, TWO):
+            raise ValueError(f"a run asks for arms {ONE} or {TWO}, not {self.arms!r}")
+        if self.arms == ONE:
+            for task in self.tasks:
+                if task.arms != ONE:
+                    raise ValueError(
+                        f"task {task.name!r} needs {LABELS[task.arms]}; a one-arm run holds only "
+                        "tasks whose expert uses one arm"
+                    )
 
 
 def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
@@ -71,6 +87,7 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
         evaluation_setting=SAME_SCENE,
         suite=spec.suite,
         tasks=tuple(task.name for task in spec.tasks),
+        arms=spec.arms,
         episodes=spec.episodes,
         max_expert_attempts=spec.max_expert_attempts,
         policy=policy.describe(),

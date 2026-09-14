@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from robotwin_icil.records import (
     RunManifest,
     Status,
     git_commit,
+    write_json,
 )
 
 
@@ -90,6 +92,25 @@ def test_resuming_the_same_run_is_allowed_but_not_a_different_one(tmp_path):
     )  # the machine may differ, the run may not
     with pytest.raises(RecordError):
         run.start(manifest(global_seed=7))
+    with pytest.raises(RecordError):
+        run.start(manifest(arms="1"))  # one-arm and two-arm runs are different runs
+
+
+def test_a_manifest_records_only_an_arms_value_a_run_can_ask_for():
+    assert manifest(arms="1").arms == "1"
+    with pytest.raises(RecordError, match="arms"):
+        manifest(arms="switching")
+    with pytest.raises(RecordError, match="arms"):
+        RunManifest.from_json({**manifest().to_json(), "arms": 3})
+
+
+def test_a_manifest_written_before_arms_existed_still_loads(tmp_path):
+    data = manifest().to_json()
+    del data["arms"]
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    loaded = RunDir(tmp_path).manifest()
+    assert loaded.arms == "2"
+    assert loaded == manifest()
 
 
 def test_a_run_on_another_robot_cannot_continue_this_one(tmp_path):
@@ -150,3 +171,30 @@ def test_records_written_before_a_run_could_choose_its_robot_are_aloha():
     assert EpisodeRecord.from_json(data).embodiment == "franka-panda"
     data.pop("embodiment")
     assert EpisodeRecord.from_json(data).embodiment == "aloha-agilex"
+
+
+def test_write_json_replaces_the_file_whole_and_keeps_key_order(tmp_path):
+    path = tmp_path / "out.json"
+    path.write_text("old", encoding="utf-8")
+    write_json(path, [{"task": "click_bell", "seeds": 2, "arms": ["left"]}])
+    text = path.read_text(encoding="utf-8")
+    assert json.loads(text) == [{"task": "click_bell", "seeds": 2, "arms": ["left"]}]
+    assert text.index('"task"') < text.index('"seeds"') < text.index('"arms"')
+    assert text.endswith("\n") and not path.with_suffix(".json.tmp").exists()
+
+
+def test_write_json_torn_mid_write_leaves_the_previous_file(tmp_path, monkeypatch):
+    # A survey runs for hours and rewrites its json after every task; a kill that lands during
+    # the write must leave the last complete payload, not a truncated one.
+    path = tmp_path / "out.json"
+    path.write_text('{"complete": true}\n', encoding="utf-8")
+    original = Path.write_text
+
+    def torn(self, text, *args, **kwargs):
+        original(self, text[: len(text) // 2], *args, **kwargs)
+        raise OSError("killed mid-write")
+
+    monkeypatch.setattr(Path, "write_text", torn)
+    with pytest.raises(OSError):
+        write_json(path, {"complete": False, "more": list(range(50))})
+    assert json.loads(path.read_text(encoding="utf-8")) == {"complete": True}
