@@ -150,7 +150,7 @@ def task_label(name: str) -> str:
 
 def catalogue(table: tasks.TaskTable | None = None) -> dict[str, Any]:
     """`{"suites": {suite: [task]}, "categories": {id: label}, "tasks": {task: {"category",
-    "arms"}}}`, plus what of it is provisional."""
+    "arms", "label"}}, "embodiments": {suite: robot}, "provisional": [note]}`."""
     table = table or tasks.table()
     return {
         "suites": {name: list(members) for name, members in suites(table).items()},

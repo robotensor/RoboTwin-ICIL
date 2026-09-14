@@ -134,7 +134,7 @@ class RoboTwinBenchmark:
 
     def catalogue(self) -> dict[str, Any]:
         """`{"suites": {suite: [task]}, "categories": {id: label}, "tasks": {task: {"category",
-        "arms", "label"}}}`, the robot of each suite, and what of it is provisional."""
+        "arms", "label"}}, "embodiments": {suite: robot}, "provisional": [note]}`."""
         return catalogue_.catalogue()
 
     def derive_units(
