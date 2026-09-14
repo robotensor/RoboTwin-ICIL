@@ -131,6 +131,13 @@ robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
 robotwin-icil materialize --task click_bell --scene-seed 42 --scene-seed 43 --out runs/unit/prompt
 robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy replay --out runs/unit/run
 
+# the same unit against a policy served in a process of its own (needs icil-policy installed)
+export ICIL_POLICY_AUTHKEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+python -m icil_policy.serve --manifest <icil-policy>/examples/replay_policy/icil.yaml \
+    --address /tmp/policy.sock --authkey-env ICIL_POLICY_AUTHKEY --log-file /tmp/policy.log &
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy-address /tmp/policy.sock \
+    --authkey-env ICIL_POLICY_AUTHKEY --policy-log /tmp/policy.log --out runs/unit/served
+
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
@@ -161,6 +168,14 @@ harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids o
 holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
 map `prompt.CHANNELS` publishes, plus `meta`, which never reaches a policy.
 
+A competition does not import the policy at all. `run-unit --policy-address ADDR --authkey-env
+NAME` drives one served by `python -m icil_policy.serve` in a process of its own: the
+demonstration crosses the socket as `prompt.npz`'s own arrays, each observation as
+`frames_<camera>`, `qpos` and `endpose`, and nothing of `meta`. A served policy that answers a
+call with an error fails its unit; one that cannot be spoken to (nothing listening, `hello`
+refused, a timeout, a hang-up, a malformed reply) voids it with `void_cause` "policy", and every
+other void carries "harness" — see [`docs/policies.md`](docs/policies.md).
+
 ## Layout
 
 ```
@@ -174,6 +189,7 @@ src/robotwin_icil/
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   unit.py                   the episode in two files: materialize a prompt, run a unit from it
+  remote.py                 a policy served at an address, driven through icil-policy's client
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- (feat): an episode runs against a policy served at an address, and a lost policy voids it.
+  `robotwin-icil run-unit --policy-address ADDR --authkey-env NAME [--act-timeout-s S]
+  [--policy-log PATH]`, in place of `--policy`, drives a policy served by `python -m
+  icil_policy.serve` through `icil_policy.client.RemotePolicy` (`robotwin_icil.remote`, which
+  imports it only when one is built). The key is read as hex from the named variable and removed
+  from the environment, never taken from argv. The demonstration is sent as `prompt.arrays_from`'s
+  arrays with `info` `{frequency, cameras, embodiment, action_dims}`, each observation as
+  `frames_<camera>`, `qpos` and `endpose`, `meta` never; `reset` gets a seed drawn from the prompt's
+  bytes, never the scene seed. An error reply to `reset`, `prompt` or `act` fails the unit; any
+  other remote failure — nothing listening, `hello` refused or unanswered, a timeout, a hang-up, a
+  malformed reply — is `PolicyUnreachable` and voids it with `void_cause` "policy" and the server
+  log's tail in `error`. Every other void of either command carries `void_cause` "harness", a field
+  added to both results. Every policy is now reset with a public `EpisodeInfo` (robot, live action
+  widths, seed) and closed once its unit is over (#85).
 - (feat): a demonstration is built once and saved, and an episode is evaluated from the saved file.
   `robotwin-icil materialize --task T --scene-seed S [--scene-seed S2 ...] --out DIR` tries the
   candidate seeds in order — one scene built and one expert run each — and writes `prompt.npz` and

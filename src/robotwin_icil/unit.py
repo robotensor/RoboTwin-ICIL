@@ -535,7 +535,16 @@ def run_unit(
 
 
 def read_result(out_dir: str | Path) -> dict[str, Any]:
-    """The `result.json` a command left in `out_dir`."""
+    """The `result.json` a command left in `out_dir`.
+
+    Both commands write the orchestrator ABI's fields — `success`, `void`, `steps`, `error` — and
+    `void_cause`, a field this benchmark adds to them: None for a scored unit or a written prompt;
+    "policy" for a unit whose policy could not be spoken to (nothing listened, `hello` refused or
+    unanswered, a timeout, a hang-up, a malformed reply); "harness" for every other void (every
+    materialize candidate rejected, an unreadable or tampered prompt, scene drift, a simulator or
+    GPU failure, any other fault of the harness). A policy that answers with an error, or returns
+    an invalid action, is a scored failure: `success` false, `void` false, `void_cause` None.
+    """
     return json.loads((Path(out_dir) / RESULT_FILE).read_text(encoding="utf-8"))
 
 

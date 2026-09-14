@@ -21,5 +21,7 @@ jobs:
         with: { submodules: true }
       - uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python }}" }
+      # icil-policy lives in the private orchestrator repository and is on no package index, so
+      # it is not installed here: the tests that drive a served policy importorskip it and skip.
       - run: pip install -e ".[dev]"
       - run: pytest -q -m "not sim"
