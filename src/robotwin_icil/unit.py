@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 import time
 import traceback
@@ -509,8 +510,14 @@ def run_unit(
         # on the policy, anything else on the harness. Either way the reason is the error.
         return void(str(exc), cause=exc.void_cause)
     except robotwin.RoboTwinError as exc:
-        # The simulator failed under the policy (the GPU lost or full): nothing to score.
-        return void(f"simulator failed: {exc}")
+        # The simulator failed under the policy (the GPU lost or full): nothing to score. Void on
+        # the harness, since this process cannot see whose memory filled the device; who held it,
+        # and which process this is, go on the result for whoever started a served policy there.
+        return void(
+            f"simulator failed: {exc}",
+            gpu_processes=robotwin.gpu_processes(),
+            run_unit_pid=os.getpid(),
+        )
     except Exception as exc:
         # `evaluate` scores whatever the policy did, so what still escapes it is the harness's own
         # fault (a rebuilt scene it cannot fingerprint, say). The reason goes on the result, where

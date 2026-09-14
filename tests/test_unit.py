@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import os
 
 import numpy as np
 import pytest
@@ -426,7 +427,11 @@ def _rewrite(path, edit):
     np.savez_compressed(path, **edit(arrays), meta=json.dumps(meta, sort_keys=True))
 
 
-def test_a_gpu_failure_mid_rollout_voids_the_unit(tmp_path):
+def test_a_gpu_failure_mid_rollout_voids_the_unit(tmp_path, monkeypatch):
+    # Who held the GPU goes on the result: a served policy sharing the device could have filled
+    # it, which only whoever started the policy can tell from these process ids.
+    held = [{"pid": os.getpid(), "used_mib": 5120}, {"pid": 4242, "used_mib": 23000}]
+    monkeypatch.setattr(robotwin, "gpu_processes", lambda: held)
     _, out = materialized(tmp_path)
     env = FakeTaskEnv(
         rollout_raises_at=2, rollout_error="vk::Device::waitForFences: ErrorDeviceLost"
@@ -434,7 +439,18 @@ def test_a_gpu_failure_mid_rollout_voids_the_unit(tmp_path):
     result = unit.run_unit(out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=env)
     assert_read_result_shape(result)
     assert result["void"] is True and "lost the GPU during the rollout" in result["error"]
+    assert result["void_cause"] == "harness"
+    assert result["gpu_processes"] == held and result["run_unit_pid"] == os.getpid()
     assert unit.read_result(tmp_path / "run") == result and env.closed == 1
+
+
+def test_a_unit_that_did_not_fail_on_the_gpu_records_no_gpu_processes(tmp_path, monkeypatch):
+    monkeypatch.setattr(robotwin, "gpu_processes", lambda: pytest.fail("not a GPU failure"))
+    _, out = materialized(tmp_path)
+    result = unit.run_unit(
+        out / "prompt.npz", ReplayPolicy(), tmp_path / "run", task_env=FakeTaskEnv()
+    )
+    assert result["success"] is True and "gpu_processes" not in result
 
 
 def test_a_harness_fault_while_evaluating_voids_the_unit_with_its_reason(tmp_path, monkeypatch):

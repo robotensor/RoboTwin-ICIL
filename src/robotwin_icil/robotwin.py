@@ -337,6 +337,32 @@ def gpu_lost(exc: BaseException) -> bool:
     return "ErrorDeviceLost" in text or "VK_ERROR_DEVICE_LOST" in text
 
 
+def gpu_processes() -> list[dict[str, int]] | None:
+    """Every process holding GPU memory, as `nvidia-smi` lists them: `pid` and `used_mib`.
+
+    What a GPU failure is recorded with. A served policy may share the simulator's device, and a
+    policy that fills it makes the rollout fail as a GPU failure that is not the harness's; this
+    process cannot tell that, but whoever started the policy can, from its process ids. None when
+    `nvidia-smi` cannot say (none installed, a lost device it cannot query).
+    """
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout
+        rows = [line.split(",") for line in out.splitlines() if line.strip()]
+        return [{"pid": int(pid), "used_mib": int(used)} for pid, used in rows]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
 def free_gpu() -> None:
     """Hand the memory of released envs — CuRobo's planners live on the GPU — back to the driver."""
     gc.collect()
