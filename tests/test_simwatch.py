@@ -105,6 +105,33 @@ def test_only_this_attempts_output_is_searched_for_the_marker(tmp_path):
     assert code == 2 and "no --rerun-on match" in log
 
 
+def test_a_marker_followed_by_a_lot_of_output_is_still_found(tmp_path):
+    # pytest prints a failed test's captured output after the error and cuts the summary line short,
+    # so the marker can sit far from the end: here 3 MiB, across several of the chunks read.
+    source = (
+        "import sys\n"
+        "print('RuntimeError: vk::Device::waitForFences: ErrorDeviceLost')\n"
+        "for i in range(3 * 1024):\n"
+        "    print(f'captured {i:06d} ' + 'x' * 1008)\n"
+        "sys.exit(1)"
+    )
+    code, log, _ = watch(tmp_path, "--retries", "1", "--poll", "0.1", *python(source))
+
+    assert len(log) > 6 * 1024 * 1024
+    assert code == 124 and "attempt 2/2 exited 1, output matches 'ErrorDeviceLost'" in log
+
+
+def test_a_marker_split_between_two_reads_is_found(tmp_path):
+    # The patterns see each chunk together with the tail of the one before it.
+    patterns = [re.compile("ErrorDeviceLost")]
+    path = tmp_path / "run.log"
+    for split in range(1, len("ErrorDeviceLost")):
+        # The attempt starts after "earlier"; its first read ends `split` bytes into the marker.
+        path.write_bytes(b"earlier" + b"y" * (simwatch.CHUNK - split) + b"ErrorDeviceLost" + b"z")
+        assert simwatch.find_marker(str(path), len("earlier"), patterns) == "ErrorDeviceLost"
+        assert simwatch.find_marker(str(path), path.stat().st_size - 1, patterns) is None
+
+
 def test_rerun_on_patterns_replace_the_default(tmp_path):
     source = "print('CUDA error: an illegal memory access'); raise SystemExit(1)"
     args = ["--retries", "1", "--poll", "0.1", "--rerun-on", "illegal memory", "--rerun-on", "xid"]

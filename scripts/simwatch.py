@@ -9,7 +9,7 @@ three ways:
               read sleeps or polls the GPU with a trickle of CPU, so the test is a rate over a
               sliding window, not whether CPU time moved at all. The process group is killed
               (SIGTERM, then SIGKILL) and the command rerun.
-  transient   The attempt exited non-zero and its own output, the last 64 KB it appended to --log,
+  transient   The attempt exited non-zero and its own output, everything it appended to --log,
               matches a --rerun-on pattern (by default Vulkan's device-lost error in either
               spelling, ErrorDeviceLost or VK_ERROR_DEVICE_LOST). It is rerun.
   final       Any other exit. The watch ends with the attempt's exit code (128+N for signal N).
@@ -38,7 +38,8 @@ from collections import deque
 from typing import NamedTuple
 
 GAVE_UP = 124
-TAIL_BYTES = 64 * 1024
+CHUNK = 1024 * 1024
+OVERLAP = 64 * 1024
 # What robotwin_icil.robotwin.gpu_lost() takes for a lost GPU: SAPIEN's C++ spelling and Vulkan's C one.
 DEFAULT_RERUN_ON = ("ErrorDeviceLost", "VK_ERROR_DEVICE_LOST")
 DEFAULT_MIN_CPU_RATE = 0.25
@@ -177,12 +178,24 @@ def run_once(
         time.sleep(poll)
 
 
-def log_tail(path: str, offset: int, limit: int = TAIL_BYTES) -> str:
-    """The last `limit` bytes appended to `path` after `offset`, decoded leniently."""
+def find_marker(path: str, offset: int, patterns: list[re.Pattern[str]]) -> str | None:
+    """The first of `patterns` found in what was appended to `path` after `offset`, or None.
+
+    All of it is searched: pytest prints a failed test's captured output after the error, so the
+    marker can be megabytes from the end. It is read CHUNK bytes at a time, each searched together
+    with the last OVERLAP bytes of the one before, so a match up to OVERLAP long is never split.
+    """
     with open(path, "rb") as f:
-        size = f.seek(0, os.SEEK_END)
-        f.seek(max(offset, size - limit))
-        return f.read().decode(errors="replace")
+        f.seek(offset)
+        carry = b""
+        while chunk := f.read(CHUNK):
+            buffer = carry + chunk
+            text = buffer.decode(errors="replace")
+            for pattern in patterns:
+                if pattern.search(text):
+                    return pattern.pattern
+            carry = buffer[-OVERLAP:]
+    return None
 
 
 def watch(
@@ -210,8 +223,7 @@ def watch(
                 say(f"{end}; done")
                 return 0
             if code is not None:
-                tail = log_tail(log_path, offset)
-                marker = next((p.pattern for p in rerun_on if p.search(tail)), None)
+                marker = find_marker(log_path, offset, rerun_on)
                 if marker is None:
                     say(f"{end}, no --rerun-on match; exiting {code}")
                     return code
@@ -269,8 +281,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=_regex,
         action="append",
         metavar="REGEX",
-        help="rerun an attempt that exits non-zero when this pattern matches the last 64 KB of "
-        "its output; repeatable, and any use replaces the default (default: "
+        help="rerun an attempt that exits non-zero when this pattern matches anything it wrote to "
+        "--log; repeatable, and any use replaces the default (default: "
         + " ".join(DEFAULT_RERUN_ON)
         + ")",
     )

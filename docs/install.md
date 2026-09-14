@@ -114,8 +114,8 @@ What the script produced on the machine the V1 numbers come from:
     The process group is sent SIGTERM, then SIGKILL after 20 s.
   - *Lost the GPU.* The attempt exited non-zero and a `--rerun-on` pattern (default
     `ErrorDeviceLost` and `VK_ERROR_DEVICE_LOST`, the two spellings of Vulkan's device-lost error
-    that `robotwin_icil` stops a run on) matches the last 64 KB that attempt wrote to `--log`.
-    Any other exit ends the watch with that exit code.
+    that `robotwin_icil` stops a run on) matches anything that attempt wrote to `--log`, however
+    much output follows it. Any other exit ends the watch with that exit code.
 
   Each attempt's end and its reason are logged; once the retries are spent the watch exits 124. A
   stopped `robotwin-icil eval` resumes from `episodes.jsonl`, so the rerun picks up where it
