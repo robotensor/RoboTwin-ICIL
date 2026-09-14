@@ -123,7 +123,7 @@ def test_a_served_replay_is_sent_the_prompts_own_arrays_and_public_info(tmp_path
         "/run/policy.sock",
         KEY,
         remote.CONNECT_TIMEOUT_S,
-        (tmp_path.cwd() / "policy.log").resolve(),
+        tmp_path.cwd() / "policy.log",
     )
     assert client.ops()[:3] == ["hello", "reset", "prompt"] and set(client.ops()[3:]) == {"act"}
     # Each call under its own timeout: setting a policy up is work, an act has a budget.
@@ -198,6 +198,22 @@ def test_a_policy_that_cannot_be_spoken_to_voids_on_the_policy(
     assert result["success"] is None and result["steps"] is None
     assert result["error"].startswith(f"the policy is unreachable: {message}")
     assert "the server's last words" in result["error"]  # the log tail travels with the reason
+
+
+def test_a_policy_log_swapped_for_a_link_is_never_followed(tmp_path, errors, monkeypatch):
+    # The policy can write beside its log. A path resolved when run-unit starts would open the
+    # link's target, and the client's no-follow open would never see a link to refuse.
+    logs = pytest.importorskip("icil_policy.logs")
+    secret = tmp_path / "host-secret"
+    secret.write_text("HOST-SECRET-TOKEN\n")
+    (tmp_path / "logs").mkdir()
+    link = tmp_path / "logs" / "policy.log"
+    link.symlink_to(secret)
+    monkeypatch.chdir(tmp_path)
+
+    policy = remote.RemotePolicy("/run/policy.sock", KEY, log_file="logs/policy.log")
+    assert policy.log_file == link and policy.log_file.is_absolute()
+    assert logs.tail(policy.log_file) == ""
 
 
 def test_an_action_type_the_benchmark_cannot_execute_is_refused_at_hello(tmp_path, errors):

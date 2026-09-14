@@ -86,6 +86,30 @@ def test_a_server_killed_mid_episode_voids_the_unit_on_the_policy(
     assert served.process.poll() is not None
 
 
+def test_a_log_the_policy_swapped_for_a_link_adds_nothing_to_the_error(
+    tmp_path, fake_sim, serve_policy, replay_manifest
+):
+    # The policy writes its own log's directory: once it listens it can put a link to a file of
+    # the benchmark's host (here, this process's environment) where its log was.
+    path = materialize(tmp_path)
+    served = serve_policy(replay_manifest)
+    os.unlink(served.log_file)
+    os.symlink("/proc/self/environ", served.log_file)
+
+    class KillsTheServer(FakeTaskEnv):
+        def take_action(self, action, action_type="qpos"):
+            super().take_action(action, action_type)
+            if self.take_action_cnt == 2:
+                served.process.kill()
+                served.process.wait()
+
+    fake_sim["next"] = lambda name: KillsTheServer()
+    result = run_unit(tmp_path, path, served)
+    assert result["void"] is True and result["void_cause"] == "policy"
+    assert result["error"].startswith("the policy is unreachable: act: the policy went away")
+    assert "policy log (tail)" not in result["error"] and "PATH=" not in result["error"]
+
+
 def test_a_policy_that_hangs_is_void_at_its_act_timeout_and_its_server_exits(
     tmp_path, serve_policy, policy_repo
 ):

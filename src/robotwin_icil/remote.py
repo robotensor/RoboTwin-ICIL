@@ -141,8 +141,10 @@ class RemotePolicy(ICILPolicy):
         self.act_timeout_s = float(act_timeout_s)
         self.setup_timeout_s = float(setup_timeout_s)
         self.connect_timeout_s = float(connect_timeout_s)
-        # Absolute before the RoboTwin seam moves the working directory.
-        self.log_file = None if log_file is None else Path(log_file).resolve()
+        # Absolute before the RoboTwin seam moves the working directory, and never resolved: the
+        # policy can write beside its log, and `icil_policy.logs.tail` refuses to follow a log
+        # swapped for a link only while the path it opens still ends in that link.
+        self.log_file = None if log_file is None else Path(os.path.abspath(log_file))
         #: The served policy's `action_type` and name, known once it has answered `hello`.
         self.action_type = None  # type: ignore[assignment]
         self.served_policy: str | None = None
