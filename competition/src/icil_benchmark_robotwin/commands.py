@@ -3,7 +3,9 @@
 The orchestrator runs these; it never imports the simulator, and the plugin builds them without
 one. Every argv is `[python, "-m", "robotwin_icil.cli", ...]`: `python` is the simulator
 environment's interpreter, and every path is absolute, since the orchestrator chooses the working
-directory and RoboTwin moves its own.
+directory and RoboTwin moves its own. That interpreter's robotwin_icil is installed apart from
+the plugin's, so every argv also names the plugin's own (`--expect-source-sha256`), and the
+command refuses to run under any other.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+import robotwin_icil
 from robotwin_icil import tasks
 from robotwin_icil.robotwin import EMBODIMENTS
 
@@ -60,7 +63,7 @@ def materialize_command(*, unit: Mapping[str, Any], out_dir: str) -> list[str]:
     ]
     for seed in seeds:
         argv += ["--scene-seed", str(seed)]
-    return [*argv, "--out", os.path.abspath(out_dir)]
+    return [*argv, *_expect_source(), "--out", os.path.abspath(out_dir)]
 
 
 def run_command(
@@ -92,7 +95,13 @@ def run_command(
     policy_log = extra.get("policy_log")
     if policy_log:
         argv += ["--policy-log", os.path.abspath(str(policy_log))]
-    return [*argv, "--out", os.path.abspath(out_dir)]
+    return [*argv, *_expect_source(), "--out", os.path.abspath(out_dir)]
+
+
+def _expect_source() -> list[str]:
+    """The benchmark source this plugin was built against, which the command refuses to run
+    without: the interpreter's robotwin_icil is installed apart from the plugin's."""
+    return ["--expect-source-sha256", robotwin_icil.source_sha256()]
 
 
 def _unit(unit: Mapping[str, Any]) -> tuple[str, str, list[int]]:

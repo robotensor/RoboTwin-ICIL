@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import robotwin_icil
 from robotwin_icil import prompt as prompt_
 from robotwin_icil.scene import SceneFingerprint, digest
 
@@ -135,7 +136,8 @@ def read_result(*, out_dir: str) -> dict[str, Any]:
     Returns everything the file holds, with `success` (a bool, or None exactly when void), `void`,
     `steps` (an int or None), `error` (a reason whenever void) and `void_cause` ("policy",
     "harness", or None when not void; `RoboTwinBenchmark.read_result` says what each means). A
-    result that says neither void nor a boolean success, or cannot be read, is void on the harness.
+    result that says neither void nor a boolean success, cannot be read, or was written by other
+    benchmark source than this plugin runs (`source_sha256`) is void on the harness.
     """
     path = Path(out_dir) / RESULT_FILE
     try:
@@ -152,6 +154,20 @@ def read_result(*, out_dir: str) -> dict[str, Any]:
             "void_cause": "harness",
             "steps": None,
             "error": reason,
+        }
+
+    source, mine = doc.get("source_sha256"), robotwin_icil.source_sha256()
+    if source != mine:
+        # Written by other benchmark code than this plugin describes and built the argv for: its
+        # fields cannot be read as this benchmark's.
+        return {
+            **doc,
+            "success": None,
+            "void": True,
+            "void_cause": "harness",
+            "steps": None,
+            "error": f"{RESULT_FILE} was written by benchmark source {source!r}, not the {mine} "
+            "this plugin runs",
         }
 
     success = doc.get("success")

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 import icil_benchmark_robotwin
+import robotwin_icil
 from icil_benchmark_robotwin import BENCHMARK, catalogue, plugin
 from robotwin_icil import remote, tasks
 
@@ -156,6 +157,7 @@ def test_info_names_the_robots_cameras_protocol_commits_and_command_line():
     assert info["embodiment_of_suite"]["franka_1arm"] == "franka-panda"
     assert info["action_types"] == ["qpos", "ee"] and info["cameras"]
     assert set(info["commits"]) == {"benchmark", "robotwin"}
+    assert info["benchmark"]["source_sha256"] == robotwin_icil.source_sha256()
     assert info["cli"]["module"] == "robotwin_icil.cli"
     assert info["cli"]["python_env"] == "ROBOTWIN_ICIL_PYTHON"
     assert json.loads(json.dumps(info)) == info

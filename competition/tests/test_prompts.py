@@ -6,6 +6,7 @@ import json
 import numpy as np
 import pytest
 
+import robotwin_icil
 from icil_benchmark_robotwin import BENCHMARK
 from robotwin_icil import prompt
 
@@ -91,8 +92,16 @@ def test_an_unreadable_prompt_is_refused(tmp_path, franka_unit):
     assert junk["ok"] is False and "cannot read prompt" in junk["problems"][0]
 
 
+#: The benchmark source this plugin runs, which every command it builds records in its result.
+MINE = robotwin_icil.source_sha256()
+
+
 def _result(tmp_path, doc):
+    """`doc` written as result.json — an object stamped with this plugin's source unless it names
+    one — and read back."""
     tmp_path.mkdir(parents=True, exist_ok=True)
+    if isinstance(doc, dict):
+        doc = {"source_sha256": MINE, **doc}
     (tmp_path / "result.json").write_text(json.dumps(doc) if not isinstance(doc, str) else doc)
     return BENCHMARK.read_result(out_dir=str(tmp_path))
 
@@ -100,7 +109,7 @@ def _result(tmp_path, doc):
 def test_a_scored_success_and_a_failure_are_read_as_written(tmp_path):
     written = {"success": True, "void": False, "void_cause": None, "steps": 36, "error": None}
     result = _result(tmp_path / "ok", {**written, "live_scene_sha256": "ab" * 32})
-    assert result == {**written, "live_scene_sha256": "ab" * 32}
+    assert result == {**written, "live_scene_sha256": "ab" * 32, "source_sha256": MINE}
     failed = _result(tmp_path / "failed", {**written, "success": False, "detail": "boom"})
     assert failed["success"] is False and failed["void"] is False and failed["void_cause"] is None
 
@@ -109,7 +118,21 @@ def test_a_scored_success_and_a_failure_are_read_as_written(tmp_path):
 def test_a_void_result_keeps_its_cause_and_its_reason(tmp_path, cause):
     doc = {"success": None, "void": True, "void_cause": cause, "steps": None, "error": "why"}
     result = _result(tmp_path, doc)
-    assert result == doc
+    assert result == {**doc, "source_sha256": MINE}
+
+
+@pytest.mark.parametrize("source", ["0" * 64, None])
+def test_a_result_other_benchmark_source_wrote_is_void_on_the_harness(tmp_path, source):
+    # A scored success, as far as its fields go, from code this plugin did not build the argv for.
+    doc = {"success": True, "void": False, "void_cause": None, "steps": 36, "error": None}
+    if source is not None:
+        doc["source_sha256"] = source
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "result.json").write_text(json.dumps(doc))
+    result = BENCHMARK.read_result(out_dir=str(tmp_path))
+    assert result["void"] is True and result["success"] is None and result["steps"] is None
+    assert result["void_cause"] == "harness"
+    assert f"written by benchmark source {source!r}, not the {MINE}" in result["error"]
 
 
 def test_every_candidate_rejected_is_a_void_harness_result(tmp_path):

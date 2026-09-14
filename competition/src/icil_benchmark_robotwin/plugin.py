@@ -74,7 +74,13 @@ class RoboTwinBenchmark:
         return {
             "id": self.id,
             "api_version": self.api_version,
-            "benchmark": {"distribution": "robotwin-icil", "version": robotwin_icil.__version__},
+            # The source is what identifies the benchmark code: an install from a wheel has no
+            # commit, and the commands refuse to run under a source other than this one.
+            "benchmark": {
+                "distribution": "robotwin-icil",
+                "version": robotwin_icil.__version__,
+                "source_sha256": robotwin_icil.source_sha256(),
+            },
             "plugin": {"distribution": "robotwin-icil-competition", "version": VERSION},
             "commits": {"benchmark": git_commit(REPO_ROOT), "robotwin": robotwin_commit()},
             "embodiments": {
@@ -114,10 +120,11 @@ class RoboTwinBenchmark:
                 "python_env": commands.PYTHON_ENV,
                 "module": commands.CLI_MODULE,
                 "materialize": "materialize --task T --embodiment E --task-config C "
-                "--save-freq F --scene-seed S [--scene-seed S ...] --out DIR",
+                "--save-freq F --scene-seed S [--scene-seed S ...] "
+                "--expect-source-sha256 HEX --out DIR",
                 "run": "run-unit --prompt PROMPT --policy-address ADDR --authkey-env NAME "
                 "[--act-timeout-s S] [--policy-budget-s S] [--unit-timeout-s S] "
-                "[--policy-log PATH] --out DIR",
+                "[--policy-log PATH] --expect-source-sha256 HEX --out DIR",
             },
             "provisional": catalogue_.provisional(table),
         }

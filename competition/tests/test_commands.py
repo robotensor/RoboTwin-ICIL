@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import robotwin_icil
 from icil_benchmark_robotwin import BENCHMARK, commands
 from robotwin_icil import cli
 
@@ -50,6 +51,8 @@ def test_materialize_passes_every_candidate_in_order_with_absolute_paths(tmp_pat
     assert args.embodiment == "franka-panda"
     assert (args.task_config, args.save_freq) == ("demo_clean", 15)
     assert args.out == str(tmp_path / "duel" / "fu-000" / "prompt")
+    # The command refuses to run under another robotwin_icil than the one that built it.
+    assert args.expect_source_sha256 == robotwin_icil.source_sha256()
 
 
 def test_run_unit_drives_the_served_policy_and_never_names_its_key(tmp_path, monkeypatch):
@@ -76,6 +79,7 @@ def test_run_unit_drives_the_served_policy_and_never_names_its_key(tmp_path, mon
     assert args.policy_budget_s == 300.0 and args.unit_timeout_s == 587.25
     assert args.policy_log == str(tmp_path / "duel" / "fu-000" / "challenger" / "policy.log")
     assert cli._run_unit_usage(args) is None  # the flags go together, as main() requires
+    assert args.expect_source_sha256 == robotwin_icil.source_sha256()
     assert not any(KEY in arg for arg in argv)
 
 
