@@ -18,7 +18,7 @@ from typing import Any
 
 import robotwin_icil
 from robotwin_icil import tasks
-from robotwin_icil.robotwin import EMBODIMENTS
+from robotwin_icil.robotwin import DENOISER_ENV, DENOISERS, EMBODIMENTS
 
 #: The environment variable naming the simulator environment's interpreter.
 PYTHON_ENV = "ROBOTWIN_ICIL_PYTHON"
@@ -63,7 +63,7 @@ def materialize_command(*, unit: Mapping[str, Any], out_dir: str) -> list[str]:
     ]
     for seed in seeds:
         argv += ["--scene-seed", str(seed)]
-    return [*argv, *_expect_source(), "--out", os.path.abspath(out_dir)]
+    return [*argv, *_denoiser(), *_expect_source(), "--out", os.path.abspath(out_dir)]
 
 
 def run_command(
@@ -95,7 +95,19 @@ def run_command(
     policy_log = extra.get("policy_log")
     if policy_log:
         argv += ["--policy-log", os.path.abspath(str(policy_log))]
-    return [*argv, *_expect_source(), "--out", os.path.abspath(out_dir)]
+    return [*argv, *_denoiser(), *_expect_source(), "--out", os.path.abspath(out_dir)]
+
+
+def _denoiser() -> list[str]:
+    """`--denoiser` from `$ROBOTWIN_ICIL_DENOISER`, read here in the orchestrator's process: the
+    orchestrator hands a benchmark subprocess only allow-listed variables, and this override is how
+    a host where OIDN hangs camera reads keeps them from hanging."""
+    value = os.environ.get(DENOISER_ENV)
+    if not value:
+        return []
+    if value not in DENOISERS:
+        raise ValueError(f"{DENOISER_ENV} must be {' or '.join(DENOISERS)}, not {value!r}")
+    return ["--denoiser", value]
 
 
 def _expect_source() -> list[str]:

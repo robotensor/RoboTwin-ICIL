@@ -162,6 +162,27 @@ def test_the_key_variable_must_be_a_name(authkey_env):
         )
 
 
+def test_the_denoiser_override_travels_as_a_flag_since_the_environment_does_not(monkeypatch):
+    # The orchestrator hands a benchmark subprocess only allow-listed variables; this one is read
+    # where the argv is built, in the orchestrator's own process.
+    def run():
+        return parse(
+            BENCHMARK.run_command(
+                unit=UNIT, prompt="/p.npz", out_dir="/o", policy_address="/s", authkey_env="K"
+            )
+        )
+
+    monkeypatch.delenv(commands.DENOISER_ENV, raising=False)
+    assert parse(BENCHMARK.materialize_command(unit=UNIT, out_dir="/o")).denoiser is None
+    assert run().denoiser is None
+    monkeypatch.setenv(commands.DENOISER_ENV, "none")
+    assert parse(BENCHMARK.materialize_command(unit=UNIT, out_dir="/o")).denoiser == "none"
+    assert run().denoiser == "none"
+    monkeypatch.setenv(commands.DENOISER_ENV, "fast")
+    with pytest.raises(ValueError, match="ROBOTWIN_ICIL_DENOISER must be oidn or none"):
+        BENCHMARK.materialize_command(unit=UNIT, out_dir="/o")
+
+
 def test_every_argv_is_plain_strings_with_absolute_paths():
     argv = BENCHMARK.materialize_command(unit=UNIT, out_dir="relative/dir")
     assert os.path.isabs(argv[-1]) and all(isinstance(a, str) for a in argv)
