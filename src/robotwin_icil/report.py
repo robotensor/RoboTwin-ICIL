@@ -145,7 +145,7 @@ def _percent(value: float | None) -> str:
 
 def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> str:
     """The plain-text report: overall, then each category, then its tasks."""
-    lines = ["RoboTwin ICIL Benchmark", "=======================", ""]
+    lines = ["RoboTwin-ICIL", "============", ""]
     if manifest is not None:
         lines += [
             f"Evaluation setting:          {manifest.evaluation_setting}",

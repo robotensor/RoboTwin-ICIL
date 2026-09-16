@@ -1,6 +1,6 @@
 # robotwin-icil-competition
 
-The RoboTwin ICIL benchmark (`robotwin-icil`, the repository root) as a plugin of the RoboTensor
+The RoboTwin-ICIL benchmark (`robotwin-icil`, the repository root) as a plugin of the Robotensor
 ICIL competition orchestrator. It is its own distribution, found through the `icil.benchmarks`
 entry point group under the name `robotwin`, and it never imports the orchestrator.
 
@@ -90,7 +90,7 @@ Commands — the argv of `python -m robotwin_icil.cli` in the simulator's enviro
 
 `franka_1arm`, the suite the one-arm Franka track draws from, is `robotwin_icil`'s task table's:
 place_empty_cup (pick_and_place), stack_bowls_two (stacking), click_bell and press_stapler
-(press_push). The Franka survey chose it (robotensor/ICIL-robotwin-benchmark#83, `docs/survey.md`):
+(press_push). The Franka survey chose it (robotensor/RoboTwin-ICIL#83, `docs/survey.md`):
 a task is in it when its expert, on two Franka arms, solved at least 2 of 3 surveyed seeds and
 moved one arm in every successful demonstration. Stacking has no one-arm task, so
 stack_bowls_two, an arm-switching task, stands in for it, with a limit: a scene the survey did not

@@ -1,4 +1,4 @@
-# RoboTwin ICIL Benchmark
+# RoboTwin-ICIL
 
 **A one-demonstration in-context imitation learning benchmark built on
 [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin).**
@@ -109,9 +109,17 @@ a run is unchanged.
 
 ## Quick start
 
+The standalone benchmark supports local policy adapters and the replay oracle without the
+competition orchestrator. Served policies and the optional `competition/` plugin additionally
+require `icil-policy`, currently distributed in Robotensor's private orchestrator repository.
+Those features require access to that package; the standalone commands below do not.
+
+The Python distribution and command remain `robotwin-icil`, and the import package remains
+`robotwin_icil`.
+
 ```bash
-git clone --recurse-submodules https://github.com/robotensor/robotwin-icil-benchmark.git
-cd robotwin-icil-benchmark
+git clone --recurse-submodules https://github.com/robotensor/RoboTwin-ICIL.git
+cd RoboTwin-ICIL
 
 # host tools only (report, records, task table) — no simulator needed
 uv venv --python 3.10 .venv && uv pip install -e ".[dev]"
@@ -240,14 +248,14 @@ confirm by eye that the rollout really did start where the expert started.
 
 ## Citation
 
-If you use RoboTensor's RoboTwin ICIL Benchmark, please cite this project:
+If you use Robotensor's RoboTwin-ICIL, please cite this project:
 
 ```bibtex
 @misc{robotensor2026robotwinicil,
-  author = {{RoboTensor}},
-  title = {{RoboTwin ICIL Benchmark}},
+  author = {{Robotensor}},
+  title = {{RoboTwin-ICIL}},
   year = {2026},
-  url = {https://github.com/robotensor/ICIL-robotwin-benchmark},
+  url = {https://github.com/robotensor/RoboTwin-ICIL},
   note = {Same Scene one-demonstration in-context imitation learning benchmark}
 }
 ```
@@ -258,7 +266,7 @@ include the benchmark commit used in your experiments.
 ## Acknowledgements
 
 We thank the [**RoboTwin team**](https://github.com/RoboTwin-Platform/RoboTwin) for developing
-and openly releasing RoboTwin 2.0. This RoboTensor benchmark uses their simulated environments,
+and openly releasing RoboTwin 2.0. This Robotensor benchmark uses their simulated environments,
 manipulation tasks, scene generation and domain randomization, scripted experts, motion planning,
 and per-task success checks to implement its Same Scene one-demonstration ICIL evaluation protocol.
 Their work makes this benchmark possible, and we appreciate their contribution to the robotics

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- (docs): cite RoboTensor's benchmark in the README and `CITATION.cff`, with a separate
+- (docs): rename the project to RoboTwin-ICIL, update repository and citation links, fix the
+  clone instructions, and document the private dependency needed for served policies and the
+  competition plugin. Python package and command names remain unchanged.
+- (docs): cite Robotensor's benchmark in the README and `CITATION.cff`, with a separate
   acknowledgement thanking the RoboTwin team for the simulation and task infrastructure.
 - (feat): the one-arm Franka suite is chosen by measuring RoboTwin's expert on two Franka arms.
   `tasks.yml` gains `franka_1arm`: place_empty_cup, stack_bowls_two, click_bell and press_stapler,

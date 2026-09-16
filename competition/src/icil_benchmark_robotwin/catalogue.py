@@ -3,7 +3,7 @@
 All of it is `robotwin_icil.tasks`'s: the tasks, their categories, the arms each task's expert uses
 (`Task.arms`, read off its `play_once`) and the suites. One of them is `franka_1arm`, the suite the
 orchestrator's one-arm Franka track draws from, which the Franka survey chose
-(robotensor/ICIL-robotwin-benchmark#83, written up at `SURVEY`).
+(robotensor/RoboTwin-ICIL#83, written up at `SURVEY`).
 """
 
 from __future__ import annotations

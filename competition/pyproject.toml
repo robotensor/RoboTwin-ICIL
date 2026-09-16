@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "robotwin-icil-competition"
 version = "0.1.0.dev0"
-description = "The RoboTwin ICIL benchmark as a plugin of the RoboTensor ICIL competition orchestrator."
+description = "The RoboTwin-ICIL benchmark as a plugin of the Robotensor ICIL competition orchestrator."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
