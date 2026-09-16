@@ -80,6 +80,11 @@ def test_unknown_names_are_rejected():
 
 def test_select_narrows_to_one_arm_tasks_only_when_asked():
     table = tasks.table()
+    assert table.select() == tuple(table.tasks.values())
+    assert table.select(arms=arms.TWO) == tuple(table.tasks.values())
+    assert table.select(arms=arms.ONE) == tuple(
+        task for task in table.tasks.values() if task.arms == arms.ONE
+    )
     v1 = table.suite("v1")
     assert table.select(suite="v1") == v1
     assert table.select(suite="v1", arms=arms.TWO) == v1
@@ -104,7 +109,7 @@ def test_select_refuses_a_task_or_suite_with_no_one_arm_expert():
     with pytest.raises(tasks.TaskTableError, match="arms 1 or 2"):
         table.select(suite="v1", arms="switching")
     with pytest.raises(tasks.TaskTableError, match="either a suite or a task"):
-        table.select()
+        table.select(suite="v1", task="click_bell")
 
 
 def write_table(tmp_path, entries: str) -> Path:

@@ -33,11 +33,11 @@ def _eval(args: argparse.Namespace) -> int:
     from .runner import RunSpec, run
 
     table = tasks_.table()
-    selected = table.select(suite=args.suite, task=args.task, arms=args.arms)
+    selected = table.select(task=args.task, arms=args.arms)
     spec = RunSpec(
         run_dir=Path(args.run_dir).resolve(),
         tasks=selected,
-        suite=args.suite,
+        suite=None,
         episodes=args.episodes,
         global_seed=args.seed,
         max_expert_attempts=args.max_expert_attempts,
@@ -75,7 +75,7 @@ def _survey(args: argparse.Namespace) -> int:
     from .survey import render, survey_task
 
     table = tasks_.table()
-    selected = table.select(suite=args.suite, task=args.task, arms=args.arms)
+    selected = table.select(task=args.task, arms=args.arms)
     # Resolve before entering the RoboTwin seam, which moves the working directory.
     out = Path(args.json).resolve() if args.json else None
     config = robotwin.SceneConfig(
@@ -171,7 +171,6 @@ def _policy_kwargs(pairs: list[str]) -> dict[str, str]:
 
 def _tasks(args: argparse.Namespace) -> int:
     table = tasks_.table()
-    suites = {name: set(members) for name, members in table.suites.items() if name != "all"}
     for category, members in table.by_category().items():
         if args.arms == ONE:
             members = tuple(task for task in members if task.arms == ONE)
@@ -179,8 +178,7 @@ def _tasks(args: argparse.Namespace) -> int:
             continue
         print(f"{table.categories[category]} ({category})")
         for task in members:
-            tags = ", ".join(sorted(name for name, names in suites.items() if task.name in names))
-            print(f"  {task.name}  ({LABELS[task.arms]})" + (f"  [{tags}]" if tags else ""))
+            print(f"  {task.name}  ({LABELS[task.arms]})")
     return 0
 
 
@@ -204,9 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--policy", required=True, help="built-in name (replay, dummy) or module:Class"
     )
-    which = run.add_mutually_exclusive_group(required=True)
-    which.add_argument("--suite", help="a suite from tasks.yml, e.g. v1")
-    which.add_argument("--task", help="a single RoboTwin task")
+    run.add_argument("--task", help="a single RoboTwin task; without it, all cataloged tasks")
     run.add_argument("--episodes", type=int, required=True)
     run.add_argument("--seed", type=int, default=0, help="global benchmark seed")
     run.add_argument("--run-dir", required=True)
@@ -236,9 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     sur = commands.add_parser(
         "survey", help="run RoboTwin's expert alone and report how often it succeeds per task"
     )
-    which = sur.add_mutually_exclusive_group(required=True)
-    which.add_argument("--suite", help="a suite from tasks.yml, e.g. v1 or all")
-    which.add_argument("--task", help="a single RoboTwin task")
+    sur.add_argument("--task", help="a single RoboTwin task; without it, all cataloged tasks")
     sur.add_argument("--seeds", type=int, default=20, help="seeds per task")
     sur.add_argument("--seed", type=int, default=0, help="global seed for the seed stream")
     sur.add_argument("--json", help="also write the per-task results to this file")
@@ -342,9 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_expect_source(unit)
     unit.set_defaults(handler=_run_unit)
 
-    lst = commands.add_parser(
-        "tasks", help="list the task table: skill category, arms and suite membership"
-    )
+    lst = commands.add_parser("tasks", help="list the task table: skill category and arms")
     _add_arms(lst)
     lst.set_defaults(handler=_tasks)
     return parser

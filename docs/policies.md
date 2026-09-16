@@ -5,7 +5,7 @@ one observation at a time. The benchmark core knows nothing about any particular
 converts between the benchmark's model-independent types and whatever the model consumes.
 
 ```bash
-robotwin-icil eval --policy mypkg.adapters:MyPolicy --suite v1 --episodes 500 --seed 42 --run-dir runs/mine
+robotwin-icil eval --policy mypkg.adapters:MyPolicy --episodes 500 --seed 42 --run-dir runs/mine
 ```
 
 `--policy` takes a built-in name (`replay`, `dummy`) or any importable `module:Class` that
@@ -145,10 +145,10 @@ or action history, a recurrent state — is fine, and `_reset()` must clear all 
 
 ## Validating an adapter
 
-Run the replay oracle first, on the same suite and seed:
+Run the replay oracle first, with the same task selection and seed:
 
 ```bash
-robotwin-icil eval --policy replay --suite v1 --episodes 20 --seed 42 --run-dir runs/replay --video
+robotwin-icil eval --policy replay --episodes 20 --seed 42 --run-dir runs/replay --video
 ```
 
 `ReplayPolicy` plays the demonstration's actions back verbatim. Under Same Scene it is the

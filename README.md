@@ -65,9 +65,8 @@ The replay oracle plays each demonstration's own actions back from the rebuilt s
 harness's ceiling — what a perfect imitator scores here — and on the V1 suite, on aloha-agilex, it
 scores **18/18**:
 
-```bash
-robotwin-icil eval --policy replay --suite v1 --episodes 18 --seed 42 --video
-```
+This historical run used the nine tasks below, with two episodes per task and global seed 42.
+The current CLI selects all tasks by default or one task with `--task`.
 
 | Skill | Task | Replay oracle | Expert success ([survey](docs/survey.md)) |
 | --- | --- | ---: | ---: |
@@ -91,11 +90,15 @@ Next: a real ICIL policy (#12), and scene-generalization settings beyond Same Sc
 
 RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
-Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
-short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
-expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md). The
-competition's one-arm Franka track draws from `franka_1arm`, four tasks chosen by a smaller survey
-of the expert on two Franka arms, described in the same document.
+Press / Push, Open / Close, Insertion, Bimanual and Articulated. `eval` and `survey` select all
+50 tasks by default; `--task NAME` selects one, and `--arms 1` filters to strictly one-arm tasks.
+`--episodes` is the total evaluation count, distributed round-robin over the selected tasks:
+50 episodes runs each task once, and 500 runs each ten times. Expert success depends on the task,
+scene and robot; catalog membership does not guarantee a successful demonstration.
+
+Named task sets remain internal data for the competition plugin and historical results. The
+historical `v1` set contains nine surveyed tasks; the competition's `franka_1arm` set contains four.
+They are not standalone CLI options. See [`docs/survey.md`](docs/survey.md).
 
 The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
 drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
@@ -134,8 +137,8 @@ robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --ru
 # the same on two Franka arms instead of the task config's aloha-agilex
 robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke-franka
 
-# how often RoboTwin's own expert solves each task (decides suite membership)
-robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
+# how often RoboTwin's own expert solves every cataloged task
+robotwin-icil survey --seeds 20 --json runs/survey.json
 
 # the competition's shape: build one demonstration and save it, then evaluate from the file
 robotwin-icil materialize --task click_bell --scene-seed 42 --scene-seed 43 --out runs/unit/prompt
@@ -148,15 +151,15 @@ python -m icil_policy.serve --manifest <icil-policy>/examples/replay_policy/icil
 robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy-address /tmp/policy.sock \
     --authkey-env ICIL_POLICY_AUTHKEY --policy-log /tmp/policy.log --out runs/unit/served
 
-# the official V1 suite
-robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
-robotwin-icil report runs/v1
+# all 50 tasks, ten episodes per task
+robotwin-icil eval --policy <adapter> --episodes 500 --seed 42 --run-dir runs/all
+robotwin-icil report runs/all
 
-# one-arm robots: only the tasks whose expert uses one arm (26 of 50; `tasks --arms 1` lists them)
-robotwin-icil eval --policy <adapter> --suite v1 --arms 1 --episodes 500 --seed 42 --run-dir runs/v1-one-arm
+# one-arm task selection: only the tasks whose expert uses one arm (26 of 50; `tasks --arms 1` lists them)
+robotwin-icil eval --policy <adapter> --arms 1 --episodes 260 --seed 42 --run-dir runs/one-arm
 
 # the robot and the task selection combine: every one-arm task's expert, on two Franka arms
-robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka-1arm.json
+robotwin-icil survey --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka-1arm.json
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
@@ -200,7 +203,7 @@ a duel, prompt verification and results, and the argv of `materialize` and `run-
 
 ```
 src/robotwin_icil/
-  tasks.yml tasks.py        task -> skill category and arms table, suites, --arms selection
+  tasks.yml tasks.py        task -> skill category and arms table, --task/--arms selection
   arms.py                   static read of each expert's play_once: 1, switching or 2 arms
   demo.py                   model-independent demonstration container
   prompt.py                 a demonstration on disk: prompt.npz and its channel map
@@ -240,9 +243,11 @@ See [`docs/policies.md`](docs/policies.md).
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
 git commits, both configs, the robot (`embodiment`), whether it asked for one-arm tasks only
 (`arms`), and per episode: the task, skill category, scene seed, robot, number of expert
-generation attempts, rollout length and outcome. In the manifest, `suite` is what was asked for
-and `tasks` what ran: a `--arms 1` run of `v1` records `suite: v1`, `arms: "1"` and the seven
-one-arm tasks, so read `arms` or `tasks` with `suite`, never `suite` alone. With `--video`, demonstration and evaluation clips
+generation attempts, rollout length and outcome. The manifest's `tasks` records the exact selected
+task list; a default `--arms 1` run records all 26 one-arm tasks and `arms: "1"`. New CLI runs
+record `suite: null`; the field remains readable for older results and Python callers. Use a new
+run directory when moving from an old named selection to the full catalog. With `--video`,
+demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 

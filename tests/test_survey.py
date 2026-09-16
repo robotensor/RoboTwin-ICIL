@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from fake_robotwin import FakeConfig, FakeTaskEnv, FakeUnstable
 from robotwin_icil import cli, robotwin, survey, tasks
 from robotwin_icil.generate import scene_seeds
@@ -146,7 +148,7 @@ def test_render_keeps_its_columns_in_place_at_a_hundred_seeds():
 
 
 def test_survey_rejects_zero_seeds(capsys):
-    assert cli.main(["survey", "--suite", "v1", "--seeds", "0"]) == 2
+    assert cli.main(["survey", "--seeds", "0"]) == 2
 
 
 def test_survey_stops_with_one_line_when_a_qpos_does_not_split_into_arms(
@@ -171,7 +173,7 @@ def test_survey_stops_with_one_line_when_a_qpos_does_not_split_into_arms(
 
 def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys):
     # A survey runs for hours; one that dies mid-way keeps the tasks it has measured.
-    first, second = (task.name for task in tasks.table().suite("v1")[:2])
+    first, second = (task.name for task in tasks.table().select()[:2])
     seeds = scene_seeds(0, 0, 3)
 
     def load_task(name):
@@ -184,7 +186,7 @@ def test_survey_json_is_rewritten_after_every_task(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(robotwin, "load_task", load_task)
     out = tmp_path / "survey.json"
 
-    assert cli.main(["survey", "--suite", "v1", "--seeds", "3", "--json", str(out)]) == 1
+    assert cli.main(["survey", "--seeds", "3", "--json", str(out)]) == 1
     captured = capsys.readouterr()
     assert f"{first}: expert solved 2/3, 2 with one arm" in captured.out
     assert f"the simulator died before {second}" in captured.err
@@ -247,6 +249,18 @@ def test_the_survey_command_renders_nothing_by_default(tmp_path, monkeypatch, ca
     assert [(entry["task"], entry["images"]) for entry in payload["tasks"]] == [
         ("click_bell", False)
     ]
+
+
+@pytest.mark.parametrize("arms", ["1", "2"])
+def test_survey_without_a_task_measures_the_catalog(arms, tmp_path, monkeypatch, capsys):
+    envs = _counting_envs(monkeypatch)
+    out = tmp_path / "survey.json"
+    assert cli.main(["survey", "--arms", arms, "--seeds", "1", "--json", str(out)]) == 0
+    expected = [task.name for task in tasks.table().select(arms=arms)]
+    payload = json.loads(out.read_text())
+    assert [entry["task"] for entry in payload["tasks"]] == expected
+    assert len(envs) == len(expected)
+    assert all(env.get_obs_calls == 0 for env in envs)
 
 
 def test_the_survey_command_renders_every_frame_with_images(tmp_path, monkeypatch, capsys):

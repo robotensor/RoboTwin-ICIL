@@ -6,8 +6,9 @@
 # once from the scene, or fixed), `switching` when one arm acts at a time but which one is chosen
 # per object, `2` when both arms act. `arms.py` re-derives it from the checkout and a test fails
 # on any disagreement. `--arms 1` runs only `arms: 1` tasks.
-# `suites` names the task sets a benchmark run can ask for; `v1` is the official Same Scene set,
-# `franka_1arm` the competition's one-arm Franka track. A suite may hold tasks of any `arms`.
+# `suites` is internal competition/Python data; there is no standalone CLI suite option. `v1`
+# is the historical Same Scene set, `franka_1arm` the competition's one-arm Franka track. A suite
+# may hold tasks of any `arms`. The standalone CLI selects all tasks unless --task is given.
 
 categories:
   pick_and_place: Pick and Place

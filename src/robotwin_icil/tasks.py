@@ -60,25 +60,34 @@ class TaskTable:
     def select(
         self, *, suite: str | None = None, task: str | None = None, arms: str = TWO
     ) -> tuple[Task, ...]:
-        """The tasks a run asks for: a suite or one task, narrowed to one-arm tasks by ``arms="1"``.
+        """Select all tasks or one task, narrowed to one-arm tasks by ``arms="1"``.
+
+        ``suite`` is retained for internal competition and Python callers; the standalone CLI
+        does not expose it. With neither a task nor a suite, select the full catalog in table order.
 
         ``arms="2"`` — the default, a two-arm robot — changes nothing. A single task that is not
         one-arm is refused rather than silently run, as is a suite with no one-arm task.
         """
-        if (suite is None) == (task is None):
+        if suite is not None and task is not None:
             raise TaskTableError("choose either a suite or a task")
-        selected = (self[task],) if task is not None else self.suite(suite)
+        if task is not None:
+            selected = (self[task],)
+        elif suite is not None:
+            selected = self.suite(suite)
+        else:
+            selected = tuple(self.tasks.values())
         if arms == TWO:
             return selected
         if arms != ONE:
             raise TaskTableError(f"a run asks for arms {ONE} or {TWO}, not {arms!r}")
         one_arm = tuple(member for member in selected if member.arms == ONE)
         if not one_arm:
-            what = (
-                f"task {task!r} needs {LABELS[selected[0].arms]}"
-                if task is not None
-                else f"suite {suite!r} has no one-arm task"
-            )
+            if task is not None:
+                what = f"task {task!r} needs {LABELS[selected[0].arms]}"
+            elif suite is not None:
+                what = f"suite {suite!r} has no one-arm task"
+            else:
+                what = "the task catalog has no one-arm task"
             raise TaskTableError(f"{what}; --arms 1 runs only tasks whose expert uses one arm")
         return one_arm
 
