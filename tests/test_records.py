@@ -42,7 +42,6 @@ def manifest(**overrides) -> RunManifest:
     base = dict(
         global_seed=42,
         evaluation_setting=SAME_SCENE,
-        suite="v1",
         tasks=("place_object_basket",),
         episodes=10,
         max_expert_attempts=20,
@@ -114,8 +113,24 @@ def test_a_manifest_written_before_arms_existed_still_loads(tmp_path):
     assert loaded == manifest()
 
 
+@pytest.mark.parametrize("suite", ["v1", None])
+def test_legacy_suite_metadata_is_readable_and_does_not_change_run_identity(tmp_path, suite):
+    data = {**manifest().to_json(), "suite": suite}
+    (tmp_path / "manifest.json").write_text(json.dumps(data))
+    run = RunDir(tmp_path)
+    loaded = run.manifest()
+    assert loaded == manifest()
+    assert RunManifest.from_json(data) == loaded
+    assert "suite" not in loaded.to_json()
+    run.start(manifest())
+    # Dropping a label must not allow a different task selection to resume this run.
+    with pytest.raises(RecordError, match="different run"):
+        run.start(manifest(tasks=("click_bell",)))
+    assert data["suite"] == suite  # reading does not mutate the caller's data
+
+
 def test_a_run_on_another_robot_cannot_continue_this_one(tmp_path):
-    # Same seed, suite and policy, but 16-wide Franka episodes would be averaged with 14-wide
+    # Same seed, task selection and policy, but 16-wide Franka episodes would be averaged with 14-wide
     # aloha ones: the embodiment is part of what a resumed run must share.
     run = RunDir(tmp_path)
     run.start(manifest())

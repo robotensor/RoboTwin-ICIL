@@ -1,8 +1,8 @@
-"""The episode loop: a suite, N episodes, one run directory.
+"""The episode loop: selected tasks, N episodes, one run directory.
 
-Episodes are assigned to tasks round-robin in suite order, so every task gets `N // len(tasks)`
+Episodes are assigned to tasks round-robin in selection order, so every task gets `N // len(tasks)`
 episodes (the first `N % len(tasks)` get one more) and episode `i`'s task is a pure function of
-the suite and `i`. Together with per-episode seed streams, that makes any single episode
+the task list and `i`. Together with per-episode seed streams, that makes any single episode
 reproducible without replaying the ones before it, and lets an interrupted run resume by skipping
 what `episodes.jsonl` already holds.
 """
@@ -47,7 +47,6 @@ _ROBOTWIN_CONFIG_KEYS = (
 class RunSpec:
     run_dir: Path
     tasks: tuple[Task, ...]
-    suite: str | None
     episodes: int
     global_seed: int
     max_expert_attempts: int = DEFAULT_MAX_EXPERT_ATTEMPTS
@@ -85,7 +84,6 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
     return RunManifest(
         global_seed=spec.global_seed,
         evaluation_setting=SAME_SCENE,
-        suite=spec.suite,
         tasks=tuple(task.name for task in spec.tasks),
         arms=spec.arms,
         episodes=spec.episodes,
@@ -123,7 +121,7 @@ def run(
         log(f"resuming {run_dir.path}: {len(done)}/{len(plan)} episodes already recorded")
 
     # One RoboTwin env alive at a time. Each env builds two CuRobo planners on the GPU and keeps
-    # them for its lifetime, so holding every task's env at once grows GPU memory with the suite.
+    # them for its lifetime, so holding every task's env at once grows GPU memory with the task count.
     # Episodes run task by task — episode i still runs plan[i] on its own seed stream — and each
     # task's env is released before the next one is built.
     progress = len(done)

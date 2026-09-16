@@ -6,7 +6,8 @@
   catalog by default, `--task` selects one task, and `--arms 1` filters to strictly one-arm tasks.
   Task listings and reports show task/category/arm data without suite tags. Keep internal named
   selections and the competition plugin API so the orchestrator's unit derivation remains stable;
-  older manifests are still readable, and new CLI runs record `suite: null`.
+  remove suite metadata from `RunSpec` and new manifests. Older manifests remain readable by
+  ignoring their legacy suite label; resume identity still checks the exact task list.
 
 - (chore): ignore local crash dumps and environment files while allowing environment examples.
 - (docs): rename the project to RoboTwin-ICIL, update repository and citation links, fix the

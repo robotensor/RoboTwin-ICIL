@@ -119,7 +119,8 @@ def test_eval_without_a_task_runs_the_catalog_and_can_resume(
     assert loaded == expected
     run = RunDir(tmp_path)
     assert run.manifest().tasks == tuple(expected)
-    assert run.manifest().suite is None and run.manifest().arms == arms
+    assert run.manifest().arms == arms
+    assert "suite" not in json.loads(run.manifest_path.read_text())
     assert [record.task for record in run.records()] == expected
     assert cli.main(argv) == 0
     assert loaded == expected  # completed episodes are not run twice
