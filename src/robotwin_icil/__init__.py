@@ -8,7 +8,7 @@ from pathlib import Path
 
 __all__ = ["__version__", "source_digest", "source_sha256"]
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 #: The files a source digest covers: every module and data file (`tasks.yml`) of the package.
 SOURCE_SUFFIXES = (".py", ".yml")

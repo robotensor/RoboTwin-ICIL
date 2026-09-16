@@ -10,3 +10,5 @@ abstract: >-
   Robotensor's Same Scene one-demonstration in-context imitation learning benchmark,
   built on RoboTwin 2.0.
 license: Apache-2.0
+version: 0.1.0
+date-released: 2026-09-16
