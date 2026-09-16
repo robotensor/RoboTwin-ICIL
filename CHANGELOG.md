@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- (chore): ignore local crash dumps and environment files while allowing environment examples.
 - (docs): rename the project to RoboTwin-ICIL, update repository and citation links, fix the
   clone instructions, and document the private dependency needed for served policies and the
   competition plugin. Python package and command names remain unchanged.

@@ -14,3 +14,8 @@ build/
 *.hdf5
 *.npz
 .env
+.env.*
+!.env.example
+!.env.*.example
+core
+core.*
