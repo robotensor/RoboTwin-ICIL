@@ -238,39 +238,35 @@ one-arm tasks, so read `arms` or `tasks` with `suite`, never `suite` alone. With
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 
-## Acknowledgements
+## Citation
 
-This benchmark is a thin evaluation protocol layered on top of
-[**RoboTwin 2.0**](https://github.com/RoboTwin-Platform/RoboTwin), which does the substantial work:
-the simulated bimanual environments, the 50 manipulation tasks, the scene generation and domain
-randomization, the scripted expert and its motion planning, and the per-task success conditions.
-We reuse those mechanisms as they are rather than reimplementing them, and we are grateful to the
-RoboTwin authors for releasing them openly. RoboTwin builds in turn on
-[SAPIEN](https://sapien.ucsd.edu/), [mplib](https://github.com/haosulab/MPlib) and the wider
-open-source robotics ecosystem.
-
-If you use this benchmark, please cite RoboTwin:
+If you use RoboTensor's RoboTwin ICIL Benchmark, please cite this project:
 
 ```bibtex
-@article{chen2025robotwin,
-  title={RoboTwin 2.0: A Scalable Data Generator and Benchmark with Strong Domain Randomization
-         for Robust Bimanual Robotic Manipulation},
-  author={Chen, Tianxing and Chen, Zanxin and Chen, Baijun and Cai, Zijian and Liu, Yibin and
-          Li, Zixuan and Liang, Qiwei and Lin, Xianliang and Ge, Yiheng and Gu, Zhenyu and others},
-  journal={arXiv preprint arXiv:2506.18088},
-  year={2025}
-}
-
-@InProceedings{Mu_2025_CVPR,
-  author    = {Mu, Yao and Chen, Tianxing and Chen, Zanxin and Peng, Shijia and Lan, Zhiqian and
-               Gao, Zeyu and Liang, Zhixuan and Yu, Qiaojun and Zou, Yude and Xu, Mingkun and
-               Lin, Lunkai and Xie, Zhiqiang and Ding, Mingyu and Luo, Ping},
-  title     = {RoboTwin: Dual-Arm Robot Benchmark with Generative Digital Twins},
-  booktitle = {Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)},
-  year      = {2025},
-  pages     = {27649--27660}
+@misc{robotensor2026robotwinicil,
+  author = {{RoboTensor}},
+  title = {{RoboTwin ICIL Benchmark}},
+  year = {2026},
+  url = {https://github.com/robotensor/ICIL-robotwin-benchmark},
+  note = {Same Scene one-demonstration in-context imitation learning benchmark}
 }
 ```
+
+Citation metadata is also available in [`CITATION.cff`](CITATION.cff). For reproducibility,
+include the benchmark commit used in your experiments.
+
+## Acknowledgements
+
+We thank the [**RoboTwin team**](https://github.com/RoboTwin-Platform/RoboTwin) for developing
+and openly releasing RoboTwin 2.0. This RoboTensor benchmark uses their simulated environments,
+manipulation tasks, scene generation and domain randomization, scripted experts, motion planning,
+and per-task success checks to implement its Same Scene one-demonstration ICIL evaluation protocol.
+Their work makes this benchmark possible, and we appreciate their contribution to the robotics
+research community.
+
+We also acknowledge [SAPIEN](https://sapien.ucsd.edu/),
+[mplib](https://github.com/haosulab/MPlib), and the wider open-source robotics ecosystem that
+RoboTwin builds on.
 
 ## License
 

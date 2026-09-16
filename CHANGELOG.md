@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (docs): cite RoboTensor's benchmark in the README and `CITATION.cff`, with a separate
+  acknowledgement thanking the RoboTwin team for the simulation and task infrastructure.
 - (feat): the one-arm Franka suite is chosen by measuring RoboTwin's expert on two Franka arms.
   `tasks.yml` gains `franka_1arm`: place_empty_cup, stack_bowls_two, click_bell and press_stapler,
   the tasks whose expert solved at least 2 of 3 surveyed seeds with every successful
