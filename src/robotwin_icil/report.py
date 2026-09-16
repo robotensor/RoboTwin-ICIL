@@ -152,7 +152,7 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             "Demonstrations per episode:  1",
             f"Policy:                      {manifest.policy.get('policy', '?')}",
             f"Embodiment:                  {_embodiment(manifest)}",
-            f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}"
+            f"Tasks:                       {', '.join(manifest.tasks)}"
             + (" (one-arm tasks only)" if manifest.arms == ONE else ""),
             f"Global seed:                 {manifest.global_seed}",
             "",

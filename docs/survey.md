@@ -6,8 +6,11 @@ dominates a run's wall-clock and its rejection statistics without telling us any
 model. `robotwin-icil survey` runs the expert alone — through the same `attempt` an episode's
 generator uses — over a fixed seed stream per task, and reports how often it succeeds and why not.
 
+The V1 results below are historical measurements that selected the nine-task V1 set. The current CLI surveys
+all cataloged tasks by default, or a single task with `--task NAME`:
+
 ```bash
-robotwin-icil survey --suite v1 --seeds 20 --seed 0 --json docs/results/survey-v1-seed0.json
+robotwin-icil survey --seeds 20 --seed 0 --json runs/survey-all.json
 ```
 
 **No camera renders.** Everything the survey keeps is read from the robot's joints, so by default
@@ -41,7 +44,7 @@ field name the robot each row was measured on. `--arms 1` keeps only the tasks w
 one arm, and the two combine — every one-arm task, on two Frankas:
 
 ```bash
-robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --seed 0 \
+robotwin-icil survey --embodiment franka-panda --arms 1 --seeds 20 --seed 0 \
   --json runs/survey-franka-1arm.json
 ```
 
@@ -159,6 +162,8 @@ in the order of the task table (`src/robotwin_icil/tasks.yml`):
   arms. Neither `materialize` nor `verify_prompt` checks which arms a demonstration moved, so such
   a scene would become a unit whose demonstration moves both.
 
-`--arms 1` keeps only `arms: 1` tasks, so it drops stack_bowls_two from the suite: a run of all
-four on two Frankas is `robotwin-icil eval --policy <adapter> --suite franka_1arm --embodiment
-franka-panda`, without `--arms 1`.
+`--arms 1` keeps only `arms: 1` tasks, so it excludes stack_bowls_two. Named suites remain an
+internal competition plugin contract; the standalone CLI has no suite option. To evaluate one
+of the four tasks directly, use `robotwin-icil eval --policy replay --task click_bell
+--embodiment franka-panda --episodes 1 --run-dir runs/click-bell`. Without `--task`, evaluation
+selects the full catalog; adding `--arms 1` selects all 26 strictly one-arm tasks.

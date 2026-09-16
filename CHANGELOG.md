@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- (feat): remove standalone CLI suite selection. `eval` and `survey` select the full task
+  catalog by default, `--task` selects one task, and `--arms 1` filters to strictly one-arm tasks.
+  Task listings and reports show task/category/arm data without suite tags. Keep internal named
+  selections and the competition plugin API so the orchestrator's unit derivation remains stable;
+  older manifests are still readable, and new CLI runs record `suite: null`.
+
 - (chore): ignore local crash dumps and environment files while allowing environment examples.
 - (docs): rename the project to RoboTwin-ICIL, update repository and citation links, fix the
   clone instructions, and document the private dependency needed for served policies and the

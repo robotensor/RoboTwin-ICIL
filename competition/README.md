@@ -88,6 +88,11 @@ Commands — the argv of `python -m robotwin_icil.cli` in the simulator's enviro
 
 ## The franka_1arm suite
 
+Suite names are an internal plugin API used by the orchestrator's spec and unit derivation.
+The standalone benchmark CLI has no suite option: `eval` and `survey` default to all tasks, or
+accept `--task NAME` and `--arms 1`. The plugin invokes `materialize --task NAME` and `run-unit`,
+so removing standalone suite selection does not change competition units or their hashes.
+
 `franka_1arm`, the suite the one-arm Franka track draws from, is `robotwin_icil`'s task table's:
 place_empty_cup (pick_and_place), stack_bowls_two (stacking), click_bell and press_stapler
 (press_push). The Franka survey chose it (robotensor/RoboTwin-ICIL#83, `docs/survey.md`):

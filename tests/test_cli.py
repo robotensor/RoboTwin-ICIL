@@ -16,13 +16,14 @@ def listed(out: str) -> list[str]:
     return [line.split()[0] for line in out.splitlines() if line.startswith("  ")]
 
 
-def test_tasks_lists_categories_arms_and_suite_membership(capsys):
+def test_tasks_lists_categories_and_arms_without_suite_membership(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
-    assert "click_bell  (one arm)  [franka_1arm, v1]" in out
-    assert "stack_bowls_two  (switching arms)  [franka_1arm, v1]" in out
-    assert "place_a2b_left  (one arm)  [v1]" in out
+    assert "click_bell  (one arm)\n" in out
+    assert "stack_bowls_two  (switching arms)\n" in out
+    assert "place_a2b_left  (one arm)\n" in out
+    assert "[" not in out
     assert "lift_pot  (two arms)" in out
     assert listed(out) == list(tasks.table().tasks)
 
@@ -73,9 +74,56 @@ def test_report_on_a_non_run_directory_fails_cleanly(tmp_path, capsys):
 
 def test_eval_rejects_bad_arguments_before_touching_the_simulator(tmp_path, capsys):
     base = ["eval", "--policy", "replay", "--run-dir", str(tmp_path)]
-    assert cli.main([*base, "--suite", "v1", "--episodes", "0"]) == 2
-    assert cli.main([*base, "--suite", "no_such_suite", "--episodes", "1"]) == 1
-    assert "unknown suite" in capsys.readouterr().err
+    assert cli.main([*base, "--episodes", "0"]) == 2
+    assert cli.main([*base, "--task", "no_such_task", "--episodes", "1"]) == 1
+    assert "unknown task" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [EVAL, SURVEY])
+def test_suite_option_is_removed(command, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*command, "--suite", "v1"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --suite v1" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("arms", ["1", "2"])
+def test_eval_without_a_task_runs_the_catalog_and_can_resume(
+    arms, tmp_path, fake_sim, monkeypatch, capsys
+):
+    from fake_robotwin import FakeTaskEnv
+    from robotwin_icil import robotwin
+
+    selected = tasks.table().select(arms=arms)
+    loaded = []
+
+    def load_task(name):
+        loaded.append(name)
+        return FakeTaskEnv()
+
+    fake_sim["next"] = load_task
+    monkeypatch.setattr(robotwin, "clear_render_cache", lambda: None)
+    argv = [
+        "eval",
+        "--policy",
+        "replay",
+        "--episodes",
+        str(len(selected)),
+        "--arms",
+        arms,
+        "--run-dir",
+        str(tmp_path),
+    ]
+    assert cli.main(argv) == 0
+    expected = [task.name for task in selected]
+    assert loaded == expected
+    run = RunDir(tmp_path)
+    assert run.manifest().tasks == tuple(expected)
+    assert run.manifest().suite is None and run.manifest().arms == arms
+    assert [record.task for record in run.records()] == expected
+    assert cli.main(argv) == 0
+    assert loaded == expected  # completed episodes are not run twice
+    assert "resuming" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("command", [EVAL, SURVEY])
@@ -105,9 +153,9 @@ def test_a_run_takes_its_robot_and_its_arms_together(command):
 
 
 def test_a_one_arm_survey_of_every_task_selects_the_26_one_arm_tasks():
-    argv = ["survey", "--suite", "all", "--embodiment", "franka-panda", "--arms", "1"]
+    argv = ["survey", "--embodiment", "franka-panda", "--arms", "1"]
     args = cli.build_parser().parse_args(argv)
-    selected = tasks.table().select(suite=args.suite, task=args.task, arms=args.arms)
+    selected = tasks.table().select(task=args.task, arms=args.arms)
     assert len(selected) == 26 and {task.arms for task in selected} == {"1"}
 
 

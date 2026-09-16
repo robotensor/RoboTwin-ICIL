@@ -97,9 +97,10 @@ def test_render_is_the_only_place_rates_become_percentages(built):
 def test_render_says_when_a_run_was_one_arm_only(built):
     from test_records import manifest
 
-    assert "Suite:                       v1\n" in report.render(built, manifest(), tasks.table())
+    tasks_line = "Tasks:                       " + ", ".join(manifest().tasks)
+    assert tasks_line + "\n" in report.render(built, manifest(), tasks.table())
     one_arm = report.render(built, manifest(arms="1"), tasks.table())
-    assert "Suite:                       v1 (one-arm tasks only)" in one_arm
+    assert tasks_line + " (one-arm tasks only)" in one_arm
 
 
 def test_an_empty_run_reports_without_crashing():
