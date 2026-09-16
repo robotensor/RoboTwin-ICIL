@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "robotwin-icil"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "RoboTwin-ICIL: one-demonstration in-context imitation learning benchmark on RoboTwin 2.0."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -27,6 +27,14 @@ robotwin-icil = "robotwin_icil.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/robotwin_icil"]
+
+[tool.hatch.build.targets.sdist]
+# Simulation needs a recursive Git checkout; upstream includes absolute symlinks
+# and is not part of this Python distribution.
+only-include = [
+  "src/robotwin_icil", "tests", "scripts", "docs",
+  "README.md", "CHANGELOG.md", "CITATION.cff", "LICENSE", "pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100

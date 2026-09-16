@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 2026-09-16
 
+- (chore): release both Python distributions as 0.1.0, update citation metadata, and
+  add release notes. Limit the benchmark source distribution
+  to its own package, tests, scripts and documentation; the pinned RoboTwin submodule
+  and simulator assets are installed through a recursive Git checkout.
 - (feat): remove standalone CLI suite selection. `eval` and `survey` select the full task
   catalog by default, `--task` selects one task, and `--arms 1` filters to strictly one-arm tasks.
   Task listings and reports show task/category/arm data without suite tags. Keep internal named

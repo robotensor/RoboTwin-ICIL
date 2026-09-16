@@ -25,7 +25,7 @@ from . import catalogue as catalogue_
 from . import commands, prompts, units
 
 #: This distribution's version, as its pyproject.toml gives it.
-VERSION = "0.1.0.dev0"
+VERSION = "0.1.0"
 BENCHMARK_ID = "robotwin"
 #: The orchestrator ABI this plugin was written against (`BENCHMARK_API_VERSION`).
 API_VERSION = 1

@@ -3,6 +3,9 @@
 **A one-demonstration in-context imitation learning benchmark built on
 [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin).**
 
+Release: [v0.1.0](https://github.com/robotensor/RoboTwin-ICIL/releases/tag/v0.1.0)
+([release notes](docs/releases/v0.1.0.md)).
+
 Standard imitation-learning benchmarks collect a dataset, train a policy on it, and evaluate the
 result. This benchmark does none of those things. Every episode generates its own expert
 demonstration *at evaluation time*, hands that single demonstration to a **frozen** policy as
