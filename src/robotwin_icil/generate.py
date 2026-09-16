@@ -65,9 +65,13 @@ def scene_seeds(global_seed: int, episode: int, count: int) -> list[int]:
 
 
 def attempt(
-    task_env, seed: int, args: dict, save_freq: int, episode: int
+    task_env, seed: int, args: dict, save_freq: int, episode: int, images: bool = True
 ) -> tuple[Attempt, Demonstration | None, SceneFingerprint | None]:
-    """Build the scene for one seed, run the expert once, and keep what it did if it succeeded."""
+    """Build the scene for one seed, run the expert once, and keep what it did if it succeeded.
+
+    `images=False` records the demonstration without rendering a camera (`robotwin.capture`): the
+    same joints, frames and outcome, fit for measuring the expert but not for a policy's context.
+    """
     from . import robotwin
 
     try:
@@ -87,7 +91,12 @@ def attempt(
 
     try:
         initial = robotwin.fingerprint(task_env)
-        with robotwin.capture(task_env, save_freq) as frames:
+        # Timed from the scene the fingerprint saw: RoboTwin's settle is already behind it, and
+        # the clock is gone again before `close`.
+        with (
+            robotwin.clock(task_env) as ticks,
+            robotwin.capture(task_env, save_freq, ticks, images=images) as frames,
+        ):
             task_env.play_once()
         if not task_env.plan_success:
             return Attempt(seed, Rejection.PLAN_FAILED), None, None
@@ -100,10 +109,18 @@ def attempt(
         except DemonstrationError as exc:
             return Attempt(seed, Rejection.NO_DEMONSTRATION, str(exc)), None, None
         return Attempt(seed, None), demonstration, initial
+    except robotwin.RoboTwinError:
+        # The harness itself failed (a clock that cannot count this scene's steps): every seed
+        # would fail the same way, so it stops generation rather than reject the seed.
+        raise
     except Exception as exc:
         if robotwin.gpu_exhausted(exc):
             raise robotwin.RoboTwinError(
                 f"the GPU ran out of memory while the expert ran seed {seed}: {exc}"
+            ) from exc
+        if robotwin.gpu_lost(exc):
+            raise robotwin.RoboTwinError(
+                f"the renderer lost the GPU while the expert ran seed {seed}: {exc}"
             ) from exc
         # Anything else the expert raises is a failed seed, as upstream's collector counts it:
         # "target_pose cannot be None" is RoboTwin finding no feasible grasp.

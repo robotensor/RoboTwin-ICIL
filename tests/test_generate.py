@@ -1,17 +1,16 @@
 import numpy as np
 import pytest
 
-from fake_robotwin import FakeTaskEnv, FakeUnstable
+from fake_robotwin import QPOS_DIM, FakeTaskEnv, FakeUnstable
 from robotwin_icil import generate, robotwin
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM, Demonstration, Frame
+from robotwin_icil.demo import Demonstration, Frame, arms_moved
 from robotwin_icil.generate import Attempt, Rejection
 from robotwin_icil.scene import SceneFingerprint
 
 
 def _demonstration() -> Demonstration:
     frames = tuple(
-        Frame(index=i, images={}, qpos=np.full(BIMANUAL_QPOS_DIM, float(i)), endpose={})
-        for i in range(3)
+        Frame(index=i, images={}, qpos=np.full(QPOS_DIM, float(i)), endpose={}) for i in range(3)
     )
     return Demonstration(frames=frames, frequency=15)
 
@@ -22,7 +21,7 @@ def _fingerprint() -> SceneFingerprint:
         articulations={},
         articulation_roots={},
         cameras={},
-        robot_qpos=np.zeros(BIMANUAL_QPOS_DIM),
+        robot_qpos=np.zeros(QPOS_DIM),
     )
 
 
@@ -92,3 +91,109 @@ def test_a_demonstrations_frequency_is_frames_per_second(monkeypatch):
     result, demonstration, _ = generate.attempt(FakeTaskEnv(), 0, {"save_freq": 5}, 5, 0)
     assert result.rejection is None
     assert demonstration.frequency == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("qpos_dim", [14, 16])
+def test_a_demonstration_is_as_wide_as_the_robot_that_made_it(qpos_dim, monkeypatch):
+    # Captured frames carry whatever `joint_action.vector` the scene's robot reports: 14 on
+    # aloha-agilex, 16 on a dual Franka. Nothing in the capture path assumes one of them.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(qpos_dim=qpos_dim)
+    result, demonstration, initial = generate.attempt(env, 0, {"save_freq": 1}, 1, 0)
+    assert result.rejection is None
+    assert demonstration.qpos_dim == qpos_dim and demonstration.qpos().shape[1] == qpos_dim
+    assert initial.robot_qpos.shape == (qpos_dim,)
+
+
+def test_a_seed_whose_joints_read_non_finite_is_rejected_not_measured(monkeypatch):
+    # The frame refuses the value while the expert runs, so the seed is a rejection with the
+    # reason on record — not a demonstration that arms_moved would silently read as still.
+    class NaNJointEnv(FakeTaskEnv):
+        def get_obs(self):
+            obs = super().get_obs()
+            obs["joint_action"]["vector"][3] = np.nan
+            return obs
+
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = NaNJointEnv()
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 1}, 1, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert "non-finite" in result.detail
+    assert env.closed == 1
+
+
+@pytest.mark.parametrize("plan_fails", [False, True])
+def test_an_attempt_without_images_renders_nothing_and_ends_the_same_way(plan_fails, monkeypatch):
+    # The survey's attempt: no camera takes a picture, and the seed's outcome, frames and joints
+    # are the ones the rendered attempt an episode makes would have recorded.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    fails = {4} if plan_fails else set()
+    rendered_env = FakeTaskEnv(moves=("left",), plan_fails_on=fails)
+    plain_env = FakeTaskEnv(moves=("left",), plan_fails_on=fails)
+    rendered, rendered_demo, _ = generate.attempt(rendered_env, 4, {"save_freq": 1}, 1, 0)
+    plain, plain_demo, _ = generate.attempt(plain_env, 4, {"save_freq": 1}, 1, 0, images=False)
+
+    assert plain == rendered and plain_env.get_obs_calls == 0 and plain_env.closed == 1
+    if plan_fails:
+        assert plain.rejection is Rejection.PLAN_FAILED and plain_demo is rendered_demo is None
+        return
+    assert rendered_env.get_obs_calls == len(rendered_demo) == len(plain_demo)
+    np.testing.assert_array_equal(plain_demo.qpos(), rendered_demo.qpos())
+    assert plain_demo.frequency == rendered_demo.frequency
+    assert (plain_demo.cameras, rendered_demo.cameras) == ((), ("head_camera",))
+    assert arms_moved(plain_demo) == arms_moved(rendered_demo) == ("left",)
+
+
+def test_demonstration_frames_carry_simulated_time(monkeypatch):
+    # The fake expert records every `save_freq` physics steps. The clock starts after
+    # setup_demo, so the scene's settle is not part of the demonstration's time.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv()
+    _, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    np.testing.assert_allclose(demonstration.times(), np.arange(len(demonstration)) * 5 / 250)
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+def test_the_clock_is_gone_before_a_failed_expert_is_closed(monkeypatch):
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = FakeTaskEnv(expert_raises_on={0})
+    result, demonstration, _ = generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert result.rejection is Rejection.EXPERT_ERROR and demonstration is None
+    assert env.closed == 1 and env.closed_while_clocked == 0
+
+
+class _SlottedScene:
+    """A scene whose `step` cannot be shadowed, as a compiled SAPIEN scene's could not be."""
+
+    __slots__ = ("inner",)
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def step(self):
+        self.inner.step()
+
+    def get_timestep(self):
+        return self.inner.get_timestep()
+
+    def get_all_actors(self):
+        return self.inner.get_all_actors()
+
+    def get_all_articulations(self):
+        return self.inner.get_all_articulations()
+
+
+class _Unclockable(FakeTaskEnv):
+    def setup_demo(self, **kwargs):
+        super().setup_demo(**kwargs)
+        self.scene = _SlottedScene(self.scene)
+
+
+def test_a_scene_the_clock_cannot_count_stops_generation_rather_than_rejecting(monkeypatch):
+    # Not the expert failing on this seed: every seed would fail the same way, and recorded as
+    # rejections they would read as a task the expert cannot solve.
+    monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
+    env = _Unclockable()
+    with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
+        generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
+    assert env.closed == 1

@@ -1,8 +1,13 @@
-# RoboTwin 2.0 task -> manipulation skill category.
+# RoboTwin 2.0 task -> manipulation skill category and how many arms its expert needs.
 #
 # Every task in the pinned `vendor/RoboTwin` `envs/` directory appears here exactly once, so a
 # missing or renamed upstream task is caught by a test rather than silently dropped from a run.
-# `suites` names the task sets a benchmark run can ask for; `v1` is the official Same Scene set.
+# `arms` is what a read of the task's `play_once` says: `1` when one arm acts per episode (chosen
+# once from the scene, or fixed), `switching` when one arm acts at a time but which one is chosen
+# per object, `2` when both arms act. `arms.py` re-derives it from the checkout and a test fails
+# on any disagreement. `--arms 1` runs only `arms: 1` tasks.
+# `suites` names the task sets a benchmark run can ask for; `v1` is the official Same Scene set,
+# `franka_1arm` the competition's one-arm Franka track. A suite may hold tasks of any `arms`.
 
 categories:
   pick_and_place: Pick and Place
@@ -15,62 +20,63 @@ categories:
 
 tasks:
   # --- pick and place -------------------------------------------------------
-  dump_bin_bigbin: pick_and_place
-  move_can_pot: pick_and_place
-  move_pillbottle_pad: pick_and_place
-  move_playingcard_away: pick_and_place
-  move_stapler_pad: pick_and_place
-  place_a2b_left: pick_and_place
-  place_a2b_right: pick_and_place
-  place_bread_basket: pick_and_place
-  place_bread_skillet: pick_and_place
-  place_burger_fries: pick_and_place
-  place_can_basket: pick_and_place
-  place_cans_plasticbox: pick_and_place
-  place_container_plate: pick_and_place
-  place_dual_shoes: pick_and_place
-  place_empty_cup: pick_and_place
-  place_fan: pick_and_place
-  place_mouse_pad: pick_and_place
-  place_object_basket: pick_and_place
-  place_object_scale: pick_and_place
-  place_object_stand: pick_and_place
-  place_shoe: pick_and_place
-  put_bottles_dustbin: pick_and_place
+  dump_bin_bigbin: {category: pick_and_place, arms: 2}
+  move_can_pot: {category: pick_and_place, arms: 1}
+  move_pillbottle_pad: {category: pick_and_place, arms: 1}
+  move_playingcard_away: {category: pick_and_place, arms: 1}
+  move_stapler_pad: {category: pick_and_place, arms: 1}
+  place_a2b_left: {category: pick_and_place, arms: 1}
+  place_a2b_right: {category: pick_and_place, arms: 1}
+  place_bread_basket: {category: pick_and_place, arms: 2}
+  place_bread_skillet: {category: pick_and_place, arms: 2}
+  place_burger_fries: {category: pick_and_place, arms: 2}
+  place_can_basket: {category: pick_and_place, arms: 2}
+  place_cans_plasticbox: {category: pick_and_place, arms: 2}
+  place_container_plate: {category: pick_and_place, arms: 1}
+  place_dual_shoes: {category: pick_and_place, arms: 2}
+  place_empty_cup: {category: pick_and_place, arms: 1}
+  place_fan: {category: pick_and_place, arms: 1}
+  place_mouse_pad: {category: pick_and_place, arms: 1}
+  place_object_basket: {category: pick_and_place, arms: 2}
+  place_object_scale: {category: pick_and_place, arms: 1}
+  place_object_stand: {category: pick_and_place, arms: 1}
+  place_shoe: {category: pick_and_place, arms: 1}
+  # Right-side bottles are handed from the right arm to the left, which drops them all.
+  put_bottles_dustbin: {category: pick_and_place, arms: 2}
   # --- stacking -------------------------------------------------------------
-  blocks_ranking_rgb: stacking
-  blocks_ranking_size: stacking
-  stack_blocks_three: stacking
-  stack_blocks_two: stacking
-  stack_bowls_three: stacking
-  stack_bowls_two: stacking
+  blocks_ranking_rgb: {category: stacking, arms: switching}
+  blocks_ranking_size: {category: stacking, arms: switching}
+  stack_blocks_three: {category: stacking, arms: switching}
+  stack_blocks_two: {category: stacking, arms: switching}
+  stack_bowls_three: {category: stacking, arms: switching}
+  stack_bowls_two: {category: stacking, arms: switching}
   # --- press / push ---------------------------------------------------------
-  beat_block_hammer: press_push
-  click_alarmclock: press_push
-  click_bell: press_push
-  press_stapler: press_push
-  stamp_seal: press_push
-  turn_switch: press_push
+  beat_block_hammer: {category: press_push, arms: 1}
+  click_alarmclock: {category: press_push, arms: 1}
+  click_bell: {category: press_push, arms: 1}
+  press_stapler: {category: press_push, arms: 1}
+  stamp_seal: {category: press_push, arms: 1}
+  turn_switch: {category: press_push, arms: 1}
   # --- open / close ---------------------------------------------------------
-  open_laptop: open_close
-  open_microwave: open_close
-  put_object_cabinet: open_close
+  open_laptop: {category: open_close, arms: 1}
+  open_microwave: {category: open_close, arms: 1}
+  put_object_cabinet: {category: open_close, arms: 2}
   # --- insertion ------------------------------------------------------------
-  hanging_mug: insertion
-  place_phone_stand: insertion
+  hanging_mug: {category: insertion, arms: 2}
+  place_phone_stand: {category: insertion, arms: 1}
   # --- bimanual -------------------------------------------------------------
-  grab_roller: bimanual
-  handover_block: bimanual
-  handover_mic: bimanual
-  lift_pot: bimanual
-  pick_diverse_bottles: bimanual
-  pick_dual_bottles: bimanual
+  grab_roller: {category: bimanual, arms: 2}
+  handover_block: {category: bimanual, arms: 2}
+  handover_mic: {category: bimanual, arms: 2}
+  lift_pot: {category: bimanual, arms: 2}
+  pick_diverse_bottles: {category: bimanual, arms: 2}
+  pick_dual_bottles: {category: bimanual, arms: 2}
   # --- articulated / in-hand reorientation ----------------------------------
-  adjust_bottle: articulated
-  rotate_qrcode: articulated
-  scan_object: articulated
-  shake_bottle: articulated
-  shake_bottle_horizontally: articulated
+  adjust_bottle: {category: articulated, arms: 1}
+  rotate_qrcode: {category: articulated, arms: 1}
+  scan_object: {category: articulated, arms: 2}
+  shake_bottle: {category: articulated, arms: 1}
+  shake_bottle_horizontally: {category: articulated, arms: 1}
 
 suites:
   # The official V1 Same Scene suite: three categories, a few short-horizon tasks each, kept only
@@ -85,6 +91,16 @@ suites:
     - stack_bowls_two
     - click_bell
     - click_alarmclock
+    - press_stapler
+  # The competition's one-arm Franka track, in table order: the tasks whose expert, on two Franka
+  # arms, solved at least 2 of 3 surveyed seeds and moved one arm in every demonstration it
+  # produced (docs/survey.md, "Franka one-arm survey"). Stacking has no one-arm task, so
+  # stack_bowls_two, an arm-switching task, stands in for it: a scene the survey did not see can
+  # still make its expert switch arms. `--arms 1` drops it; the competition never passes that.
+  franka_1arm:
+    - place_empty_cup
+    - stack_bowls_two
+    - click_bell
     - press_stapler
   # Everything in the table; used for generator surveys, not for reporting a score.
   all: "*"

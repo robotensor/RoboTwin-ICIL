@@ -43,6 +43,7 @@ Generalization becomes a separate, explicitly named setting later — never a "d
 | Evaluation setting | **Same Scene** (demonstration and rollout share task, seed, objects, poses, cameras, lighting, background and initial robot state) |
 | Policy | frozen — `policy.reset()` between episodes, no `backward()`, no optimizer, no parameter write |
 | Demonstration source | RoboTwin's own scripted expert (`play_once`), captured on the fly |
+| Robot | `--embodiment aloha-agilex` (one dual-arm URDF, 14-dim qpos) or `franka-panda` (two Franka arms, 16-dim qpos); without the flag, the task config's own robot, aloha-agilex in every shipped config; recorded with every episode |
 | Success | RoboTwin's own per-task `check_success()`, binary |
 | Official score | **Same Scene 1-Demo Success Rate**, reported overall, by skill category and by task |
 
@@ -61,7 +62,8 @@ V1 — the Same Scene 1-Demo protocol — is complete: every V1 issue is closed,
 runs end to end on RoboTwin 2.0.
 
 The replay oracle plays each demonstration's own actions back from the rebuilt scene. It is the
-harness's ceiling — what a perfect imitator scores here — and on the V1 suite it scores **18/18**:
+harness's ceiling — what a perfect imitator scores here — and on the V1 suite, on aloha-agilex, it
+scores **18/18**:
 
 ```bash
 robotwin-icil eval --policy replay --suite v1 --episodes 18 --seed 42 --video
@@ -85,13 +87,25 @@ touched a score. The run took 35 minutes on an RTX A6000 shared with a 40 GiB tr
 
 Next: a real ICIL policy (#12), and scene-generalization settings beyond Same Scene (#13).
 
-## Skill categories
+## Skill categories and arms
 
 RoboTwin 2.0's 50 tasks are mapped to manipulation skill categories in
 [`src/robotwin_icil/tasks.yml`](src/robotwin_icil/tasks.yml) — Pick and Place, Stacking,
 Press / Push, Open / Close, Insertion, Bimanual and Articulated. The official V1 suite is nine
 short-horizon tasks across Pick and Place, Stacking and Press / Push, each kept because RoboTwin's
-expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md).
+expert solves at least 70% of surveyed seeds — see [`docs/survey.md`](docs/survey.md). The
+competition's one-arm Franka track draws from `franka_1arm`, four tasks chosen by a smaller survey
+of the expert on two Franka arms, described in the same document.
+
+The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
+drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
+and ranking tasks that pick an arm per object, and `2` for the 18 that use both. The value is a
+static read of the task's `play_once` — `src/robotwin_icil/arms.py` re-derives it from the pinned
+checkout, following an arm through the helpers, parameters and attributes the expert passes it
+through, and a test fails naming any task whose entry disagrees. Where the read is unsure it
+errs towards more arms, so a wrong entry fails that test rather than admit a two-arm expert to a
+one-arm run. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks; without it
+a run is unchanged.
 
 ## Quick start
 
@@ -109,35 +123,92 @@ bash scripts/install_robotwin.sh
 # one episode, replay-oracle policy, to prove the harness end to end
 robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke
 
+# the same on two Franka arms instead of the task config's aloha-agilex
+robotwin-icil eval --policy replay --embodiment franka-panda --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke-franka
+
 # how often RoboTwin's own expert solves each task (decides suite membership)
 robotwin-icil survey --suite v1 --seeds 20 --json runs/survey.json
+
+# the competition's shape: build one demonstration and save it, then evaluate from the file
+robotwin-icil materialize --task click_bell --scene-seed 42 --scene-seed 43 --out runs/unit/prompt
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy replay --out runs/unit/run
+
+# the same unit against a policy served in a process of its own (needs icil-policy installed)
+export ICIL_POLICY_AUTHKEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+python -m icil_policy.serve --manifest <icil-policy>/examples/replay_policy/icil.yaml \
+    --address /tmp/policy.sock --authkey-env ICIL_POLICY_AUTHKEY --log-file /tmp/policy.log &
+robotwin-icil run-unit --prompt runs/unit/prompt/prompt.npz --policy-address /tmp/policy.sock \
+    --authkey-env ICIL_POLICY_AUTHKEY --policy-log /tmp/policy.log --out runs/unit/served
 
 # the official V1 suite
 robotwin-icil eval --policy <adapter> --suite v1 --episodes 500 --seed 42 --run-dir runs/v1
 robotwin-icil report runs/v1
+
+# one-arm robots: only the tasks whose expert uses one arm (26 of 50; `tasks --arms 1` lists them)
+robotwin-icil eval --policy <adapter> --suite v1 --arms 1 --episodes 500 --seed 42 --run-dir runs/v1-one-arm
+
+# the robot and the task selection combine: every one-arm task's expert, on two Franka arms
+robotwin-icil survey --suite all --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka-1arm.json
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
 Because Same Scene means the rollout starts from the identical state, it is the harness's own
 upper bound: if it does not succeed, the bug is in the benchmark, not in the model.
 
+`materialize` and `run-unit` are the same episode in two processes, which is how a competition
+runs it: both policies in a duel are handed the identical `prompt.npz`, and a third party can
+check it by hash. `materialize` tries its candidate `--scene-seed`s in order and writes
+`prompt.npz` and `demonstration.mp4` for the first one the expert solves; its `result.json` names
+the chosen seed and every attempt, and is void when the expert was rejected on all of them. It
+exits 0 whenever it wrote `result.json`. `run-unit` rebuilds the scene from the prompt's
+privileged `meta`, verifies its fingerprint (a tampered meta or a drifted scene voids the unit),
+rolls the policy out and writes `result.json` and `evaluation.mp4`; it exits 0 once the unit has a
+result, whatever it is, and 1 only on a harness error before the unit starts (no simulator, a
+policy that will not load, a served policy whose `--authkey-env` holds no usable key, icil-policy
+not installed). Given `--expect-source-sha256`, either command exits 1 before writing anything
+unless the benchmark's own source (`robotwin_icil.source_sha256()`) digests to it, and both
+results record `source_sha256`; `--denoiser oidn|none` sets `ROBOTWIN_ICIL_DENOISER` for a caller
+that passes no such variable. Both commands' `result.json` carry `success`, `void`, `steps` and
+`error`; a policy that raises or returns an invalid action fails its unit, and only what the
+harness could not give it (a prompt, a scene, a GPU, a fault of its own) voids one. `prompt.npz`
+holds `frames_<camera>`, `qpos`, `endpose`, `actions`, `times` and `frequency` under the channel
+map `prompt.CHANNELS` publishes, plus `meta`, which never reaches a policy.
+
+A competition does not import the policy at all. `run-unit --policy-address ADDR --authkey-env
+NAME` drives one served by `python -m icil_policy.serve` in a process of its own: the
+demonstration crosses the socket as `prompt.npz`'s own arrays, each observation as
+`frames_<camera>`, `qpos` and `endpose`, and nothing of `meta`. A served policy that answers a
+call with an error fails its unit; one that cannot be spoken to (nothing listening, `hello`
+refused, a timeout, a hang-up, a malformed reply) or whose calls use up its time budget for the
+unit (`--policy-budget-s`, 300 s) voids it with `void_cause` "policy". A unit that runs out of
+`--unit-timeout-s` while the policy is within its budget, and every other void, carries "harness"
+— see [`docs/policies.md`](docs/policies.md).
+
+The competition orchestrator runs the benchmark through [`competition/`](competition/README.md),
+a distribution of its own that it imports without a simulator: the catalogue, the unit list of
+a duel, prompt verification and results, and the argv of `materialize` and `run-unit`.
+
 ## Layout
 
 ```
 src/robotwin_icil/
-  tasks.yml tasks.py        task -> skill category table and suites
-  config.py                 benchmark + RoboTwin configuration
+  tasks.yml tasks.py        task -> skill category and arms table, suites, --arms selection
+  arms.py                   static read of each expert's play_once: 1, switching or 2 arms
   demo.py                   model-independent demonstration container
-  scene.py                  initial-state fingerprint and Same Scene verification
+  prompt.py                 a demonstration on disk: prompt.npz and its channel map
+  scene.py                  initial-state fingerprint, Same Scene verification, its digest
   policy.py                 the policy interface, dummy and replay policies
   generate.py               on-demand expert demonstrations, seed streams, rejections
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
+  unit.py                   the episode in two files: materialize a prompt, run a unit from it
+  remote.py                 a policy served at an address, driven through icil-policy's client
   runner.py                 episode loop, seed drawing, rejection accounting
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
-  survey.py                 the expert's own success rate per task
+  survey.py                 the expert's own success rate per task, and which arms it moved
   robotwin.py               the only module that imports RoboTwin
   cli.py
+competition/                the orchestrator plugin, its own distribution (competition/README.md)
 docs/                       installation, policy adapters, the expert survey
 vendor/RoboTwin             RoboTwin 2.0, pinned as a git submodule
 ```
@@ -159,8 +230,11 @@ See [`docs/policies.md`](docs/policies.md).
 ## Reproducibility
 
 A run is reproducible from its global seed. Each run directory records the benchmark and RoboTwin
-git commits, both configs, and per episode: the task, skill category, scene seed, number of expert
-generation attempts, rollout length and outcome. With `--video`, demonstration and evaluation clips
+git commits, both configs, the robot (`embodiment`), whether it asked for one-arm tasks only
+(`arms`), and per episode: the task, skill category, scene seed, robot, number of expert
+generation attempts, rollout length and outcome. In the manifest, `suite` is what was asked for
+and `tasks` what ran: a `--arms 1` run of `v1` records `suite: v1`, `arms: "1"` and the seven
+one-arm tasks, so read `arms` or `tasks` with `suite`, never `suite` alone. With `--video`, demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 

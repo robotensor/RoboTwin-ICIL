@@ -13,7 +13,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from .arms import ONE
 from .records import EpisodeRecord, RunManifest, Status
+from .robotwin import embodiment_name
 from .tasks import TaskTable
 
 
@@ -149,7 +151,9 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
             f"Evaluation setting:          {manifest.evaluation_setting}",
             "Demonstrations per episode:  1",
             f"Policy:                      {manifest.policy.get('policy', '?')}",
-            f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}",
+            f"Embodiment:                  {_embodiment(manifest)}",
+            f"Suite:                       {manifest.suite or ', '.join(manifest.tasks)}"
+            + (" (one-arm tasks only)" if manifest.arms == ONE else ""),
             f"Global seed:                 {manifest.global_seed}",
             "",
         ]
@@ -187,6 +191,21 @@ def render(report: Report, manifest: RunManifest | None, table: TaskTable) -> st
 
 def _fmt(value: float | None) -> str:
     return "—" if value is None else f"{value:.1f}"
+
+
+def _embodiment(manifest: RunManifest) -> str:
+    """The robot a run ran on, as `embodiment_name` names it.
+
+    A manifest written before a run could choose its robot has no `embodiment_name`, but it does
+    carry RoboTwin's `embodiment` list, which names the robot on its own; nothing is asserted that
+    the manifest does not say.
+    """
+    config = manifest.robotwin_config
+    if config.get("embodiment_name") is not None:
+        return str(config["embodiment_name"])
+    if config.get("embodiment"):
+        return embodiment_name(config["embodiment"])
+    return "?"
 
 
 def _examples(records: list[EpisodeRecord]) -> dict[str, str]:

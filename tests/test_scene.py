@@ -1,12 +1,14 @@
 import dataclasses
+import json
 
 import numpy as np
 import pytest
 
 from robotwin_icil import scene
-from robotwin_icil.demo import BIMANUAL_QPOS_DIM
 
 IDENTITY = [1.0, 0.0, 0.0, 0.0]
+# aloha-agilex's joint vector: the fingerprint compares whatever width the robot reports.
+QPOS_DIM = 14
 
 
 def fingerprint(**overrides) -> scene.SceneFingerprint:
@@ -18,8 +20,8 @@ def fingerprint(**overrides) -> scene.SceneFingerprint:
         articulations={"aloha": np.zeros(16)},
         articulation_roots={"aloha": np.array([0.0, -0.65, 0.0, *IDENTITY])},
         cameras={"head_camera": np.eye(4)},
-        robot_qpos=np.zeros(BIMANUAL_QPOS_DIM),
-        extras={"wall_texture": 3, "table_texture": 7},
+        robot_qpos=np.zeros(QPOS_DIM),
+        extras={"embodiment": "aloha.urdf", "wall_texture": 3, "table_texture": 7},
     )
     return dataclasses.replace(base, **overrides)
 
@@ -63,17 +65,33 @@ def test_a_different_object_instance_is_caught():
 
 def test_robot_state_camera_and_texture_drift_are_caught():
     drifted = fingerprint(
-        robot_qpos=np.full(BIMANUAL_QPOS_DIM, 1e-3),
+        robot_qpos=np.full(QPOS_DIM, 1e-3),
         cameras={"head_camera": np.eye(4) * 1.01},
-        extras={"wall_texture": 4, "table_texture": 7},
+        extras={"embodiment": "aloha.urdf", "wall_texture": 4, "table_texture": 7},
     )
     parts = {m.part for m in scene.compare(fingerprint(), drifted)}
     assert parts == {"robot", "camera", "extra"}
 
 
+def test_another_robot_is_another_scene():
+    other = fingerprint(
+        extras={"embodiment": "panda.urdf|panda.urdf", "wall_texture": 3, "table_texture": 7}
+    )
+    found = scene.compare(fingerprint(), other)
+    assert [(m.part, m.name) for m in found] == [("extra", "embodiment")]
+
+
 def test_float_noise_below_tolerance_passes():
-    noisy = fingerprint(robot_qpos=np.full(BIMANUAL_QPOS_DIM, scene.JOINT_TOL / 10))
+    noisy = fingerprint(robot_qpos=np.full(QPOS_DIM, scene.JOINT_TOL / 10))
     assert scene.compare(fingerprint(), noisy) == []
+
+
+def test_deviation_measures_what_the_tolerance_lets_through():
+    assert scene.deviation(fingerprint(), fingerprint()) == 0.0
+    noisy = fingerprint(robot_qpos=np.full(QPOS_DIM, 2e-6))
+    assert scene.compare(fingerprint(), noisy) == []
+    assert scene.deviation(fingerprint(), noisy) == pytest.approx(2e-6)
+    assert scene.deviation(fingerprint(), fingerprint(actors={})) is None  # not one scene at all
 
 
 def test_repeated_names_are_keyed_by_scene_order():
@@ -83,3 +101,45 @@ def test_repeated_names_are_keyed_by_scene_order():
         "block#2",
         "wall",
     ]
+
+
+def test_a_fingerprint_round_trips_through_json():
+    original = fingerprint()
+    data = json.loads(json.dumps(original.to_json()))  # plain data: nothing numpy survives
+    restored = scene.SceneFingerprint.from_json(data)
+    assert scene.compare(original, restored) == []
+    assert restored.extras == original.extras
+    assert scene.digest(restored) == scene.digest(original)
+    assert restored.to_json() == original.to_json()
+
+
+def test_the_digest_is_exact_where_compare_is_tolerant():
+    # A tenth of the position tolerance passes `compare`; the digest still changes, because a
+    # digest says "this file was written from this scene", not "close enough".
+    nudged = fingerprint()
+    nudged.actors["table"] = nudged.actors["table"] + np.array([1e-6, 0, 0, 0, 0, 0, 0])
+    assert scene.compare(fingerprint(), nudged) == []
+    assert scene.digest(nudged) != scene.digest(fingerprint())
+    assert len(scene.digest(fingerprint())) == 64
+
+
+def test_the_digest_does_not_depend_on_dict_order():
+    reordered = fingerprint(
+        actors=dict(reversed(list(fingerprint().actors.items()))),
+        extras={"table_texture": 7, "wall_texture": 3, "embodiment": "aloha.urdf"},
+    )
+    assert scene.digest(reordered) == scene.digest(fingerprint())
+
+
+def test_numpy_scalars_in_extras_become_plain_json():
+    data = fingerprint(
+        extras={"wall_texture": np.int64(3), "table_z_bias": np.float32(0.5)}
+    ).to_json()
+    assert data["extras"] == {"wall_texture": 3, "table_z_bias": 0.5}
+    assert type(data["extras"]["wall_texture"]) is int
+    json.dumps(data)
+
+
+def test_canonical_json_refuses_nan():
+    with pytest.raises(ValueError):
+        scene.canonical_json({"x": float("nan")})

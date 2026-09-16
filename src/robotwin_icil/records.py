@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .arms import ONE, TWO
+
 SAME_SCENE = "same_scene"
 
 MANIFEST = "manifest.json"
@@ -53,6 +55,10 @@ class EpisodeRecord:
     rejections: dict[str, int]
     scene_max_error: float
     model: str
+    # The robot, as `robotwin.embodiment_name` names it (the `--embodiment` choice, or the arms and
+    # their distance): a 14-wide aloha-agilex episode and a 16-wide franka-panda one are not the
+    # same measurement, and neither are two Frankas at different distances.
+    embodiment: str
     checkpoint: str | None = None
     detail: str = ""
     duration_s: float = 0.0
@@ -78,7 +84,9 @@ class EpisodeRecord:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> EpisodeRecord:
-        return cls(**data)
+        # Before a run could choose its robot, every episode ran on aloha-agilex, the embodiment of
+        # every shipped task config; records from then still load, and say so.
+        return cls(**{"embodiment": "aloha-agilex", **data})
 
 
 @dataclass(frozen=True)
@@ -97,6 +105,15 @@ class RunManifest:
     benchmark_config: dict[str, Any]
     robotwin_config: dict[str, Any]
     environment: dict[str, str] = field(default_factory=dict)
+    # "1" when the run asked for one-arm tasks only. Runs recorded before the field existed ran
+    # whatever they named, which is what "2" means, so they load unchanged.
+    arms: str = TWO
+
+    def __post_init__(self) -> None:
+        if self.arms not in (ONE, TWO):
+            raise RecordError(
+                f"a run asks for arms {ONE} or {TWO}; the manifest says {self.arms!r}"
+            )
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
@@ -139,7 +156,7 @@ class RunDir:
                     f"{self.path} already holds a different run; choose a new --run-dir"
                 )
             return
-        _write_json(self.manifest_path, manifest.to_json())
+        write_json(self.manifest_path, manifest.to_json(), sort_keys=True)
 
     def manifest(self) -> RunManifest:
         if not self.manifest_path.exists():
@@ -178,14 +195,41 @@ class RunDir:
         return {record.episode for record in self.records()}
 
 
-def _write_json(path: Path, data: dict[str, Any]) -> None:
+def write_json(path: Path, data: Any, *, sort_keys: bool = False) -> None:
+    """Replace `path` with `data` as JSON, whole or not at all.
+
+    The text goes to a sibling `.tmp` and is renamed into place, so a process killed mid-write
+    leaves the previous file rather than a truncated one.
+    """
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=sort_keys) + "\n", encoding="utf-8")
     tmp.replace(path)
 
 
+def is_checkout_top(path: Path) -> bool:
+    """Whether `path` is the top of a git checkout (a worktree's or a submodule's included).
+
+    A benchmark installed from a wheel lives inside whatever directory the environment is in, and
+    that may be some other repository, or a submodule directory left empty may sit inside the
+    benchmark's: git would answer for the repository around it.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return bool(top) and Path(top).resolve() == Path(path).resolve()
+
+
 def git_commit(path: Path) -> str | None:
-    """HEAD of the checkout at `path`, suffixed `-dirty` when it has uncommitted changes."""
+    """HEAD of the checkout at `path`, suffixed `-dirty` when it has uncommitted changes; None
+    unless `path` is the top of a checkout (`is_checkout_top`)."""
+    if not is_checkout_top(path):
+        return None
     try:
         head = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "HEAD"],

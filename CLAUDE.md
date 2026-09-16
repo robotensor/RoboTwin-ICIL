@@ -22,8 +22,21 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   Same Scene. `check_stable()` raises `UnStableError` on a bad placement.
 - Demonstrations are recorded by `_take_picture()`, called from `take_dense_action()` every
   `save_freq` control steps when `save_data` is set; it pickles `get_obs()` frames to a cache dir.
-  `get_obs()` returns per-camera rgb, `endpose`, and `joint_action` (`vector` is the 14-dim
-  bimanual qpos). We capture frames in memory instead of via that cache.
+  `get_obs()` returns per-camera rgb, `endpose`, and `joint_action` (`vector` is the left arm's
+  joint state followed by the right's — joints then a gripper per arm, so 14-dim on aloha-agilex
+  and 16-dim on two Frankas). We capture frames in memory instead of via that cache.
+  `capture(images=False)`, the survey's default, reads that `vector` and `endpose` straight from
+  the robot (`robot_state`) and never calls `get_obs`, so no camera ray-traces: no expert at the
+  pinned commit reads an observation or a camera, and the one `get_obs` side effect an expert
+  could see, `_update_render`'s `crazy_random_light` RNG draw, is kept. A policy's demonstration
+  always captures with images.
+- `env_cfg/task_config/_embodiment_config.yml` names the embodiments, and `robot.py:_init_robot_`
+  always builds a left and a right arm: a one-entry `embodiment` (`[aloha-agilex]`) is one URDF
+  holding both arms (`dual_arm_embodied`); a single-arm robot such as franka-panda must be given
+  as `[franka-panda, franka-panda, <distance>]`, one URDF per arm, bases `distance` metres apart
+  (0.8 m, from RoboTwin's configuration guide). `SceneConfig.embodiment` picks the form;
+  `robotwin.action_dims` reads each arm's live joint count, which is also how `take_action`
+  splits a qpos action, so 16-dim actions need no upstream change.
 - Rollout is `take_action(action, action_type='qpos'|'ee')`; it stops at `step_lim`
   (`env_cfg/task_config/_eval_step_limit.yml`, per task, needs `eval_mode`) or once `eval_success`
   is set.
@@ -34,15 +47,28 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   `is_test` (15 accept it in their signature and ignore it). It is not a held-out object split.
 - Physics steps every `scene.get_timestep()` (1/250 s) and a frame is recorded every `save_freq`
   of those steps, so a demonstration runs at 250/`save_freq` fps. `Demonstration.frequency` is that
-  rate; upstream passes `save_freq` where it means a frame rate, and so did we once.
+  rate; upstream passes `save_freq` where it means a frame rate, and so did we once. The frames
+  are not evenly spaced, though: `take_dense_action` (and `together_move_to_pose`, with a loop of
+  its own) records one frame before its first step, one after every `save_freq`-th step counted
+  from that first step, and one after its last, and the counter restarts per motion primitive. So
+  `robotwin.clock` counts `scene.step()` calls and every captured frame carries `time_s`: a
+  generated or saved demonstration's `times()` is real, and only one built without a clock (in
+  tests) falls back to `index / frequency`.
+- RoboTwin renders with SAPIEN's ray tracer and asks for the OIDN denoiser, which cannot run on
+  Blackwell GPUs: it leaves images untouched and, under GPU contention, hangs camera reads.
+  `robotwin.py` turns it off at compute capability 10.0 and above (`ROBOTWIN_ICIL_DENOISER`).
 - Assets load from `./assets/...` relative to the working directory, so `robotwin.py` chdirs into
   `vendor/RoboTwin`. Resolve any path (run dir, checkpoint) to absolute before calling into it.
 
 ## Commands
 
 - Host env (pure, no simulator): `uv venv --python 3.10 .venv && uv pip install -e ".[dev]"`; `ruff check . && ruff format --check .`; `pytest -m "not sim"`.
-- Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets.
-- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`.
+- Simulator env: `bash scripts/install_robotwin.sh` (conda env `robotwin` under `/root/miniforge3`, python 3.10, RoboTwin's own pins + assets); `PYTHONPATH=src $RT -m pytest -m sim` with `RT=/root/miniforge3/envs/robotwin/bin/python`. Run it from the main checkout: git worktrees have no `vendor/RoboTwin` checkout or assets. One simulator
+  process per GPU at a time: two processes rendering at once can hang in SAPIEN's camera read.
+- Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval`, `survey` and `materialize` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks, and combines with `--embodiment` (`survey --suite all --embodiment franka-panda --arms 1`).
+  `survey` renders no camera unless given `--images`, and its JSON records which. Pass `--images` when its rejections must predict `eval`'s on a GPU short of memory: rendering holds memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed plan.
+- The competition's shape, one process per half: `robotwin-icil materialize --task click_bell --scene-seed S [--scene-seed S2 ...] --out DIR` tries the candidate seeds in order and writes `prompt.npz` and `demonstration.mp4` for the first the expert solves, and `result.json` with the chosen `scene_seed` and every attempt (exit 0 whenever `result.json` was written, every candidate rejected included; 1 on a harness error before it: a task it does not have, a seed given twice, no simulator); `robotwin-icil run-unit --prompt DIR/prompt.npz --policy replay --out DIR2` rebuilds the scene from the prompt's `meta`, verifies it, rolls out and writes `result.json` and `evaluation.mp4` into a directory other than the prompt's (exit 0 once the unit has a result, void or not; 1 on a harness error before it starts: no simulator, a policy that will not load, a served policy without a usable key). Both results carry `success`, `void`, `steps` and `error`, the fields the orchestrator reads; every candidate rejected is a void materialize, `void_cause` "harness". In `run-unit` a policy at fault (raising from `reset`/`set_demonstration`, a wrong-width or non-finite action) is a failure, never void — void is for the harness: an unreadable or tampered prompt, scene drift, a GPU lost mid-rollout, any other harness fault while evaluating (its traceback goes to stderr). `--policy-arg key=value` reaches the policy's constructor, which runs before the simulator chdirs into `vendor/RoboTwin`. `run-unit --policy-address ADDR --authkey-env NAME` (instead of `--policy`) drives a policy served by `python -m icil_policy.serve` (`remote.py`; icil-policy is not on PyPI: `uv pip install -e <orchestrator>/packages/icil-policy`, and the tests needing it skip without it): an error reply to reset/prompt/act fails the unit, any other remote failure (no listener, hello refused, a timeout, a hang-up, a malformed reply, the unit's calls past `--policy-budget-s`, 300 s) is `PolicyUnreachable`, void with `void_cause` "policy"; every other void carries "harness", including a unit that ran out of `--unit-timeout-s` (calls stop 30 s short of it) with the policy within budget. The policy's log is opened at the path given, never resolved (a swapped link must stay refusable), `close` gets 5 s, an action is checked before it is copied and what a server says is bounded. Both commands take `--expect-source-sha256` (exit 1 before writing under other `robotwin_icil.source_sha256()`) and `--denoiser`.
+- Orchestrator plugin: `competition/` is its own distribution (`robotwin-icil-competition`, package `icil_benchmark_robotwin`, entry point `icil.benchmarks: robotwin`); `uv pip install -e ./competition`, then `cd competition && pytest -m "not sim"`. It never imports `icil_orchestrator`, its pure half imports no simulator, and its argv run `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON` (default `/root/miniforge3/envs/robotwin/bin/python`). A change to how `derive_units` draws changes every duel's units: bump `units.DERIVATION` and the pinned test together. A change to the task table changes `units.catalogue_sha256`, and `derive_units` refuses to draw until `units.CATALOGUE_SHA256` is updated with it. `franka_1arm` is the task table's suite, chosen by the Franka survey (`docs/survey.md`, #83); stack_bowls_two is in it as the arm-switching stand-in for stacking, which has no one-arm task, and `info()["franka_1arm"]` says so.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules
@@ -61,22 +87,29 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - No privileged state reaches the policy: scene seed, success condition, target object or
   destination id, `info` from `play_once()`, ground-truth task state, actor handles, planner
   internals. If a model needs language, it gets `"Follow the demonstrated behavior."`.
-- Demonstrations are model-independent (rgb per camera, endpose, qpos, control frequency). Per-model
-  conversion lives in a `policies/` adapter; nothing in the core knows about ICRT.
+- Demonstrations are model-independent (rgb per camera, endpose, qpos, frame times, control
+  frequency). Per-model conversion lives in a `policies/` adapter; nothing in the core knows about
+  ICRT. On disk a demonstration is `prompt.npz` (`prompt.py`): the same arrays under the published
+  channel map, plus a `meta` JSON string that is privileged — task, seed, config, the initial
+  scene's fingerprint and its digest — and is read only by the harness, never handed to a policy.
 - Reuse RoboTwin's task setup, expert, success check and reset as they are. The benchmark exposes
   that expert as an on-demand demonstration generator; it does not reimplement or fork it. In-memory
   capture is a `_take_picture` override, not a patch to the submodule.
 - `robotwin.py` is the only module that may import from `vendor/RoboTwin`; every other module stays
   importable without SAPIEN, assets or a GPU, and is covered by tests that run in CI.
-- Skill categories are data: `tasks.yml` maps every upstream task exactly once and a test fails when
-  `vendor/RoboTwin/envs/` and the table disagree. Suites are named there too; V1 is `v1`.
+- Skill categories and arm counts are data: `tasks.yml` maps every upstream task exactly once to a
+  `category` and an `arms` value (`1`, `switching`, `2`), and tests fail when
+  `vendor/RoboTwin/envs/` and the table disagree — on the task set, or on `arms` against `arms.py`'s
+  static read of `play_once`. Suites are named there too, and may hold tasks of any `arms`; V1 is
+  `v1`, and the competition's one-arm Franka track draws from `franka_1arm`.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
   settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time.
-- Every episode records episode id, setting, skill category, task, scene seed, expert generation
-  attempts, success, rollout steps and model/checkpoint; every run also records the global seed,
-  both configs and both git commits. Videos go to
+- Every episode records episode id, setting, skill category, task, scene seed, embodiment, expert
+  generation attempts, success, rollout steps and model/checkpoint; every run also records the
+  global seed, the embodiment, both configs, both git commits and whether it asked for one-arm
+  tasks only (`arms`, part of the run's identity). Videos go to
   `episode_NNNNN/{demonstration.mp4,evaluation_same_scene.mp4}`.
 
 ## Conventions

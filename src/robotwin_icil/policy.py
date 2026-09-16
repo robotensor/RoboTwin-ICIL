@@ -12,26 +12,71 @@ different benchmark.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
 import numpy as np
 
-from .demo import BIMANUAL_QPOS_DIM, Demonstration
-
-# RoboTwin's `take_action(action_type='ee')`: xyz + quaternion + gripper, per arm.
-BIMANUAL_EE_DIM = 16
+from .demo import Demonstration
 
 # Given to models that require a language input, so that what is measured is the demonstration
 # and not the prompt. Never the task name or RoboTwin's per-task instruction.
 NEUTRAL_INSTRUCTION = "Follow the demonstrated behavior."
 
 ActionType = Literal["qpos", "ee"]
-_ACTION_DIMS: dict[str, int] = {"qpos": BIMANUAL_QPOS_DIM, "ee": BIMANUAL_EE_DIM}
+
+# The width of an action per action type, read off the live robot by `robotwin.action_dims`:
+# {"qpos": 14, "ee": 16} on aloha-agilex, {"qpos": 16, "ee": 16} on two Franka arms.
+ActionDims = Mapping[str, int]
 
 
 class PolicyError(RuntimeError):
     """A policy was driven outside the reset -> demonstrate -> act lifecycle, or returned junk."""
+
+
+class Unscorable(RuntimeError):
+    """Raised from inside a policy call when its episode cannot be scored, for a reason that is not
+    what the policy did.
+
+    In `run-unit`, whatever else a policy raises is scored as its own failure: a policy must not
+    be able to throw out the episodes it is losing. This one `evaluate` and `rollout` re-raise, and
+    `unit.run_unit` records the unit void with `void_cause`. The base class is the harness's fault
+    (an adapter that could not encode the benchmark's own observation); `PolicyUnreachable` is the
+    policy's.
+    """
+
+    #: Whose the void is, as `result.json`'s `void_cause` names it.
+    void_cause: ClassVar[str] = "harness"
+
+
+class PolicyUnreachable(Unscorable):
+    """The policy could not be spoken to: nothing listened, it refused or did not answer `hello`, a
+    call ran past its timeout or the policy's time budget for the unit, the connection dropped, or
+    a reply was malformed.
+
+    Nothing the policy did was scored, and it was not the harness's doing either: the unit is void
+    with `void_cause` "policy". An error *reply* is not this: a policy that answers a call by
+    raising has failed, like a local policy that raises.
+    """
+
+    void_cause: ClassVar[str] = "policy"
+
+
+@dataclass(frozen=True)
+class EpisodeInfo:
+    """What a policy is told at `reset` about its episode, besides the demonstration.
+
+    Public facts only, what a robot's operator would know: `embodiment`, the robot's name;
+    `action_dims`, its action widths per action type, read off the live arms; `seed`, a number a
+    stochastic policy may seed itself with. In `run-unit` the seed is drawn from the prompt's
+    bytes (`unit.episode_seed`), so every policy handed one prompt gets the same one, and it is
+    never the scene seed; a benchmark run draws none.
+    """
+
+    embodiment: str
+    action_dims: Mapping[str, int]
+    seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -61,11 +106,15 @@ class ICILPolicy:
     def __init__(self) -> None:
         self._demonstration: Demonstration | None = None
         self._was_reset = False
+        #: The episode this policy was last reset for; the harness always passes one.
+        self.episode: EpisodeInfo | None = None
 
-    def reset(self) -> None:
-        """Forget everything from the previous episode, its demonstration included."""
+    def reset(self, episode: EpisodeInfo | None = None) -> None:
+        """Forget everything from the previous episode, its demonstration included, and start
+        `episode`, which `_reset` and every later call read from `self.episode`."""
         self._demonstration = None
         self._was_reset = True
+        self.episode = episode
         self._reset()
 
     def set_demonstration(self, demonstration: Demonstration) -> None:
@@ -76,14 +125,27 @@ class ICILPolicy:
         self._demonstration = demonstration
         self._set_demonstration(demonstration)
 
-    def act(self, observation: Observation) -> np.ndarray:
-        """The actions to execute before the next observation, shape (k, action_dim), k >= 1."""
+    def act(self, observation: Observation, action_dims: ActionDims) -> np.ndarray:
+        """The actions to execute before the next observation, shape (k, action_dim), k >= 1.
+
+        `action_dims` is the robot's own width per action type, which the harness reads off the
+        live arms every rollout. RoboTwin's `take_action` splits an action by the arms it has, so
+        an action of another robot's width is never refused there: one too wide is mis-read joint
+        by joint (aloha reads a 16-wide action's 14th entry as its right gripper and drops the
+        rest), one too narrow fails inside the simulator as a scored rollout failure (a 14-wide
+        action on two Frankas indexes past its end). Neither is the protocol error it is.
+        """
         if self._demonstration is None:
             raise PolicyError(f"{self.name}: act() before set_demonstration()")
+        expected = action_dims.get(self.action_type)
+        if expected is None:
+            raise PolicyError(
+                f"{self.name}: no action width for action_type {self.action_type!r}; "
+                f"the robot takes {sorted(action_dims)}"
+            )
         actions = np.asarray(self._act(observation), dtype=np.float64)
         if actions.ndim == 1:
             actions = actions[None, :]
-        expected = _ACTION_DIMS[self.action_type]
         if actions.ndim != 2 or actions.shape[0] == 0 or actions.shape[1] != expected:
             raise PolicyError(
                 f"{self.name}: act() returned shape {actions.shape}, expected (k, {expected}) "
@@ -96,6 +158,12 @@ class ICILPolicy:
     def describe(self) -> dict[str, Any]:
         """What the run manifest records about this policy: its name, model and checkpoint."""
         return {"policy": self.name, "action_type": self.action_type}
+
+    def close(self) -> None:
+        """Release what the policy holds (a connection, a device) once its unit is over.
+
+        `run-unit` calls it however the unit ended. The base class holds nothing.
+        """
 
     def _reset(self) -> None:
         """Clear inference-time state. Called at the start of every episode."""
@@ -148,7 +216,7 @@ BUILTIN: dict[str, type[ICILPolicy]] = {"dummy": DummyPolicy, "replay": ReplayPo
 def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
     """A built-in name, or ``package.module:Class`` for an adapter living outside the core."""
     if spec in BUILTIN:
-        return BUILTIN[spec](**kwargs)
+        return _construct(spec, BUILTIN[spec], kwargs)
     module_name, sep, class_name = spec.partition(":")
     if not sep:
         known = ", ".join(sorted(BUILTIN))
@@ -159,4 +227,12 @@ def make_policy(spec: str, **kwargs: Any) -> ICILPolicy:
         raise PolicyError(f"cannot load policy {spec!r}: {exc}") from exc
     if not (isinstance(cls, type) and issubclass(cls, ICILPolicy)):
         raise PolicyError(f"{spec!r} is not an ICILPolicy subclass")
-    return cls(**kwargs)
+    return _construct(spec, cls, kwargs)
+
+
+def _construct(spec: str, cls: type[ICILPolicy], kwargs: dict[str, Any]) -> ICILPolicy:
+    try:
+        return cls(**kwargs)
+    except TypeError as exc:
+        # Keyword arguments the constructor does not take: a command line's mistake, not a crash.
+        raise PolicyError(f"cannot construct policy {spec!r} with {sorted(kwargs)}: {exc}") from exc
