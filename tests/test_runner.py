@@ -27,7 +27,6 @@ def spec(tmp_path, **overrides):
     base = dict(
         run_dir=tmp_path / "run",
         tasks=tasks.table().suite("v1")[:2],
-        suite="v1",
         episodes=4,
         global_seed=3,
     )
@@ -57,7 +56,9 @@ def test_a_run_records_every_episode_with_one_env_per_task(tmp_path, fake_sim):
 def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
     runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     manifest = RunDir(tmp_path / "run").manifest()
-    assert manifest.global_seed == 3 and manifest.suite == "v1" and manifest.episodes == 4
+    assert manifest.global_seed == 3 and manifest.episodes == 4
+    assert manifest.tasks == tuple(task.name for task in spec(tmp_path).tasks)
+    assert "suite" not in manifest.to_json()
     assert manifest.policy["policy"] == "replay"
     assert manifest.benchmark_commit  # this checkout is a git repository
     assert manifest.benchmark_config["embodiment"] == "fake-arms"

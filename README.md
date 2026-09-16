@@ -244,8 +244,8 @@ A run is reproducible from its global seed. Each run directory records the bench
 git commits, both configs, the robot (`embodiment`), whether it asked for one-arm tasks only
 (`arms`), and per episode: the task, skill category, scene seed, robot, number of expert
 generation attempts, rollout length and outcome. The manifest's `tasks` records the exact selected
-task list; a default `--arms 1` run records all 26 one-arm tasks and `arms: "1"`. New CLI runs
-record `suite: null`; the field remains readable for older results and Python callers. Use a new
+task list; a default `--arms 1` run records all 26 one-arm tasks and `arms: "1"`. `RunSpec` and new
+manifests have no suite field; legacy suite labels are ignored when reading older results. Use a new
 run directory when moving from an old named selection to the full catalog. With `--video`,
 demonstration and evaluation clips
 are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to

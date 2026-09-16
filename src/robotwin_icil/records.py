@@ -95,7 +95,6 @@ class RunManifest:
 
     global_seed: int
     evaluation_setting: str
-    suite: str | None
     tasks: tuple[str, ...]
     episodes: int
     max_expert_attempts: int
@@ -122,7 +121,10 @@ class RunManifest:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> RunManifest:
-        return cls(**{**data, "tasks": tuple(data["tasks"])})
+        # Older manifests named a suite as well as the exact task list. Only the task list
+        # determines what ran, so discard that obsolete label when reading legacy results.
+        fields = {key: value for key, value in data.items() if key != "suite"}
+        return cls(**{**fields, "tasks": tuple(data["tasks"])})
 
     def identity(self) -> dict[str, Any]:
         """The fields a resumed run must share with the run it continues."""

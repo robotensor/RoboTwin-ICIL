@@ -37,7 +37,6 @@ def _eval(args: argparse.Namespace) -> int:
     spec = RunSpec(
         run_dir=Path(args.run_dir).resolve(),
         tasks=selected,
-        suite=None,
         episodes=args.episodes,
         global_seed=args.seed,
         max_expert_attempts=args.max_expert_attempts,
