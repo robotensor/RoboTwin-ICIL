@@ -108,7 +108,7 @@ def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
     assert units.catalogue_sha256(tasks.table()) == units.CATALOGUE_SHA256
 
 
-#: `franka_1arm` per category, from the Franka survey (docs/survey.md), when `CATALOGUE_SHA256`
+#: `franka_1arm` per category, from the Franka survey (docs/results/survey-franka-seed0.json), when `CATALOGUE_SHA256`
 #: was pinned. Stacking has no one-arm task:
 #: stack_bowls_two, an arm-switching task, stands in for it.
 PINNED_FRANKA_1ARM = {

@@ -146,8 +146,14 @@ def test_the_franka_suite_is_the_surveyed_one_and_nothing_is_provisional():
     assert not [p.name for p in package.glob("*.py") if "PROVISIONAL" in p.read_text()]
     # info() says where the suite was chosen and what each category of the track holds.
     basis = info["franka_1arm"]
-    assert basis["survey"] == catalogue.SURVEY == "docs/survey.md#franka-panda-survey"
-    assert "\n## Franka Panda survey\n" in (ROOT.parent / "docs" / "survey.md").read_text()
+    assert basis["survey"] == catalogue.SURVEY == "docs/results/survey-franka-seed0.json"
+    survey = json.loads((ROOT.parent / catalogue.SURVEY).read_text())
+    assert survey["images"] is False
+    assert members == [
+        row["task"]
+        for row in survey["tasks"]
+        if row["successes"] >= 2 and row["one_arm_demonstrations"] == row["successes"]
+    ]
     assert basis["categories"] == {
         "pick_and_place": {"tasks": ["place_empty_cup"], "arms": ["1"]},
         "stacking": {"tasks": ["stack_bowls_two"], "arms": ["switching"]},

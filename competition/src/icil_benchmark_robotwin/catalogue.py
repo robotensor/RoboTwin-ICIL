@@ -24,7 +24,7 @@ SUITES: dict[str, tuple[str, ...]] = {
     FRANKA_1ARM: ("place_empty_cup", "stack_bowls_two", "click_bell", "press_stapler"),
 }
 #: Where the survey that chose `franka_1arm` gives its measurements.
-SURVEY = "docs/survey.md#franka-panda-survey"
+SURVEY = "docs/results/survey-franka-seed0.json"
 #: What `info()` calls a `franka_1arm` task whose expert is not a one-arm one.
 STAND_IN_KINDS = {SWITCHING: "an arm-switching", TWO: "a two-arm"}
 
