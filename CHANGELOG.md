@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- (docs): feature the RoboTwin-ICIL announcement video near the top of the README.
+
 - (feat): add the `robotwin-icil-standard` profile, RoboTwin 2.0's own evaluation with the
   expert's demonstration as the policy's input: all 50 tasks, 100 episodes each, RoboTwin's
   evaluation seed stream (from `100000 * (1 + seed)`, skipping seeds its expert cannot solve),
