@@ -10,6 +10,8 @@ Release: [v0.1.0](https://github.com/robotensor/RoboTwin-ICIL/releases/tag/v0.1.
 
 A 32.5-second overview with real Aloha-AgileX simulation footage and instrumental music.
 
+https://github.com/user-attachments/assets/cb239294-4a33-4289-b0ff-b8e23f202c56
+
 This repository supports **ICIL duels** through the competition plugin and a **Robotensor
 standard benchmark** through `standard-eval`: RoboTwin 2.0's own evaluation — all 50 tasks, its
 evaluation scenes, Easy and Hard settings — with the expert's demonstration as the policy's input.
