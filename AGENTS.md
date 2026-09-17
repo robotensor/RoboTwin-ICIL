@@ -156,20 +156,14 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
   - `## Notes`, optional: constraints, pitfalls, upstream references with paths, `Depends on #N`.
   - A bug has `## What happened` (the command, the commit, the evidence), `## Expected` and, once
     known, `## Cause`, in place of Why and Scope.
-  - On closing, add `## Outcome`: what shipped and in which PRs, the measured result, and anything
+  - On closing, add `## Outcome`: what shipped and in which commits, the measured result, and anything
     that differs from the scope. A criterion that was dropped or changed is said, not silently
     ticked.
 - One issue is one deliverable. Label it with its area, add `bug` for a defect, and put it in a
   milestone when the work belongs to one; split anything that will not land in one go and link the
   parts with `Depends on #N`.
-- A branch carries a theme, not an issue number: related issues that touch the same code ship on
-  one branch (`short-slug`, or `issue-N-short-slug` when it really is a single issue) and land in
-  one PR, which says `Closes #N` for every issue it finishes and `Refs #N` for the ones it only
-  advances. Tests and a CHANGELOG entry land with it. Rebase, do not merge `main` into the branch.
-- Small changes go straight to `main`: a typo, a comment, a doc line, a version bump, a one-line
-  fix that comes with its test. Anything that changes behaviour a reader would need explained,
-  touches a published contract, or wants a second pair of eyes takes a branch and a PR.
-- When a branch is merged, delete it locally and on the remote, so only `main`, long-lived
-  `milestone-*` branches and deliberate `archive/*` refs remain.
+- Commit directly to `main` and push to `origin/main`. Do not create branches or pull requests
+  unless the user explicitly requests them. Include relevant tests in the same commit.
+- Keep only `main` locally and on the remote unless the user explicitly requests another branch.
 - Reports and evaluation results are plain files in the repository or run directory, not hosted
   artifacts.
