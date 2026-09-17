@@ -165,7 +165,7 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - A branch carries a theme, not an issue number: related issues that touch the same code ship on
   one branch (`short-slug`, or `issue-N-short-slug` when it really is a single issue) and land in
   one PR, which says `Closes #N` for every issue it finishes and `Refs #N` for the ones it only
-  advances. Tests and a CHANGELOG entry land with it. Rebase, do not merge `main` into the branch.
+  advances. Relevant tests land with it. Rebase, do not merge `main` into the branch.
 - Small changes go straight to `main`: a typo, a comment, a doc line, a version bump, a one-line
   fix that comes with its test. Anything that changes behaviour a reader would need explained,
   touches a published contract, or wants a second pair of eyes takes a branch and a PR.

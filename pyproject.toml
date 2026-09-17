@@ -34,7 +34,7 @@ packages = ["src/robotwin_icil"]
 # and is not part of this Python distribution.
 only-include = [
   "src/robotwin_icil", "tests", "scripts", "docs",
-  "README.md", "CHANGELOG.md", "CITATION.cff", "LICENSE", "pyproject.toml",
+  "README.md", "CITATION.cff", "LICENSE", "pyproject.toml",
 ]
 
 [tool.ruff]
