@@ -97,7 +97,7 @@ and their pinned hashes unchanged.
 `franka_1arm`, the suite the one-arm Franka track draws from (`catalogue.SUITES`), is
 place_empty_cup (pick_and_place), stack_bowls_two (stacking), click_bell and press_stapler
 (press_push). The Franka survey chose it (robotensor/RoboTwin-ICIL#83, measurements in
-`docs/survey.md`, "Franka Panda survey"):
+[`docs/results/survey-franka-seed0.json`](../docs/results/survey-franka-seed0.json)):
 a task is in it when its expert, on two Franka arms, solved at least 2 of 3 surveyed seeds and
 moved one arm in every successful demonstration. Stacking has no one-arm task, so
 stack_bowls_two, an arm-switching task, stands in for it, with a limit: a scene the survey did not

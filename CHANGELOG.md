@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (docs): simplify the README around setup, evaluation, data and competition integration;
+  remove its status and skill/arm breakdown sections and delete `docs/survey.md`. Point
+  competition survey provenance to the retained raw results and validate the suite against them.
+
 - (docs): feature the RoboTwin-ICIL announcement video near the top of the README.
 
 - (feat): add the `robotwin-icil-standard` profile, RoboTwin 2.0's own evaluation with the
@@ -50,7 +54,7 @@
   `tasks.yml` gains `franka_1arm`: place_empty_cup, stack_bowls_two, click_bell and press_stapler,
   the tasks whose expert solved at least 2 of 3 surveyed seeds with every successful
   demonstration moving one arm. The survey (`docs/results/survey-franka-1arm.json`,
-  `docs/survey.md`) ran without images on six tasks at 3 seeds each, cut by decision from every
+  `competition/README.md`) ran without images on six tasks at 3 seeds each, cut by decision from every
   one-arm task at 20 seeds to finish the milestone sooner: place_a2b_left solved 1 of 3 and
   stack_blocks_two moved both arms in 2 of 3, so both are out. Stacking has no one-arm task, so
   stack_bowls_two, an arm-switching task, stands in for it, with a stated limit: a scene the
@@ -222,7 +226,7 @@
   say why seeds were rejected (#30).
 - (feat): `robotwin-icil survey` measures RoboTwin's expert per task. Over 20 seeds it solves
   75–100% of every `v1` task but place_object_basket (45%), which leaves the suite; `v1` is
-  nine tasks across Pick and Place, Stacking and Press / Push (`docs/survey.md`) (#4).
+  nine tasks across Pick and Place, Stacking and Press / Push (`docs/results/survey-aloha-seed0.json`) (#4).
 - (fix): both scenes of an episode are built under the task's name, so rollouts get the
   task's own step limit instead of RoboTwin's silent 1000-step fallback (#7).
 - (docs): `docs/policies.md`, the policy adapter guide; the README layout gains `generate.py`,
