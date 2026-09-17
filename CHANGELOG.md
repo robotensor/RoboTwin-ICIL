@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- (feat): add the `robotwin-icil-standard` profile, RoboTwin 2.0's own evaluation with the
+  expert's demonstration as the policy's input: all 50 tasks, 100 episodes each, RoboTwin's
+  evaluation seed stream (from `100000 * (1 + seed)`, skipping seeds its expert cannot solve),
+  aloha-agilex, and `demo_clean` and `demo_randomized` scored separately as `clean` and
+  `randomized`. `standard-eval` runs and resumes a plan under `<setting>/seed_<seed>/`;
+  `standard-report` gives each setting's mean of 50 task success rates, a skill-category and task
+  breakdown and diagnostics, and an official score only at seed group 0 with every episode scored.
+  Duel APIs and unit derivation are unchanged.
+- (feat): `eval --seed-stream robotwin` draws RoboTwin's evaluation seeds per task and resumes the
+  stream exactly; manifests record `seed_stream` (older ones read as `independent`).
+- (feat): add optional dataset build/verify/upload/download/sample commands for
+  `robotensor/robotwin-icil-aloha-clean`: RoboTwin's 2,500 clean Aloha trajectories with original
+  HDF5 bytes, aligned three-camera videos, provenance and checksums, all of them training data
+  with no splits. Add causal training samples and a three-view nearest reference adapter. Preserve
+  unknown physical timing instead of inventing timestamps from video playback rates. `upload`
+  removes Hub files the release no longer inventories.
+- (refactor): remove named task sets from the benchmark core. `tasks.yml` has no `suites`,
+  `TaskTable` has no `suites`/`suite()` and `select()` takes only `task` and `arms`. The historical
+  `v1` and `all` sets are gone. The competition plugin keeps its one track list, `franka_1arm`, in
+  `catalogue.SUITES` because the orchestrator's spec names it; its units and pinned hashes are
+  unchanged and `units.CATALOGUE_SHA256` is re-pinned for the smaller catalogue. Survey results are
+  renamed `docs/results/survey-aloha-seed0.json` and `survey-franka-seed0.json`.
+
 ## 0.1.0 — 2026-09-16
 
 - (chore): release both Python distributions as 0.1.0, update citation metadata, and

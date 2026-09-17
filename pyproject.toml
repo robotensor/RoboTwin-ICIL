@@ -16,7 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 video = ["imageio-ffmpeg>=0.5"]
-dev = ["pytest>=8", "pytest-cov", "ruff==0.16.7", "imageio-ffmpeg>=0.5"]
+dataset = ["h5py>=3.10", "Pillow>=10", "huggingface-hub>=0.34,<2", "imageio-ffmpeg>=0.5"]
+dev = ["pytest>=8", "pytest-cov", "ruff==0.16.7", "imageio-ffmpeg>=0.5", "h5py>=3.10", "Pillow>=10", "huggingface-hub>=0.34,<2"]
 
 [project.urls]
 Repository = "https://github.com/robotensor/RoboTwin-ICIL"

@@ -7,6 +7,8 @@ from robotwin_icil import robotwin, runner, tasks
 from robotwin_icil.policy import ReplayPolicy
 from robotwin_icil.records import RecordError, RunDir
 
+TASKS = tuple(tasks.table()[name] for name in ("place_a2b_left", "place_a2b_right", "click_bell"))
+
 
 @pytest.fixture
 def fake_sim(monkeypatch):
@@ -26,7 +28,7 @@ def fake_sim(monkeypatch):
 def spec(tmp_path, **overrides):
     base = dict(
         run_dir=tmp_path / "run",
-        tasks=tasks.table().suite("v1")[:2],
+        tasks=TASKS[:2],
         episodes=4,
         global_seed=3,
     )
@@ -39,9 +41,8 @@ def quiet(_line):
 
 
 def test_assign_is_balanced_ordered_and_pure():
-    suite = tasks.table().suite("v1")[:3]
-    plan = runner.assign(suite, 7)
-    assert [task.name for task in plan] == [suite[i % 3].name for i in range(7)]
+    plan = runner.assign(TASKS, 7)
+    assert [task.name for task in plan] == [TASKS[i % 3].name for i in range(7)]
     with pytest.raises(ValueError):
         runner.assign((), 3)
 
@@ -50,7 +51,7 @@ def test_a_run_records_every_episode_with_one_env_per_task(tmp_path, fake_sim):
     records = runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     assert [r.episode for r in records] == [0, 1, 2, 3]
     assert all(r.scored and r.success for r in records)
-    assert [name for name, _ in fake_sim] == [t.name for t in tasks.table().suite("v1")[:2]]
+    assert [name for name, _ in fake_sim] == [t.name for t in TASKS[:2]]
 
 
 def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
@@ -58,7 +59,6 @@ def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
     manifest = RunDir(tmp_path / "run").manifest()
     assert manifest.global_seed == 3 and manifest.episodes == 4
     assert manifest.tasks == tuple(task.name for task in spec(tmp_path).tasks)
-    assert "suite" not in manifest.to_json()
     assert manifest.policy["policy"] == "replay"
     assert manifest.benchmark_commit  # this checkout is a git repository
     assert manifest.benchmark_config["embodiment"] == "fake-arms"
@@ -68,7 +68,7 @@ def test_the_manifest_records_what_was_run(tmp_path, fake_sim):
 
 
 def test_the_manifest_records_a_one_arm_run(tmp_path, fake_sim):
-    one_arm = tasks.table().select(suite="v1", arms="1")
+    one_arm = tasks.table().select(arms="1")[:3]
     runner.run(spec(tmp_path, tasks=one_arm, arms="1"), ReplayPolicy(), FakeConfig(), log=quiet)
     manifest = RunDir(tmp_path / "run").manifest()
     assert manifest.arms == "1"
@@ -119,7 +119,7 @@ def test_a_different_run_cannot_reuse_the_directory(tmp_path, fake_sim):
 
 
 def test_one_env_is_alive_at_a_time(tmp_path, monkeypatch, fake_sim):
-    # Each env holds CuRobo planners on the GPU; holding all of a suite's at once ran it out.
+    # Each env holds CuRobo planners on the GPU; holding every task's at once ran it out.
     events = []
     load = robotwin.load_task
     monkeypatch.setattr(
@@ -127,14 +127,13 @@ def test_one_env_is_alive_at_a_time(tmp_path, monkeypatch, fake_sim):
     )
     monkeypatch.setattr(robotwin, "free_gpu", lambda: events.append("free"))
     runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
-    first, second = (task.name for task in tasks.table().suite("v1")[:2])
+    first, second = (task.name for task in TASKS[:2])
     assert events == [f"load {first}", "free", f"load {second}", "free"]
 
 
 def test_episodes_run_task_by_task_but_keep_their_assignment(tmp_path, fake_sim):
     records = runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
-    suite = tasks.table().suite("v1")[:2]
-    assert [r.task for r in records] == [suite[i % 2].name for i in range(4)]
+    assert [r.task for r in records] == [TASKS[i % 2].name for i in range(4)]
     lines = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
     assert [json.loads(line)["episode"] for line in lines] == [0, 2, 1, 3]
 
@@ -142,7 +141,7 @@ def test_episodes_run_task_by_task_but_keep_their_assignment(tmp_path, fake_sim)
 def test_a_broken_simulator_stops_the_run_and_keeps_what_was_recorded(
     tmp_path, monkeypatch, fake_sim
 ):
-    second = tasks.table().suite("v1")[1].name
+    second = TASKS[1].name
     monkeypatch.setattr(
         robotwin, "load_task", lambda name: FakeTaskEnv(broken_setup=(name == second))
     )
@@ -150,3 +149,44 @@ def test_a_broken_simulator_stops_the_run_and_keeps_what_was_recorded(
         runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
     # The first task's episodes are on disk, so rerunning the same command resumes from there.
     assert [r.episode for r in RunDir(tmp_path / "run").records()] == [0, 2]
+
+
+def test_robotwin_seed_stream_continues_across_a_tasks_episodes_and_a_resume(
+    tmp_path, monkeypatch, fake_sim
+):
+    # RoboTwin's evaluation: one stream per task from 100000 * (1 + seed), each episode taking the
+    # seeds after those the task's earlier episodes tried, an expert failure only skipping a seed.
+    unstable = {100001, 100003, 100004}
+    monkeypatch.setattr(robotwin, "load_task", lambda name: FakeTaskEnv(unstable_seeds=unstable))
+    stream = spec(
+        tmp_path, episodes=6, global_seed=0, max_expert_attempts=3, seed_stream="robotwin"
+    )
+    records = runner.run(stream, ReplayPolicy(), FakeConfig(), log=quiet)
+    first = [r for r in records if r.task == TASKS[0].name]
+    assert [r.scene_seed for r in first] == [100000, 100002, 100005]
+    assert [r.expert_generation_attempts for r in first] == [1, 2, 3]
+    assert RunDir(tmp_path / "run").manifest().seed_stream == "robotwin"
+
+    # Resumed from the first episode alone, the stream picks up where that episode stopped.
+    lines = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
+    (tmp_path / "run" / "episodes.jsonl").write_text(lines[0] + "\n")
+    resumed = runner.run(stream, ReplayPolicy(), FakeConfig(), log=quiet)
+    assert [r.scene_seed for r in resumed] == [r.scene_seed for r in records]
+
+
+def test_robotwin_seed_stream_refuses_a_task_with_a_gap_in_its_episodes(tmp_path, fake_sim):
+    stream = spec(tmp_path, episodes=6, seed_stream="robotwin")
+    runner.run(stream, ReplayPolicy(), FakeConfig(), log=quiet)
+    lines = (tmp_path / "run" / "episodes.jsonl").read_text().splitlines()
+    kept = [line for line in lines if json.loads(line)["episode"] != 0]
+    (tmp_path / "run" / "episodes.jsonl").write_text("\n".join(kept) + "\n")
+    with pytest.raises(RecordError, match="not recorded in order"):
+        runner.run(stream, ReplayPolicy(), FakeConfig(), log=quiet)
+
+
+def test_a_seed_stream_run_cannot_resume_an_independent_one(tmp_path, fake_sim):
+    runner.run(spec(tmp_path), ReplayPolicy(), FakeConfig(), log=quiet)
+    with pytest.raises(RecordError, match="different run"):
+        runner.run(spec(tmp_path, seed_stream="robotwin"), ReplayPolicy(), FakeConfig(), log=quiet)
+    with pytest.raises(ValueError, match="draws seeds"):
+        spec(tmp_path, seed_stream="random")

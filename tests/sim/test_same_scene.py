@@ -6,7 +6,7 @@ from robotwin_icil import robotwin, scene
 
 pytestmark = pytest.mark.sim
 
-# One task per V1 category, so a category-specific source of drift cannot hide.
+# One task each from Pick and Place, Stacking and Press / Push, so category-specific drift cannot hide.
 TASKS = ["place_object_basket", "stack_blocks_two", "click_bell"]
 SEEDS = [0, 1, 2]
 

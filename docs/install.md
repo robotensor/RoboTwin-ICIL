@@ -23,7 +23,7 @@ on either. `ROBOTWIN_GPU_PATH=reference` or `blackwell` overrides the choice.
 
 | Path | GPUs | torch | CUDA toolkit for CuRobo | Host compiler |
 | --- | --- | --- | --- | --- |
-| reference | compute capability below 10.0: Ampere, Ada, Hopper, and the A6000 the V1 numbers come from | 2.4.1+cu121, RoboTwin's pin | 12.1.1 | gcc 12 |
+| reference | compute capability below 10.0: Ampere, Ada, Hopper, and the A6000 the published survey and replay-oracle numbers come from | 2.4.1+cu121, RoboTwin's pin | 12.1.1 | gcc 12 |
 | blackwell | 10.0 and above; an RTX 5090 is 12.0 | 2.8.0+cu128 | 12.8.1 | gcc 13 |
 
 The reference stack cannot run on Blackwell GPUs at all: torch 2.4.1 ships no kernels for them, its
@@ -53,7 +53,7 @@ Deliberately skipped:
 
 ## Reference install
 
-What the script produced on the machine the V1 numbers come from:
+What the script produced on the machine the published survey and replay-oracle numbers come from:
 
 | | |
 | --- | --- |

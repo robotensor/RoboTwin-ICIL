@@ -4,9 +4,14 @@ Python 3.10, package `robotwin_icil` under `src/`. A separate benchmark that use
 simulation, tasks, scene generation, the expert, execution and success checking. Every episode
 generates its own demonstration at evaluation time: pick a task and scene seed, run RoboTwin's
 existing expert until one demonstration succeeds, recreate that exact scene, hand the frozen policy
-that one demonstration, roll out, score with RoboTwin's own `check_success()`. No dataset, no
-training, no train/eval split. The only V1 score is Same Scene 1-Demo Success Rate, reported
-overall, by skill category and by task.
+that one demonstration, roll out, score with RoboTwin's own `check_success()`.
+The duel workflow is unchanged. `standard.py` adds the `robotwin-icil-standard` profile —
+RoboTwin's own evaluation on all 50 tasks (its seed stream, `demo_clean` and `demo_randomized`,
+100 episodes per task) with the expert's demonstration as input — and
+`dataset.py`/`dataset_release.py` provide a separate training-data release and loader. Training
+never happens in the evaluator. The score is Same Scene 1-Demo Success Rate, reported overall, by
+skill category and by task; the standard profile's primary metric is the mean of the 50 tasks'
+success rates, per setting.
 
 ## RoboTwin, as it actually works
 
@@ -68,13 +73,24 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Smoke: `robotwin-icil eval --policy replay --task click_bell --episodes 1 --seed 42 --run-dir runs/smoke`, then `robotwin-icil report runs/smoke`. `eval`, `survey` and `materialize` take `--embodiment aloha-agilex` or `franka-panda`; without it the task config's own robot runs (aloha-agilex in every shipped config). A run directory is tied to its robot. `--arms 1` on `eval`, `survey` and `tasks` keeps only the one-arm tasks, and combines with `--embodiment` (`survey --embodiment franka-panda --arms 1`).
   `survey` renders no camera unless given `--images`, and its JSON records which. Pass `--images` when its rejections must predict `eval`'s on a GPU short of memory: rendering holds memory, and RoboTwin's CuRobo batch planner reports a CUDA out-of-memory error as a failed plan.
 - The competition's shape, one process per half: `robotwin-icil materialize --task click_bell --scene-seed S [--scene-seed S2 ...] --out DIR` tries the candidate seeds in order and writes `prompt.npz` and `demonstration.mp4` for the first the expert solves, and `result.json` with the chosen `scene_seed` and every attempt (exit 0 whenever `result.json` was written, every candidate rejected included; 1 on a harness error before it: a task it does not have, a seed given twice, no simulator); `robotwin-icil run-unit --prompt DIR/prompt.npz --policy replay --out DIR2` rebuilds the scene from the prompt's `meta`, verifies it, rolls out and writes `result.json` and `evaluation.mp4` into a directory other than the prompt's (exit 0 once the unit has a result, void or not; 1 on a harness error before it starts: no simulator, a policy that will not load, a served policy without a usable key). Both results carry `success`, `void`, `steps` and `error`, the fields the orchestrator reads; every candidate rejected is a void materialize, `void_cause` "harness". In `run-unit` a policy at fault (raising from `reset`/`set_demonstration`, a wrong-width or non-finite action) is a failure, never void — void is for the harness: an unreadable or tampered prompt, scene drift, a GPU lost mid-rollout, any other harness fault while evaluating (its traceback goes to stderr). `--policy-arg key=value` reaches the policy's constructor, which runs before the simulator chdirs into `vendor/RoboTwin`. `run-unit --policy-address ADDR --authkey-env NAME` (instead of `--policy`) drives a policy served by `python -m icil_policy.serve` (`remote.py`; icil-policy is not on PyPI: `uv pip install -e <orchestrator>/packages/icil-policy`, and the tests needing it skip without it): an error reply to reset/prompt/act fails the unit, any other remote failure (no listener, hello refused, a timeout, a hang-up, a malformed reply, the unit's calls past `--policy-budget-s`, 300 s) is `PolicyUnreachable`, void with `void_cause` "policy"; every other void carries "harness", including a unit that ran out of `--unit-timeout-s` (calls stop 30 s short of it) with the policy within budget. The policy's log is opened at the path given, never resolved (a swapped link must stay refusable), `close` gets 5 s, an action is checked before it is copied and what a server says is bounded. Both commands take `--expect-source-sha256` (exit 1 before writing under other `robotwin_icil.source_sha256()`) and `--denoiser`.
-- Orchestrator plugin: `competition/` is its own distribution (`robotwin-icil-competition`, package `icil_benchmark_robotwin`, entry point `icil.benchmarks: robotwin`); `uv pip install -e ./competition`, then `cd competition && pytest -m "not sim"`. It never imports `icil_orchestrator`, its pure half imports no simulator, and its argv run `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON` (default `/root/miniforge3/envs/robotwin/bin/python`). A change to how `derive_units` draws changes every duel's units: bump `units.DERIVATION` and the pinned test together. A change to the task table changes `units.catalogue_sha256`, and `derive_units` refuses to draw until `units.CATALOGUE_SHA256` is updated with it. `franka_1arm` is the task table's suite, chosen by the Franka survey (`docs/survey.md`, #83); stack_bowls_two is in it as the arm-switching stand-in for stacking, which has no one-arm task, and `info()["franka_1arm"]` says so.
+- Orchestrator plugin: `competition/` is its own distribution (`robotwin-icil-competition`, package `icil_benchmark_robotwin`, entry point `icil.benchmarks: robotwin`); `uv pip install -e ./competition`, then `cd competition && pytest -m "not sim"`. It never imports `icil_orchestrator`, its pure half imports no simulator, and its argv run `python -m robotwin_icil.cli` under `$ROBOTWIN_ICIL_PYTHON` (default `/root/miniforge3/envs/robotwin/bin/python`). A change to how `derive_units` draws changes every duel's units: bump `units.DERIVATION` and the pinned test together. A change to the task table changes `units.catalogue_sha256`, and `derive_units` refuses to draw until `units.CATALOGUE_SHA256` is updated with it. Suites exist only in the plugin (`catalogue.SUITES`), because the orchestrator's `spec.json` names one: `franka_1arm`, chosen from the Franka survey (`docs/survey.md`, #83); stack_bowls_two is in it as the arm-switching stand-in for stacking, which has no one-arm task, and `info()["franka_1arm"]` says so. The pinned `franka_1arm` unit hashes must not move unless `units.DERIVATION` is bumped.
 - RoboTwin is a pinned submodule at `vendor/RoboTwin`; never commit changes inside it.
 
 ## Rules
 
 - `eval` and `survey` select all cataloged tasks without `--task`; `--task NAME` selects one.
-  There is no standalone `--suite` option. Retain internal named task sets for the competition API.
+  The core benchmark has no named task sets; do not add them to `tasks.yml`.
+  `standard-eval` is separate: all 50 tasks on RoboTwin's evaluation seed stream (`--seed-stream
+  robotwin`: from `100000 * (1 + seed)`, each episode continuing after the seeds its task's earlier
+  episodes tried), aloha-agilex, save_freq=15, `demo_clean` and `demo_randomized` scored
+  separately, no arm/task filters or scene overrides. Keep it matching
+  `vendor/RoboTwin/scripts/eval_policy_xpolicylab.py`. `standard-report` aggregates per setting;
+  only seed group 0 with 100 episodes/task, every episode scored, is an official score.
+  There is no train/validation/test split, in the dataset or the evaluator.
+  Dataset commands remain simulator-free and optional dependencies are loaded lazily. Preserve
+  original HDF5 bytes, standard RGB JPEG decoding, three-view alignment, unknown physical timing,
+  and every trajectory as training data. Task/seed/instruction/calibration metadata
+  is bookkeeping, not policy input. Videos are lossy convenience views, HDF5 is authoritative.
 
 - The protocol is fixed: exactly one demonstration per episode, demonstration and rollout from the
   identical initial scene. No K, no multi-shot, no zero-shot score, no ICL gain, no difficulty tiers.
@@ -103,10 +119,10 @@ Read before touching `robotwin.py`; all of it lives in `vendor/RoboTwin`.
 - Skill categories and arm counts are data: `tasks.yml` maps every upstream task exactly once to a
   `category` and an `arms` value (`1`, `switching`, `2`), and tests fail when
   `vendor/RoboTwin/envs/` and the table disagree — on the task set, or on `arms` against `arms.py`'s
-  static read of `play_once`. Suites are internal competition/Python data, not CLI options, and may hold tasks of any `arms`; V1 is
-  `v1`, and the competition's one-arm Franka track draws from `franka_1arm`.
+  static read of `play_once`. The table holds no task sets; the competition plugin's own track list
+  lives in `competition/`.
 - Evaluation settings are explicitly named (`same_scene`), and the setting is the seam future
-  settings drop into (`different_object_pose`, …). V1 implements only `same_scene`.
+  settings drop into (`different_object_pose`, …). Only `same_scene` is implemented.
 - Scores are fractions `[0, 1]` over valid evaluated episodes; formatting to percent happens once,
   at report time.
 - Every episode records episode id, setting, skill category, task, scene seed, embodiment, expert

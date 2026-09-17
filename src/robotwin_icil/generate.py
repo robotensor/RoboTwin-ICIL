@@ -20,6 +20,14 @@ from .scene import SceneFingerprint
 # RoboTwin feeds the seed to `np.random.seed`, which takes [0, 2**32).
 _SEED_BOUND = 2**31 - 1
 
+# How a run draws scene seeds. `independent`: each episode its own stream from (global seed,
+# episode). `robotwin`: RoboTwin's evaluation stream, one per task, counting up from
+# `100000 * (1 + global seed)`; an episode takes the seeds after those the task's earlier episodes
+# tried, so the scenes scored are the scenes RoboTwin's own evaluation scores.
+INDEPENDENT_SEED_STREAM = "independent"
+ROBOTWIN_SEED_STREAM = "robotwin"
+SEED_STREAMS = (INDEPENDENT_SEED_STREAM, ROBOTWIN_SEED_STREAM)
+
 
 class Rejection(str, enum.Enum):
     UNSTABLE = "unstable"
@@ -62,6 +70,13 @@ def scene_seeds(global_seed: int, episode: int, count: int) -> list[int]:
     """
     rng = np.random.default_rng([global_seed, episode])
     return [int(seed) for seed in rng.integers(0, _SEED_BOUND, size=count)]
+
+
+def robotwin_seeds(global_seed: int, tried: int, count: int) -> list[int]:
+    """The next `count` seeds of RoboTwin's evaluation stream for one task, after `tried` seeds
+    that task's earlier episodes already tried (`scripts/eval_policy_xpolicylab.py`: `st_seed`)."""
+    start = 100000 * (1 + global_seed) + tried
+    return list(range(start, start + count))
 
 
 def attempt(

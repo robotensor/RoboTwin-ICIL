@@ -197,3 +197,9 @@ def test_a_scene_the_clock_cannot_count_stops_generation_rather_than_rejecting(m
     with pytest.raises(robotwin.RoboTwinError, match="cannot count the physics steps"):
         generate.attempt(env, 0, {"save_freq": 5}, 5, 0)
     assert env.closed == 1
+
+
+def test_robotwin_seeds_count_up_from_robotwins_evaluation_start():
+    # scripts/eval_policy_xpolicylab.py: st_seed = 100000 * (1 + seed), then seed += 1.
+    assert generate.robotwin_seeds(0, 0, 3) == [100000, 100001, 100002]
+    assert generate.robotwin_seeds(2, 7, 2) == [300007, 300008]

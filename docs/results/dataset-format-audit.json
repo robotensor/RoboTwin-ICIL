@@ -1,0 +1,1178 @@
+{
+  "audited_at": "2026-09-16",
+  "robotwin_submodule_revision": "96c1feab536306b50c26af200044fcdf126e8904",
+  "original_robotwin": {
+    "repo": "TianxingChen/RoboTwin2.0",
+    "revision": "981c92aa34d8f94d4cff47e0d5bc2f7d4e0af042",
+    "archive": "dataset/click_bell/demo_clean.zip",
+    "archive_bytes": 135723598,
+    "archive_sha256": "fe030a11cdf527599c1bfa6bf467da16ba5b5fa61ebcecf62885b5f80e2eac5b",
+    "episodes": 50,
+    "mp4_files": 50,
+    "seed_entries": 50,
+    "representative_episode": "click_bell/aloha_agilex/data/episode_0000000.hdf5",
+    "format": "v1.0",
+    "attributes": {
+      "source_format": "RoboTwin",
+      "source_path": "native_collection"
+    },
+    "fields": {
+      "action/left_arm_joint_states": {
+        "shape": [
+          80,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "action/left_ee_joint_states": {
+        "shape": [
+          80,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "action/left_ee_poses": {
+        "shape": [
+          80,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "action/right_arm_joint_states": {
+        "shape": [
+          80,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "action/right_ee_joint_states": {
+        "shape": [
+          80,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "action/right_ee_poses": {
+        "shape": [
+          80,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "additional_info/frequency": {
+        "shape": [],
+        "dtype": "int32"
+      },
+      "data_format_version": {
+        "shape": [],
+        "dtype": "object"
+      },
+      "instructions": {
+        "shape": [],
+        "dtype": "object"
+      },
+      "state/left_arm_joint_states": {
+        "shape": [
+          80,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "state/left_ee_joint_states": {
+        "shape": [
+          80,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "state/left_ee_poses": {
+        "shape": [
+          80,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "state/right_arm_joint_states": {
+        "shape": [
+          80,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "state/right_ee_joint_states": {
+        "shape": [
+          80,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "state/right_ee_poses": {
+        "shape": [
+          80,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/colors": {
+        "shape": [
+          80
+        ],
+        "dtype": "|S15803"
+      },
+      "vision/cam_head/extrinsics_matrix": {
+        "shape": [
+          80,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/intrinsic_matrix": {
+        "shape": [
+          80,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_left_wrist/colors": {
+        "shape": [
+          80
+        ],
+        "dtype": "|S14420"
+      },
+      "vision/cam_left_wrist/extrinsics_matrix": {
+        "shape": [
+          80,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_left_wrist/intrinsic_matrix": {
+        "shape": [
+          80,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_left_wrist/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_right_wrist/colors": {
+        "shape": [
+          80
+        ],
+        "dtype": "|S5944"
+      },
+      "vision/cam_right_wrist/extrinsics_matrix": {
+        "shape": [
+          80,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_right_wrist/intrinsic_matrix": {
+        "shape": [
+          80,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_right_wrist/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_third_view/colors": {
+        "shape": [
+          80
+        ],
+        "dtype": "|S12607"
+      },
+      "vision/cam_third_view/extrinsics_matrix": {
+        "shape": [
+          80,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_third_view/intrinsic_matrix": {
+        "shape": [
+          80,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_third_view/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      }
+    },
+    "camera_shapes": {
+      "cam_head": [
+        240,
+        320,
+        3
+      ],
+      "cam_left_wrist": [
+        240,
+        320,
+        3
+      ],
+      "cam_right_wrist": [
+        240,
+        320,
+        3
+      ],
+      "cam_third_view": [
+        240,
+        320,
+        3
+      ]
+    },
+    "camera_sets": [
+      {
+        "cameras": [
+          "cam_head",
+          "cam_left_wrist",
+          "cam_right_wrist",
+          "cam_third_view"
+        ],
+        "episodes": 50
+      }
+    ],
+    "frequency_values": {
+      "15": 50
+    },
+    "transition_count_range": [
+      74,
+      86
+    ],
+    "all_qpos_finite": true,
+    "all_action_shift_matches": true,
+    "all_state_action_camera_rows_aligned": true,
+    "all_preview_has_one_more_frame": true,
+    "preview_video": {
+      "width": 320,
+      "height": 240,
+      "fps": 30.0,
+      "frames": 81,
+      "fourcc": "h264"
+    },
+    "color_comparison": {
+      "standard_rgb_vs_preview_rgb_mae": 1.1434765625,
+      "pinned_decoder_vs_preview_rgb_mae": 3.1301085069444445,
+      "pinned_decoder_is_standard_rgb_channel_reversed": true
+    },
+    "has_frame_timestamps": false,
+    "per_episode": [
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000000.hdf5",
+        "transitions": 80,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 81,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000001.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000002.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000003.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000004.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000005.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000006.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000007.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000008.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000009.hdf5",
+        "transitions": 79,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 80,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000010.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000011.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000012.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000013.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000014.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000015.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000016.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000017.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000018.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000019.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000020.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000021.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000022.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000023.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000024.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000025.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000026.hdf5",
+        "transitions": 74,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 75,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000027.hdf5",
+        "transitions": 80,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 81,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000028.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000029.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000030.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000031.hdf5",
+        "transitions": 74,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 75,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000032.hdf5",
+        "transitions": 80,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 81,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000033.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000034.hdf5",
+        "transitions": 79,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 80,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000035.hdf5",
+        "transitions": 79,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 80,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000036.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000037.hdf5",
+        "transitions": 78,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 79,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000038.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000039.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000040.hdf5",
+        "transitions": 83,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 84,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000041.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000042.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000043.hdf5",
+        "transitions": 76,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 77,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000044.hdf5",
+        "transitions": 80,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 81,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000045.hdf5",
+        "transitions": 86,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 87,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000046.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000047.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000048.hdf5",
+        "transitions": 75,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 76,
+        "preview_fps": 30.0
+      },
+      {
+        "path": "click_bell/aloha_agilex/data/episode_0000049.hdf5",
+        "transitions": 77,
+        "action_shift_matches": true,
+        "aligned_field_rows": true,
+        "preview_frames": 78,
+        "preview_fps": 30.0
+      }
+    ]
+  },
+  "heldout_robotwin": {
+    "repo": "TianxingChen/RoboTwin2.0",
+    "revision": "981c92aa34d8f94d4cff47e0d5bc2f7d4e0af042",
+    "archive": "dataset/place_empty_cup/demo_clean.zip",
+    "archive_bytes": 295915886,
+    "archive_members": 157,
+    "episodes": 50,
+    "mp4_files": 50,
+    "representative_episode": "place_empty_cup/aloha_agilex/data/episode_0000000.hdf5",
+    "format": "v1.0",
+    "fields": {
+      "action/left_arm_joint_states": {
+        "shape": [
+          179,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "action/left_ee_joint_states": {
+        "shape": [
+          179,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "action/left_ee_poses": {
+        "shape": [
+          179,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "action/right_arm_joint_states": {
+        "shape": [
+          179,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "action/right_ee_joint_states": {
+        "shape": [
+          179,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "action/right_ee_poses": {
+        "shape": [
+          179,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "additional_info/frequency": {
+        "shape": [],
+        "dtype": "int32"
+      },
+      "data_format_version": {
+        "shape": [],
+        "dtype": "object"
+      },
+      "instructions": {
+        "shape": [],
+        "dtype": "object"
+      },
+      "state/left_arm_joint_states": {
+        "shape": [
+          179,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "state/left_ee_joint_states": {
+        "shape": [
+          179,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "state/left_ee_poses": {
+        "shape": [
+          179,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "state/right_arm_joint_states": {
+        "shape": [
+          179,
+          6
+        ],
+        "dtype": "float32"
+      },
+      "state/right_ee_joint_states": {
+        "shape": [
+          179,
+          1
+        ],
+        "dtype": "float32"
+      },
+      "state/right_ee_poses": {
+        "shape": [
+          179,
+          7
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/colors": {
+        "shape": [
+          179
+        ],
+        "dtype": "|S15563"
+      },
+      "vision/cam_head/extrinsics_matrix": {
+        "shape": [
+          179,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/intrinsic_matrix": {
+        "shape": [
+          179,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_head/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_left_wrist/colors": {
+        "shape": [
+          179
+        ],
+        "dtype": "|S6210"
+      },
+      "vision/cam_left_wrist/extrinsics_matrix": {
+        "shape": [
+          179,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_left_wrist/intrinsic_matrix": {
+        "shape": [
+          179,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_left_wrist/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_right_wrist/colors": {
+        "shape": [
+          179
+        ],
+        "dtype": "|S18055"
+      },
+      "vision/cam_right_wrist/extrinsics_matrix": {
+        "shape": [
+          179,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_right_wrist/intrinsic_matrix": {
+        "shape": [
+          179,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_right_wrist/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      },
+      "vision/cam_third_view/colors": {
+        "shape": [
+          179
+        ],
+        "dtype": "|S13080"
+      },
+      "vision/cam_third_view/extrinsics_matrix": {
+        "shape": [
+          179,
+          4,
+          4
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_third_view/intrinsic_matrix": {
+        "shape": [
+          179,
+          3,
+          3
+        ],
+        "dtype": "float32"
+      },
+      "vision/cam_third_view/shape": {
+        "shape": [
+          3
+        ],
+        "dtype": "int32"
+      }
+    },
+    "camera_shapes": {
+      "cam_head": [
+        240,
+        320,
+        3
+      ],
+      "cam_left_wrist": [
+        240,
+        320,
+        3
+      ],
+      "cam_right_wrist": [
+        240,
+        320,
+        3
+      ],
+      "cam_third_view": [
+        240,
+        320,
+        3
+      ]
+    },
+    "frequency": 15,
+    "qpos_width": 14,
+    "transitions": 179,
+    "action_shift_matches": true,
+    "downloaded_bytes": 6470233
+  },
+  "inventory": {
+    "clean_archives": 50,
+    "all_clean_archive_bytes": 23375659439,
+    "train_clean_archive_bytes": 19705955447,
+    "test_clean_archive_bytes": 3669703992
+  },
+  "humangen": {
+    "repo": "Robbyant-Research/HumanGen",
+    "revision": "971d12e942bf101c0d47716f928b1c044d02ac71",
+    "task_directory": "robotwin_data/click_bell-demo_clean_collect_200-1000",
+    "sample_episode": 47,
+    "listed_parquet_files": 50,
+    "info_json": {
+      "codebase_version": "v2.1",
+      "robot_type": "aloha",
+      "total_episodes": 1000,
+      "total_frames": 76617,
+      "total_tasks": 631,
+      "total_videos": 3000,
+      "total_chunks": 1,
+      "chunks_size": 1000,
+      "fps": 50,
+      "splits": {
+        "train": "0:1000"
+      },
+      "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+      "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+      "features": {
+        "observation.state": {
+          "dtype": "float32",
+          "shape": [
+            16
+          ],
+          "names": [
+            [
+              "left_x",
+              "left_y",
+              "left_z",
+              "left_q1",
+              "left_q2",
+              "left_q3",
+              "left_q4",
+              "left_gripper",
+              "right_x",
+              "right_y",
+              "right_z",
+              "right_q1",
+              "right_q2",
+              "right_q3",
+              "right_q4",
+              "right_gripper"
+            ]
+          ]
+        },
+        "action": {
+          "dtype": "float32",
+          "shape": [
+            16
+          ],
+          "names": [
+            [
+              "left_x",
+              "left_y",
+              "left_z",
+              "left_q1",
+              "left_q2",
+              "left_q3",
+              "left_q4",
+              "left_gripper",
+              "right_x",
+              "right_y",
+              "right_z",
+              "right_q1",
+              "right_q2",
+              "right_q3",
+              "right_q4",
+              "right_gripper"
+            ]
+          ]
+        },
+        "observation.images.cam_high": {
+          "dtype": "video",
+          "shape": [
+            3,
+            480,
+            640
+          ],
+          "names": [
+            "channels",
+            "height",
+            "width"
+          ],
+          "info": {
+            "video.height": 480,
+            "video.width": 640,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 50,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "observation.images.cam_left_wrist": {
+          "dtype": "video",
+          "shape": [
+            3,
+            480,
+            640
+          ],
+          "names": [
+            "channels",
+            "height",
+            "width"
+          ],
+          "info": {
+            "video.height": 480,
+            "video.width": 640,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 50,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "observation.images.cam_right_wrist": {
+          "dtype": "video",
+          "shape": [
+            3,
+            480,
+            640
+          ],
+          "names": [
+            "channels",
+            "height",
+            "width"
+          ],
+          "info": {
+            "video.height": 480,
+            "video.width": 640,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 50,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "timestamp": {
+          "dtype": "float32",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "frame_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "episode_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "task_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        }
+      }
+    },
+    "parquet_schema": "observation.state: fixed_size_list<element: float>[16]\n  child 0, element: float\naction: fixed_size_list<element: float>[16]\n  child 0, element: float\ntimestamp: float\nframe_index: int64\nepisode_index: int64\nindex: int64\ntask_index: int64\n-- schema metadata --\nhuggingface: '{\"info\": {\"features\": {\"observation.state\": {\"feature\": {\"d' + 432",
+    "rows": 74,
+    "observation_state_width": 16,
+    "action_width": 16,
+    "all_state_equals_action": false,
+    "action_shift_matches": true,
+    "timestamp_delta_range": [
+      0.019999980926513672,
+      0.020000100135803223
+    ],
+    "preview_video": {
+      "width": 640,
+      "height": 480,
+      "fps": 50.0,
+      "frames": 74,
+      "fourcc": "AV01"
+    },
+    "head_sample_decoded_with_ffmpeg": true,
+    "first_state": [
+      -0.2979237139225006,
+      -0.31380388140678406,
+      0.9419986009597778,
+      0.7000007033348083,
+      -7.093281055858824e-06,
+      -3.793835958276759e-06,
+      0.7141421437263489,
+      1.0,
+      0.30643314123153687,
+      -0.31279975175857544,
+      0.940998375415802,
+      0.7035625576972961,
+      -7.077809186739614e-06,
+      -3.7937295473966515e-06,
+      0.7106332778930664,
+      1.0
+    ],
+    "first_action": [
+      -0.2979244291782379,
+      -0.3138038218021393,
+      0.9419963359832764,
+      0.6999983787536621,
+      1.1712450032064226e-05,
+      -1.5267727576429024e-05,
+      0.7141444683074951,
+      1.0,
+      0.3064330518245697,
+      -0.312799870967865,
+      0.9409984350204468,
+      0.7035625576972961,
+      -7.0698933996027336e-06,
+      -3.853333964798367e-06,
+      0.7106333374977112,
+      1.0
+    ]
+  }
+}

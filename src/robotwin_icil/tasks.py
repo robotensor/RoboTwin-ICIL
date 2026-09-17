@@ -40,7 +40,6 @@ class Task:
 class TaskTable:
     tasks: dict[str, Task]
     categories: dict[str, str]
-    suites: dict[str, tuple[str, ...]]
 
     def __getitem__(self, name: str) -> Task:
         try:
@@ -48,34 +47,13 @@ class TaskTable:
         except KeyError:
             raise TaskTableError(f"unknown task {name!r}; it is not in {TABLE_PATH.name}") from None
 
-    def suite(self, name: str) -> tuple[Task, ...]:
-        """The tasks of a named suite, in table order so a run is reproducible from its name."""
-        try:
-            members = self.suites[name]
-        except KeyError:
-            known = ", ".join(sorted(self.suites))
-            raise TaskTableError(f"unknown suite {name!r}; known suites: {known}") from None
-        return tuple(self.tasks[task] for task in members)
-
-    def select(
-        self, *, suite: str | None = None, task: str | None = None, arms: str = TWO
-    ) -> tuple[Task, ...]:
+    def select(self, *, task: str | None = None, arms: str = TWO) -> tuple[Task, ...]:
         """Select all tasks or one task, narrowed to one-arm tasks by ``arms="1"``.
 
-        ``suite`` is retained for internal competition and Python callers; the standalone CLI
-        does not expose it. With neither a task nor a suite, select the full catalog in table order.
-
         ``arms="2"`` — the default, a two-arm robot — changes nothing. A single task that is not
-        one-arm is refused rather than silently run, as is a suite with no one-arm task.
+        one-arm is refused rather than silently run.
         """
-        if suite is not None and task is not None:
-            raise TaskTableError("choose either a suite or a task")
-        if task is not None:
-            selected = (self[task],)
-        elif suite is not None:
-            selected = self.suite(suite)
-        else:
-            selected = tuple(self.tasks.values())
+        selected = (self[task],) if task is not None else tuple(self.tasks.values())
         if arms == TWO:
             return selected
         if arms != ONE:
@@ -84,8 +62,6 @@ class TaskTable:
         if not one_arm:
             if task is not None:
                 what = f"task {task!r} needs {LABELS[selected[0].arms]}"
-            elif suite is not None:
-                what = f"suite {suite!r} has no one-arm task"
             else:
                 what = "the task catalog has no one-arm task"
             raise TaskTableError(f"{what}; --arms 1 runs only tasks whose expert uses one arm")
@@ -118,19 +94,7 @@ def load_table(path: Path = TABLE_PATH) -> TaskTable:
             name=name, category=category, category_label=categories[category], arms=arms
         )
 
-    suites: dict[str, tuple[str, ...]] = {}
-    for suite_name, members in raw["suites"].items():
-        if members == "*":
-            suites[suite_name] = tuple(tasks)
-            continue
-        for member in members:
-            if member not in tasks:
-                raise TaskTableError(f"suite {suite_name!r} names unknown task {member!r}")
-        if len(set(members)) != len(members):
-            raise TaskTableError(f"suite {suite_name!r} lists a task twice")
-        suites[suite_name] = tuple(members)
-
-    return TaskTable(tasks=tasks, categories=categories, suites=suites)
+    return TaskTable(tasks=tasks, categories=categories)
 
 
 @lru_cache(maxsize=1)
@@ -149,7 +113,7 @@ def robotwin_task_names(robotwin_root: Path) -> frozenset[str]:
 def check_against_robotwin(robotwin_root: Path, table_: TaskTable | None = None) -> None:
     """Raise unless the table covers the pinned checkout exactly.
 
-    An upstream rename would otherwise drop a task from every suite silently, which would move the
+    An upstream rename would otherwise drop a task from every run silently, which would move the
     reported score without moving anything visible in this repository.
     """
     table_ = table_ or table()

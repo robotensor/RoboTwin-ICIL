@@ -17,10 +17,11 @@ from robotwin_icil import tasks
 from . import catalogue
 
 #: Candidate scene seeds per unit, tried in order by `materialize` until the expert solves one. A
-#: unit is void for both sides only when all of them are rejected: at the lowest expert success
-#: the v1 survey kept (75%), four candidates all fail 0.4% of the time, at the 2 of 3 the Franka
-#: survey kept 1.2%, and at 50% about 6% (the spec voids a duel past 20%). Every rejected candidate costs one scene and one expert run, and
-#: four of the slowest experts still fit materialize's wall clock.
+#: unit is void for both sides only when all of them are rejected: at 75% expert success (the
+#: lowest the Aloha-AgileX survey measured outside place_object_basket), four candidates all fail
+#: 0.4% of the time, at the 2 of 3 the Franka survey kept 1.2%, and at 50% about 6% (the spec
+#: voids a duel past 20%). Every rejected candidate costs one scene and one expert run, and four of
+#: the slowest experts still fit materialize's wall clock.
 SCENE_SEED_CANDIDATES = 4
 
 #: Scene seeds are drawn from [0, SEED_BOUND): RoboTwin feeds them to `np.random.seed`, and this is
@@ -34,10 +35,10 @@ SEED_BOUND = 2**31 - 1
 DERIVATION = "robotwin-icil-competition/units/2"
 
 #: What `catalogue_sha256` gave when the derivation was pinned. The orchestrator pins this plugin
-#: by its wheel's sha256, but the tasks units are drawn from are robotwin-icil's: another table
+#: by its wheel's sha256, but each task's category and arms are robotwin-icil's: another table
 #: would derive other units under the same pin, so `derive_units` refuses one. A change to the
 #: catalogue that is meant updates this, with `DERIVATION` and the pinned test if units change.
-CATALOGUE_SHA256 = "a3909ca8cb3b8fd9d7bb998f46b46d7b8d869bb99040b54a5dbfa62c8dca3f3a"
+CATALOGUE_SHA256 = "40390e0351e23b9d909a3f180e83d4405b4dd055662e4ce660bf86deb2a22f74"
 
 
 class Sha256Counter:

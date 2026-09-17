@@ -40,6 +40,8 @@ class EpisodeSpec:
     task: Task
     global_seed: int
     max_expert_attempts: int
+    # The seeds to try in order; None draws the episode's independent stream.
+    seeds: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,11 @@ def run_episode(
 
     started = time.monotonic()
     task_env = task_env if task_env is not None else robotwin.load_task(spec.task.name)
-    seeds = scene_seeds(spec.global_seed, spec.episode, spec.max_expert_attempts)
+    seeds = (
+        list(spec.seeds)
+        if spec.seeds is not None
+        else scene_seeds(spec.global_seed, spec.episode, spec.max_expert_attempts)
+    )
     embodiment = str(config.resolve(spec.task.name)["embodiment_name"])
     generated = generate(
         task_env, seeds, lambda: config.resolve(spec.task.name), config.save_freq, spec.episode
