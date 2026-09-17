@@ -113,7 +113,7 @@ def test_a_manifest_written_before_arms_existed_still_loads(tmp_path):
     assert loaded == manifest()
 
 
-@pytest.mark.parametrize("suite", ["v1", None])
+@pytest.mark.parametrize("suite", ["legacy", None])
 def test_legacy_suite_metadata_is_readable_and_does_not_change_run_identity(tmp_path, suite):
     data = {**manifest().to_json(), "suite": suite}
     (tmp_path / "manifest.json").write_text(json.dumps(data))

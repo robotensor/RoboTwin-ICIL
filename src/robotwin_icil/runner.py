@@ -12,13 +12,16 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .arms import LABELS, ONE, TWO
 from .episode import EpisodeSpec, run_episode
+from .generate import INDEPENDENT_SEED_STREAM, ROBOTWIN_SEED_STREAM, SEED_STREAMS, robotwin_seeds
 from .policy import ICILPolicy
 from .records import (
     SAME_SCENE,
     EpisodeRecord,
+    RecordError,
     RunDir,
     RunManifest,
     Status,
@@ -55,12 +58,16 @@ class RunSpec:
     video: bool = False
     # "1" when the run asked for one-arm tasks only; "2", the default, runs whatever was named.
     arms: str = TWO
+    seed_stream: str = INDEPENDENT_SEED_STREAM
+    standard: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         # The CLI selects through TaskTable.select; any other caller is held to the same rule, so
         # no manifest can claim a one-arm run over a task whose expert needs more.
         if self.arms not in (ONE, TWO):
             raise ValueError(f"a run asks for arms {ONE} or {TWO}, not {self.arms!r}")
+        if self.seed_stream not in SEED_STREAMS:
+            raise ValueError(f"a run draws seeds from {' or '.join(SEED_STREAMS)}")
         if self.arms == ONE:
             for task in self.tasks:
                 if task.arms != ONE:
@@ -80,12 +87,20 @@ def assign(tasks: Sequence[Task], episodes: int) -> list[Task]:
 def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
     from . import robotwin
 
+    extra = {}
+    if spec.standard is not None:
+        from . import source_sha256
+        from .standard import validate_run
+
+        validate_run(spec, config)
+        extra = {"standard": spec.standard, "source_sha256": source_sha256()}
     args = config.resolve()
     return RunManifest(
         global_seed=spec.global_seed,
         evaluation_setting=SAME_SCENE,
         tasks=tuple(task.name for task in spec.tasks),
         arms=spec.arms,
+        seed_stream=spec.seed_stream,
         episodes=spec.episodes,
         max_expert_attempts=spec.max_expert_attempts,
         policy=policy.describe(),
@@ -97,6 +112,7 @@ def manifest_for(spec: RunSpec, policy: ICILPolicy, config) -> RunManifest:
             "head_camera": config.head_camera,
             "overrides": dict(config.overrides or {}),
             "embodiment": config.embodiment,
+            **extra,
         },
         robotwin_config={key: args.get(key) for key in _ROBOTWIN_CONFIG_KEYS},
         environment=environment(),
@@ -125,6 +141,7 @@ def run(
     # Episodes run task by task — episode i still runs plan[i] on its own seed stream — and each
     # task's env is released before the next one is built.
     progress = len(done)
+    tried = _seeds_tried(spec, plan, run_dir) if spec.seed_stream == ROBOTWIN_SEED_STREAM else {}
     for task in spec.tasks:
         pending = [
             i for i, assigned in enumerate(plan) if assigned.name == task.name and i not in done
@@ -134,12 +151,18 @@ def run(
         task_env = robotwin.load_task(task.name)
         try:
             for episode in pending:
+                seeds = None
+                if spec.seed_stream == ROBOTWIN_SEED_STREAM:
+                    seeds = tuple(
+                        robotwin_seeds(spec.global_seed, tried[task.name], spec.max_expert_attempts)
+                    )
                 record = run_episode(
                     EpisodeSpec(
                         episode=episode,
                         task=task,
                         global_seed=spec.global_seed,
                         max_expert_attempts=spec.max_expert_attempts,
+                        seeds=seeds,
                     ),
                     policy,
                     config,
@@ -147,6 +170,8 @@ def run(
                     video=EpisodeVideo(run_dir.episode_dir(episode)) if spec.video else None,
                 )
                 run_dir.append(record)
+                if seeds is not None:
+                    tried[task.name] += record.expert_generation_attempts
                 progress += 1
                 log(_line(record, progress, len(plan)))
                 if spec.clear_cache_every and progress % spec.clear_cache_every == 0:
@@ -156,6 +181,26 @@ def run(
             task_env = None
             robotwin.free_gpu()
     return sorted(run_dir.records(), key=lambda record: record.episode)
+
+
+def _seeds_tried(spec: RunSpec, plan: list[Task], run_dir: RunDir) -> dict[str, int]:
+    """How many seeds of RoboTwin's stream each task's recorded episodes tried.
+
+    A task's episodes run in order, each taking the seeds after the last one tried before it, so
+    a resumed run continues the stream exactly — provided no earlier episode of the task is missing.
+    """
+    tried = {task.name: 0 for task in spec.tasks}
+    records = {record.episode: record for record in run_dir.records()}
+    for task in spec.tasks:
+        indices = [i for i, assigned in enumerate(plan) if assigned.name == task.name]
+        recorded = [i for i in indices if i in records]
+        if recorded != indices[: len(recorded)]:
+            raise RecordError(
+                f"{run_dir.path}: {task.name}'s episodes are not recorded in order, so RoboTwin's "
+                "seed stream cannot be continued; choose a new --run-dir"
+            )
+        tried[task.name] = sum(records[i].expert_generation_attempts for i in recorded)
+    return tried
 
 
 def _line(record: EpisodeRecord, done: int, total: int) -> str:

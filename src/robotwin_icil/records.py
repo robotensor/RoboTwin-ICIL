@@ -107,12 +107,16 @@ class RunManifest:
     # "1" when the run asked for one-arm tasks only. Runs recorded before the field existed ran
     # whatever they named, which is what "2" means, so they load unchanged.
     arms: str = TWO
+    # `generate.SEED_STREAMS`; runs recorded before the field existed drew independent streams.
+    seed_stream: str = "independent"
 
     def __post_init__(self) -> None:
         if self.arms not in (ONE, TWO):
             raise RecordError(
                 f"a run asks for arms {ONE} or {TWO}; the manifest says {self.arms!r}"
             )
+        if self.seed_stream not in ("independent", "robotwin"):
+            raise RecordError(f"unknown seed stream {self.seed_stream!r}")
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)

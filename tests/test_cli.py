@@ -16,7 +16,7 @@ def listed(out: str) -> list[str]:
     return [line.split()[0] for line in out.splitlines() if line.startswith("  ")]
 
 
-def test_tasks_lists_categories_and_arms_without_suite_membership(capsys):
+def test_tasks_lists_categories_and_arms(capsys):
     assert cli.main(["tasks"]) == 0
     out = capsys.readouterr().out
     assert "Pick and Place (pick_and_place)" in out
@@ -79,14 +79,6 @@ def test_eval_rejects_bad_arguments_before_touching_the_simulator(tmp_path, caps
     assert "unknown task" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", [EVAL, SURVEY])
-def test_suite_option_is_removed(command, capsys):
-    with pytest.raises(SystemExit) as exc:
-        cli.main([*command, "--suite", "v1"])
-    assert exc.value.code == 2
-    assert "unrecognized arguments: --suite v1" in capsys.readouterr().err
-
-
 @pytest.mark.parametrize("arms", ["1", "2"])
 def test_eval_without_a_task_runs_the_catalog_and_can_resume(
     arms, tmp_path, fake_sim, monkeypatch, capsys
@@ -120,7 +112,6 @@ def test_eval_without_a_task_runs_the_catalog_and_can_resume(
     run = RunDir(tmp_path)
     assert run.manifest().tasks == tuple(expected)
     assert run.manifest().arms == arms
-    assert "suite" not in json.loads(run.manifest_path.read_text())
     assert [record.task for record in run.records()] == expected
     assert cli.main(argv) == 0
     assert loaded == expected  # completed episodes are not run twice

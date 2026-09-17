@@ -1,6 +1,6 @@
-"""Measure RoboTwin's expert before trusting a suite with it.
+"""Measure RoboTwin's expert before trusting a task with it.
 
-A task belongs in a scored suite only if its expert reliably produces a demonstration: every
+A task is worth scoring only if its expert reliably produces a demonstration: every
 rejected seed costs a full expert run, and a task whose expert rarely succeeds dominates a run's
 wall-clock and its rejection statistics. A survey runs the expert alone over a fixed seed stream
 per task and reports how often it succeeds, and why it does not.

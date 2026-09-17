@@ -41,7 +41,8 @@ Pure — no simulator, no assets, no GPU:
   command line; and `franka_1arm`: the survey that chose it, each category's tasks and arms, and
   its `stand_ins`.
 - `catalogue()`: `{"suites": {suite: [task]}, "categories": {id: label}, "tasks": {task:
-  {"category", "arms", "label"}}, "embodiments": {suite: robot}}`, from `robotwin_icil.tasks`.
+  {"category", "arms", "label"}}, "embodiments": {suite: robot}}`: tasks, categories and arms from
+  `robotwin_icil.tasks`, suites from this plugin's `catalogue.SUITES`.
 - `derive_units(seed_material, count, suite, category)`: `count` units from a sha256 counter over
   `seed_material`, tasks spread evenly over the suite (within `category`). Each unit's
   `instance_params` holds `SCENE_SEED_CANDIDATES` candidate `scene_seeds`, its `embodiment`, and
@@ -88,14 +89,15 @@ Commands — the argv of `python -m robotwin_icil.cli` in the simulator's enviro
 
 ## The franka_1arm suite
 
-Suite names are an internal plugin API used by the orchestrator's spec and unit derivation.
-The standalone benchmark CLI has no suite option: `eval` and `survey` default to all tasks, or
-accept `--task NAME` and `--arms 1`. The plugin invokes `materialize --task NAME` and `run-unit`,
-so removing standalone suite selection does not change competition units or their hashes.
+Suites belong to this plugin alone: the orchestrator's spec names one, and `derive_units` draws
+from it. The benchmark itself has no named task sets; the plugin invokes `materialize --task NAME`
+and `run-unit`. Moving the list here from the benchmark's task table left the `franka_1arm` units
+and their pinned hashes unchanged.
 
-`franka_1arm`, the suite the one-arm Franka track draws from, is `robotwin_icil`'s task table's:
+`franka_1arm`, the suite the one-arm Franka track draws from (`catalogue.SUITES`), is
 place_empty_cup (pick_and_place), stack_bowls_two (stacking), click_bell and press_stapler
-(press_push). The Franka survey chose it (robotensor/RoboTwin-ICIL#83, `docs/survey.md`):
+(press_push). The Franka survey chose it (robotensor/RoboTwin-ICIL#83, measurements in
+`docs/survey.md`, "Franka Panda survey"):
 a task is in it when its expert, on two Franka arms, solved at least 2 of 3 surveyed seeds and
 moved one arm in every successful demonstration. Stacking has no one-arm task, so
 stack_bowls_two, an arm-switching task, stands in for it, with a limit: a scene the survey did not

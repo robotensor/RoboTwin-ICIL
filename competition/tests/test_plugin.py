@@ -118,7 +118,7 @@ def test_the_catalogue_has_the_shape_the_orchestrator_reads_and_the_spec_needs()
     assert isinstance(shown["suites"], dict) and all(
         isinstance(v, list) for v in shown["suites"].values()
     )
-    assert SPEC_SUITE in shown["suites"] and "v1" in shown["suites"]
+    assert list(shown["suites"]) == [SPEC_SUITE]
     assert set(SPEC_CATEGORIES) <= set(shown["categories"])
     table = tasks.table()
     assert set(shown["tasks"]) == set(table.tasks)
@@ -132,20 +132,22 @@ def test_the_catalogue_has_the_shape_the_orchestrator_reads_and_the_spec_needs()
     assert json.loads(json.dumps(shown)) == shown
 
 
-def test_the_franka_suite_is_the_task_tables_and_nothing_is_provisional():
-    # franka_1arm is the suite the Franka survey named in robotwin_icil's table: the plugin
-    # derives no suite of its own and serves nothing as provisional.
+def test_the_franka_suite_is_the_surveyed_one_and_nothing_is_provisional():
+    # franka_1arm is the suite the Franka survey named, in task-table order; the plugin serves
+    # nothing as provisional.
     table = tasks.table()
-    assert catalogue.suites(table) == table.suites
+    members = list(catalogue.suites(table)[SPEC_SUITE])
+    assert members == ["place_empty_cup", "stack_bowls_two", "click_bell", "press_stapler"]
+    assert members == [name for name in table.tasks if name in members]
     shown, info = BENCHMARK.catalogue(), BENCHMARK.info()
-    assert shown["suites"][SPEC_SUITE] == list(table.suites[SPEC_SUITE])
+    assert shown["suites"][SPEC_SUITE] == members
     assert "provisional" not in shown and "provisional" not in info
     package = Path(icil_benchmark_robotwin.__file__).parent
     assert not [p.name for p in package.glob("*.py") if "PROVISIONAL" in p.read_text()]
     # info() says where the suite was chosen and what each category of the track holds.
     basis = info["franka_1arm"]
-    assert basis["survey"] == catalogue.SURVEY == "docs/survey.md#franka-one-arm-survey"
-    assert "\n## Franka one-arm survey\n" in (ROOT.parent / "docs" / "survey.md").read_text()
+    assert basis["survey"] == catalogue.SURVEY == "docs/survey.md#franka-panda-survey"
+    assert "\n## Franka Panda survey\n" in (ROOT.parent / "docs" / "survey.md").read_text()
     assert basis["categories"] == {
         "pick_and_place": {"tasks": ["place_empty_cup"], "arms": ["1"]},
         "stacking": {"tasks": ["stack_bowls_two"], "arms": ["switching"]},

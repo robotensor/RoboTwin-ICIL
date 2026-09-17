@@ -6,8 +6,8 @@ dominates a run's wall-clock and its rejection statistics without telling us any
 model. `robotwin-icil survey` runs the expert alone — through the same `attempt` an episode's
 generator uses — over a fixed seed stream per task, and reports how often it succeeds and why not.
 
-The V1 results below are historical measurements that selected the nine-task V1 set. The current CLI surveys
-all cataloged tasks by default, or a single task with `--task NAME`:
+The tables below are historical measurements on a subset of tasks. The CLI surveys all cataloged
+tasks by default, or a single task with `--task NAME`:
 
 ```bash
 robotwin-icil survey --seeds 20 --seed 0 --json runs/survey-all.json
@@ -45,10 +45,10 @@ one arm, and the two combine — every one-arm task, on two Frankas:
 
 ```bash
 robotwin-icil survey --embodiment franka-panda --arms 1 --seeds 20 --seed 0 \
-  --json runs/survey-franka-1arm.json
+  --json runs/survey-franka.json
 ```
 
-The survey that chose the `franka_1arm` suite was smaller: see *Franka one-arm survey* below.
+The Franka survey recorded below was smaller: see *Franka Panda survey*.
 
 **The Franka survey ran without images.** It was gated on the sim test above passing, and the
 test, in its earlier form, compared one rendered run with one run without images exactly, seed by
@@ -62,11 +62,11 @@ held on a comparison that could not decide, and the test was reworked to compare
 rendered runs; that form has not run on the simulator yet. The Franka survey's rejections carry
 the GPU-memory caveat above: it does not predict every seed `eval` would reject on a shared GPU.
 
-## V1 survey
+## Aloha-AgileX survey
 
 20 seeds per task from global seed 0, `demo_clean` config, aloha-agilex, on the reference machine
 in [install.md](install.md) (RTX A6000, CuRobo 0.7.8). Raw results:
-[`results/survey-v1-seed0.json`](results/survey-v1-seed0.json), a plain list of task entries
+[`results/survey-aloha-seed0.json`](results/survey-aloha-seed0.json), a plain list of task entries
 from before the file said whether it rendered. It did: that survey predates capturing without
 images, so its *s / seed* includes rendering every camera at every frame and does not compare
 with a survey run without `--images`.
@@ -89,15 +89,13 @@ holding about 40 GiB, so the *s / seed* column is inflated by contention. Conten
 not change success rates: each seed's scene and expert are deterministic. Running short of GPU
 memory could, and would read as *plan failed* or *error* (see *No camera renders* above).
 
-**The rule.** A task stays in `v1` while its expert solves at least 70% of surveyed seeds.
-place_object_basket, at 45%, needs about 2.2 expert runs (~90 s) per scored episode and has the
-longest pick-and-place horizon (one arm places the object, the other lifts the basket); it is out.
-`v1` is the other nine tasks, across Pick and Place, Stacking and Press / Push. The task stays in
-the table, and remains the harness's smoke-test task.
+**Cost.** place_object_basket, at 45%, needs about 2.2 expert runs (~90 s) per scored episode and
+has the longest pick-and-place horizon (one arm places the object, the other lifts the basket).
+Low expert success raises generation cost and rejection counts, never a model's denominator.
 
 **Reading the table.**
 
-- *one-arm* (in `robotwin-icil survey`'s own table; the V1 survey above predates it): of the
+- *one-arm* (in `robotwin-icil survey`'s own table; the Aloha-AgileX survey above predates it): of the
   successful demonstrations, how many moved exactly one arm. Each qpos row is split at half its
   width into the left arm and the right — 7 + 7 on aloha-agilex, 8 + 8 on two Frankas — and an
   arm moved if any of its joints or its gripper left its first-frame value by more than 0.05 at
@@ -109,8 +107,7 @@ the table, and remains the harness's smoke-test task.
   e.g. `{"left": 0.012, "right": 1.43}`), so a borderline seed can be told from an idle one
   without re-running the expert; and
   as counts: `one_arm_demonstrations`, `two_arm_demonstrations` and `no_arm_demonstrations`,
-  which partition the successes. A task belongs in a one-arm suite only when every one of its
-  successful demonstrations moved exactly one arm.
+  which partition the successes.
 - *missed*: the expert ran to completion and RoboTwin's success check said no.
 - *plan failed*: motion planning reported failure (`plan_success` false).
 - *error*: `play_once()` raised — typically "target_pose cannot be None", no feasible grasp.
@@ -119,18 +116,17 @@ the table, and remains the harness's smoke-test task.
 - Expected expert runs per scored episode are about 1 / success rate; none of these is a model
   failure, and none enters a score's denominator.
 
-## Franka one-arm survey
+## Franka Panda survey
 
-The `franka_1arm` suite, which the competition's one-arm Franka track draws its units from, comes
-from this survey. It ran on 2026-09-14 from the `arms-and-embodiment` branch at bfbc595: RoboTwin's
-expert alone on `--embodiment franka-panda` (two Franka arms 0.8 m apart), without images (see
-*The Franka survey ran without images* above), 3 seeds per task from global seed 0 (scene seeds
-1826701614, 1367864806 and 1097657231), on six tasks, two of `v1`'s in each category the track
-scores. Raw results: [`results/survey-franka-1arm.json`](results/survey-franka-1arm.json).
+This survey ran on 2026-09-14 at bfbc595: RoboTwin's expert alone on `--embodiment franka-panda`
+(two Franka arms 0.8 m apart), without images (see *The Franka survey ran without images* above),
+3 seeds per task from global seed 0 (scene seeds 1826701614, 1367864806 and 1097657231), on six
+tasks, two each from Pick and Place, Stacking and Press / Push. Raw results:
+[`results/survey-franka-seed0.json`](results/survey-franka-seed0.json).
 
 **Reduced scope.** #83 asked for every one-arm task at 20 seeds: 26 × 20 expert runs, 3 to 13 GPU
-hours. The survey was cut to 6 tasks × 3 seeds by decision, to finish the milestone sooner. Every
-rate below is therefore a three-seed estimate, and no task outside these six was measured.
+hours. The survey was cut to 6 tasks × 3 seeds by decision. Every rate below is therefore a
+three-seed estimate, and no task outside these six was measured.
 
 | task | category | arms | successes | one-arm demonstrations | rejections | s / seed |
 | --- | --- | --- | ---: | ---: | --- | ---: |
@@ -145,25 +141,7 @@ rate below is therefore a three-seed estimate, and no task outside these six was
 is how many of the successes moved exactly one arm, measured from the joints (see *Reading the
 table* above). stack_blocks_two's expert moved both arms on seeds 1826701614 and 1367864806. The
 first seed of every task took 31 to 35 s and the other two 1 to 5 s, so *s / seed* is mostly the
-first seed's; it does not compare with the V1 survey's, which rendered every camera.
+first seed's; it does not compare with the Aloha-AgileX survey's, which rendered every camera.
 
-**The rule.** A task is in `franka_1arm` when its expert solved at least 2 of its 3 surveyed seeds
-and every one of its successful demonstrations moved one arm. That is looser than `v1`'s 70%,
-which on three seeds would have demanded all three.
-
-**The decision.** `franka_1arm` is place_empty_cup, stack_bowls_two, click_bell and press_stapler,
-in the order of the task table (`src/robotwin_icil/tasks.yml`):
-
-- place_a2b_left is out: its expert solved 1 of 3.
-- stack_blocks_two is out: its expert solved all three, but moved both arms in two of them.
-- Stacking has no `arms: 1` task, so stack_bowls_two stands in for the stacking skill, with a
-  stated limit. It is an `arms: switching` task: its expert picks an arm per object, and although
-  both of its successful demonstrations moved one arm, another scene can still make it switch
-  arms. Neither `materialize` nor `verify_prompt` checks which arms a demonstration moved, so such
-  a scene would become a unit whose demonstration moves both.
-
-`--arms 1` keeps only `arms: 1` tasks, so it excludes stack_bowls_two. Named suites remain an
-internal competition plugin contract; the standalone CLI has no suite option. To evaluate one
-of the four tasks directly, use `robotwin-icil eval --policy replay --task click_bell
---embodiment franka-panda --episodes 1 --run-dir runs/click-bell`. Without `--task`, evaluation
-selects the full catalog; adding `--arms 1` selects all 26 strictly one-arm tasks.
+How the competition plugin uses these measurements is documented in
+[`competition/README.md`](../competition/README.md).

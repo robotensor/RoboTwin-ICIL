@@ -1,4 +1,4 @@
-"""Aggregate episode records into the V1 result: overall, by skill category, by task.
+"""Aggregate episode records into a Same Scene result: overall, by skill category, by task.
 
 The only model score is the Same Scene 1-Demo Success Rate over valid evaluated episodes. Rejected
 episodes (the expert could not solve the scene) and invalid ones (the reset did not reproduce it)
@@ -104,7 +104,7 @@ def _mean(values: list[int]) -> float | None:
 
 
 def build(records: list[EpisodeRecord], table: TaskTable) -> Report:
-    """Aggregate in table order, so two reports over the same suite line up row for row."""
+    """Aggregate in table order, so two reports over the same tasks line up row for row."""
     by_category: dict[str, Rate] = {}
     by_task: dict[str, dict[str, Rate]] = {}
     for category in table.categories:

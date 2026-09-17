@@ -41,19 +41,15 @@ def test_units_are_drawn_only_from_the_requested_suite_and_category():
         allowed = {name for name in suite if table[name].category == category}
         assert {u["task"] for u in derived} == allowed == set(PINNED_FRANKA_1ARM[category])
         assert all(u["category"] == category and u["suite"] == "franka_1arm" for u in derived)
-    # Without a category, the whole suite and nothing else: franka_1arm is four tasks, v1 nine.
+    # Without a category, the whole suite and nothing else: franka_1arm is four tasks.
     franka = derive(category=None, count=8)
     assert collections.Counter(u["task"] for u in franka) == dict.fromkeys(suite, 2)
-    everything = derive(suite="v1", category=None, count=27)
-    assert collections.Counter(u["task"] for u in everything) == dict.fromkeys(
-        table.suites["v1"], 3
-    )
 
 
 def test_tasks_are_spread_evenly_over_the_suite():
-    derived = derive(suite="v1", category=None, count=20)  # nine tasks
+    derived = derive(category=None, count=10)  # four tasks
     counts = collections.Counter(u["task"] for u in derived)
-    assert len(counts) == 9 and max(counts.values()) - min(counts.values()) <= 1
+    assert len(counts) == 4 and max(counts.values()) - min(counts.values()) <= 1
     press_push = collections.Counter(u["task"] for u in derive(count=7))  # two tasks
     assert sorted(press_push.values()) == [3, 4]
 
@@ -68,9 +64,6 @@ def test_each_unit_carries_its_candidates_and_its_robot():
         # The ABI names scene_seed; which candidate it is, materialize decides.
         assert params["scene_seed"] is None and params["embodiment"] == "franka-panda"
         assert unit["task_label"] == unit["task"].replace("_", " ").capitalize()
-    assert {u["instance_params"]["embodiment"] for u in derive(suite="v1", category=None)} == {
-        "aloha-agilex"
-    }
 
 
 def test_a_smaller_duel_is_the_start_of_a_larger_one():
@@ -86,10 +79,6 @@ def _sha256(derived):
 
 def test_derivation_is_pinned_across_python_versions():
     # CI derives these on Python 3.10 and 3.12; a different digest is a different unit list.
-    derived = BENCHMARK.derive_units(seed_material="pinned", count=9, suite="v1")
-    assert [u["task"] for u in derived[:3]] == PINNED_TASKS
-    assert derived[0]["instance_params"]["scene_seeds"] == PINNED_SEEDS
-    assert _sha256(derived) == PINNED_SHA256
     # The one-arm Franka track's skills, one category of franka_1arm each.
     franka = {
         category: BENCHMARK.derive_units(
@@ -105,9 +94,6 @@ def test_derivation_is_pinned_across_python_versions():
 
 #: What `derive_units(seed_material="pinned", ...)` returned under DERIVATION units/2, on Python
 #: 3.10 and 3.12: a change here changes every duel's units.
-PINNED_TASKS = ["place_container_plate", "stack_blocks_two", "stack_bowls_two"]
-PINNED_SEEDS = [172790807, 1332496579, 252100986, 1975177743]
-PINNED_SHA256 = "4d9f244345c0077c7f33098403b3127108e0572873fb40f337b42b7e92c395b3"
 PINNED_FRANKA_TASKS = {
     "pick_and_place": ["place_empty_cup"] * 4,
     "stacking": ["stack_bowls_two"] * 4,
@@ -122,8 +108,8 @@ def test_the_catalogue_units_are_drawn_from_is_the_one_they_were_pinned_on():
     assert units.catalogue_sha256(tasks.table()) == units.CATALOGUE_SHA256
 
 
-#: `franka_1arm` per category as robotwin_icil's table named it, from the Franka survey
-#: (docs/survey.md), when `CATALOGUE_SHA256` was pinned. Stacking has no one-arm task:
+#: `franka_1arm` per category, from the Franka survey (docs/survey.md), when `CATALOGUE_SHA256`
+#: was pinned. Stacking has no one-arm task:
 #: stack_bowls_two, an arm-switching task, stands in for it.
 PINNED_FRANKA_1ARM = {
     "pick_and_place": ["place_empty_cup"],
@@ -133,8 +119,8 @@ PINNED_FRANKA_1ARM = {
 
 
 def test_the_franka_suite_the_digest_covers_is_the_pinned_one():
-    # The digest covers franka_1arm's members; this names them, so a table that moves a task in
-    # or out of the suite says which one before the digest refuses to derive.
+    # The digest covers franka_1arm's members; this names them, so a table that moves one of them
+    # to another category says which one before the digest refuses to derive.
     table = tasks.table()
     members = catalogue.suites(table)["franka_1arm"]
     by_category = {
@@ -149,13 +135,11 @@ def _changed_tables():
     table = tasks.table()
     moved = dict(table.tasks)
     moved["click_bell"] = dataclasses.replace(moved["click_bell"], category="pick_and_place")
-    reordered = {**table.suites, "v1": tuple(reversed(table.suites["v1"]))}
+    rearmed = dict(table.tasks)
+    rearmed["lift_pot"] = dataclasses.replace(rearmed["lift_pot"], arms="1")
     return {
         "a task moved to another category": dataclasses.replace(table, tasks=moved),
-        "a suite in another order": dataclasses.replace(table, suites=reordered),
-        "a suite with a task less": dataclasses.replace(
-            table, suites={**table.suites, "v1": table.suites["v1"][1:]}
-        ),
+        "a task whose expert uses other arms": dataclasses.replace(table, tasks=rearmed),
     }
 
 
@@ -164,7 +148,7 @@ def test_units_are_not_derived_from_a_catalogue_they_were_not_pinned_on(change):
     table = _changed_tables()[change]
     assert units.catalogue_sha256(table) != units.CATALOGUE_SHA256
     with pytest.raises(ValueError, match="units were pinned on"):
-        units.derive_units(seed_material=MATERIAL, count=1, suite="v1", table=table)
+        units.derive_units(seed_material=MATERIAL, count=1, suite="franka_1arm", table=table)
 
 
 @pytest.mark.parametrize(
@@ -172,7 +156,7 @@ def test_units_are_not_derived_from_a_catalogue_they_were_not_pinned_on(change):
     [
         ({"suite": "nope"}, ValueError, "unknown suite 'nope'"),
         ({"category": "nope"}, ValueError, "unknown category 'nope'"),
-        ({"suite": "v1", "category": "bimanual"}, ValueError, "no task in category 'bimanual'"),
+        ({"category": "bimanual"}, ValueError, "no task in category 'bimanual'"),
         ({"count": -1}, ValueError, "non-negative integer"),
         ({"count": True}, ValueError, "non-negative integer"),
         ({"seed_material": 7}, TypeError, "seed_material must be a string"),

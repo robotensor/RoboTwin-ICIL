@@ -201,7 +201,7 @@ def test_a_record_says_why_seeds_were_rejected():
 
 def test_a_scene_that_fails_to_build_stops_the_run():
     # RoboTwin can leave the env half-built after such a failure; recording it as a rejected
-    # seed is how 320 seeds became "expert_error" in the first V1 run.
+    # seed is how 320 seeds became "expert_error" in an early run.
     env = FakeTaskEnv(setup_raises_on={scene_seeds(0, 0, 5)[0]})
     with pytest.raises(robotwin.RoboTwinError, match="planner failed to construct"):
         run_episode(spec(), ReplayPolicy(), FakeConfig(), task_env=env)

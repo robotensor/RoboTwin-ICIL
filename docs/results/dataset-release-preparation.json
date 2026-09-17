@@ -1,0 +1,81 @@
+{
+  "prepared_at": "2026-09-16",
+  "status": "published_verified",
+  "local_root": "/root/robotensor/datasets/robotwin-icil-aloha-clean",
+  "source_cache": "/root/.cache/robotwin_icil/source-981c92aa",
+  "target_repo": "robotensor/robotwin-icil-aloha-clean",
+  "source_repo": "TianxingChen/RoboTwin2.0",
+  "source_revision": "981c92aa34d8f94d4cff47e0d5bc2f7d4e0af042",
+  "format": "robotwin-icil-hdf5-multiview-v1",
+  "checksums_sha256": "8e226bac05b3361c29d34541f72e450492a6a6c32bcc1117b3eba8e704b50503",
+  "source_archives": 50,
+  "source_archive_bytes": 23375659439,
+  "episodes": 2500,
+  "videos": 7500,
+  "transitions": 548893,
+  "encoded_camera_frames": 1646679,
+  "release_files": 12606,
+  "release_bytes": 36630175581,
+  "hdf5_bytes": 34770322367,
+  "video_bytes": 1807808442,
+  "validation": {
+    "inventoried_checksums_passed": 12606,
+    "video_frame_counts_passed": 7500,
+    "aligned_finite_hdf5_passed": 2500,
+    "independent_source_byte_identity_passed": 2500,
+    "first_middle_last_rgb_samples_passed": 18,
+    "sampled_tasks": [
+      "click_bell",
+      "place_empty_cup"
+    ],
+    "sampled_cameras": [
+      "head_camera",
+      "left_camera",
+      "right_camera"
+    ],
+    "max_sample_rgb_mean_absolute_error": 1.9101041666666667,
+    "sample_channel_reversal_checks_passed": 18,
+    "clean_wheel_training_sample_loaded": true,
+    "upstream_license_packaged": true,
+    "ffmpeg_version": "7.0.2-static",
+    "metadata_rewrite_verified_2026-09-17": true
+  },
+  "software_verification": {
+    "benchmark_source_sha256": "f035e1ce16f3017ff4b4c4b2f25cc5c0ef307ce9e3b050a7fdf42e60b125c70e",
+    "non_simulator_tests_passed": 453,
+    "non_simulator_tests_skipped": 27,
+    "simulator_tests_deselected": 21,
+    "expected_failures": 2,
+    "competition_tests_passed": 112,
+    "ruff_check_passed": true,
+    "ruff_format_check_passed": true
+  },
+  "upload": {
+    "date": "2026-09-17",
+    "method": "the release commit was amended to carry split-free root metadata and the dataset card (splits.json deleted, split fields removed) and main was force-updated; episode files unchanged",
+    "replaced_revision": "d916b5465cbf3acd69b92a89ff56117573b7c3b1",
+    "public": true,
+    "download_command": "robotwin-icil dataset download --revision f0332a22c7e3a7b537f9eb4eba1ba70432aa1785 --out /absolute/path/to/dataset"
+  },
+  "publication_verification": {
+    "revision": "f0332a22c7e3a7b537f9eb4eba1ba70432aa1785",
+    "public": true,
+    "remote_content_verified": 12607,
+    "lfs_sha256_matches": 10000,
+    "git_blob_matches": 2607,
+    "remote_extras": [
+      ".gitattributes"
+    ],
+    "verify_revision_passed": true,
+    "dataset_card_without_splits": true,
+    "dataset_card_pretty_name": "RoboTwin ICIL Aloha Clean"
+  },
+  "simulation_smoke": {
+    "attempted": true,
+    "completed": false,
+    "error": "missing vendor/RoboTwin/assets/embodiments/aloha-agilex/config.yml and prescribed simulator environment",
+    "official_scores_produced": 0
+  },
+  "published_at": "2026-09-17",
+  "published_revision": "f0332a22c7e3a7b537f9eb4eba1ba70432aa1785"
+}

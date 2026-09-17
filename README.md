@@ -6,8 +6,10 @@
 Release: [v0.1.0](https://github.com/robotensor/RoboTwin-ICIL/releases/tag/v0.1.0)
 ([release notes](docs/releases/v0.1.0.md)).
 
-Standard imitation-learning benchmarks collect a dataset, train a policy on it, and evaluate the
-result. This benchmark does none of those things. Every episode generates its own expert
+This repository supports **ICIL duels** through the competition plugin and a **Robotensor
+standard benchmark** through `standard-eval`: RoboTwin 2.0's own evaluation — all 50 tasks, its
+evaluation scenes, Easy and Hard settings — with the expert's demonstration as the policy's input.
+Training happens outside the evaluator. Every evaluated episode generates its own expert
 demonstration *at evaluation time*, hands that single demonstration to a **frozen** policy as
 context, and asks the policy to reproduce the behaviour from the **exact same initial scene** the
 expert started from:
@@ -34,7 +36,7 @@ deliberately narrow:
 > Can a model watch one successful robot demonstration and reproduce that behaviour from the same
 > starting configuration?
 
-By holding the scene fixed between demonstration and rollout, V1 removes scene generalization from
+By holding the scene fixed between demonstration and rollout, the benchmark removes scene generalization from
 the measurement and isolates the model's ability to consume an in-context robot trajectory.
 Generalization becomes a separate, explicitly named setting later — never a "difficulty" knob.
 
@@ -48,7 +50,7 @@ Generalization becomes a separate, explicitly named setting later — never a "d
 | Demonstration source | RoboTwin's own scripted expert (`play_once`), captured on the fly |
 | Robot | `--embodiment aloha-agilex` (one dual-arm URDF, 14-dim qpos) or `franka-panda` (two Franka arms, 16-dim qpos); without the flag, the task config's own robot, aloha-agilex in every shipped config; recorded with every episode |
 | Success | RoboTwin's own per-task `check_success()`, binary |
-| Official score | **Same Scene 1-Demo Success Rate**, reported overall, by skill category and by task |
+| Score | **Same Scene 1-Demo Success Rate**, reported overall, by skill category and by task; the standard profile averages the 50 tasks per setting |
 
 An episode is only scored if the expert actually solved the scene. Planning failures, invalid
 placements, collisions and unstable simulation are *benchmark generation* failures: the episode is
@@ -57,19 +59,15 @@ enter the model's denominator.
 
 $$SR_{\text{same-scene}} = \frac{\text{successful policy rollouts}}{\text{valid evaluated Same Scene episodes}}$$
 
-There is no zero-shot score, no ICL gain, no multi-shot setting and no difficulty tiering in V1.
+There is no zero-shot score, no ICL gain, no multi-shot setting and no difficulty tiering.
 
 ## Status
 
-V1 — the Same Scene 1-Demo protocol — is complete: every V1 issue is closed, and the whole loop
-runs end to end on RoboTwin 2.0.
+The Same Scene 1-Demo protocol runs end to end on RoboTwin 2.0.
 
 The replay oracle plays each demonstration's own actions back from the rebuilt scene. It is the
-harness's ceiling — what a perfect imitator scores here — and on the V1 suite, on aloha-agilex, it
-scores **18/18**:
-
-This historical run used the nine tasks below, with two episodes per task and global seed 42.
-The current CLI selects all tasks by default or one task with `--task`.
+harness's ceiling — what a perfect imitator scores here. A harness check on aloha-agilex, with the
+nine tasks below, two episodes per task and global seed 42, scored **18/18**:
 
 | Skill | Task | Replay oracle | Expert success ([survey](docs/survey.md)) |
 | --- | --- | ---: | ---: |
@@ -87,7 +85,9 @@ Every rebuilt scene matched its demonstration's fingerprint (0 invalid). The exp
 attempts for 18 demonstrations; its 6 failures were recorded as generation rejections and never
 touched a score. The run took 35 minutes on an RTX A6000 shared with a 40 GiB training job.
 
-Next: a real ICIL policy (#12), and scene-generalization settings beyond Same Scene (#13).
+The standard profile (below) has not yet completed a simulator run, and no learned-policy result
+is published. Next: a real
+ICIL policy (#12), and scene-generalization settings beyond Same Scene (#13).
 
 ## Skill categories and arms
 
@@ -99,9 +99,7 @@ Press / Push, Open / Close, Insertion, Bimanual and Articulated. `eval` and `sur
 50 episodes runs each task once, and 500 runs each ten times. Expert success depends on the task,
 scene and robot; catalog membership does not guarantee a successful demonstration.
 
-Named task sets remain internal data for the competition plugin and historical results. The
-historical `v1` set contains nine surveyed tasks; the competition's `franka_1arm` set contains four.
-They are not standalone CLI options. See [`docs/survey.md`](docs/survey.md).
+Measured expert success rates are in [`docs/survey.md`](docs/survey.md).
 
 The same table says how many arms each task's expert needs: `arms: 1` for the 26 whose expert
 drives one arm per episode (chosen once from the scene, or fixed), `switching` for the 6 stacking
@@ -162,7 +160,7 @@ robotwin-icil report runs/all
 robotwin-icil eval --policy <adapter> --arms 1 --episodes 260 --seed 42 --run-dir runs/one-arm
 
 # the robot and the task selection combine: every one-arm task's expert, on two Franka arms
-robotwin-icil survey --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka-1arm.json
+robotwin-icil survey --embodiment franka-panda --arms 1 --seeds 20 --json runs/survey-franka.json
 ```
 
 The `replay` policy ignores its observations and plays the demonstration's actions back verbatim.
@@ -202,6 +200,54 @@ The competition orchestrator runs the benchmark through [`competition/`](competi
 a distribution of its own that it imports without a simulator: the catalogue, the unit list of
 a duel, prompt verification and results, and the argv of `materialize` and `run-unit`.
 
+## ICIL standard benchmark
+
+`robotwin-icil-standard` measures a policy the way RoboTwin 2.0 does, with a demonstration as
+input. For each of the 50 tasks, RoboTwin's evaluation walks scene seeds up from
+`100000 * (1 + seed)`, runs its expert on each, skips seeds the expert cannot solve, rebuilds the
+same scene and rolls the policy out until `check_success()` or the task's step limit — 100 times,
+under `demo_clean` (Easy) and `demo_randomized` (Hard). The standard profile does exactly that on
+aloha-agilex, and hands the expert's successful trajectory to the frozen policy as its one
+demonstration, verifying the rebuilt scene's fingerprint first.
+
+```bash
+# Full evaluation: 50 tasks x 100 episodes, clean and randomized; needs the simulator.
+robotwin-icil standard-eval --policy module:FrozenPolicy --policy-arg checkpoint=/absolute/model \
+  --run-dir runs/standard/model
+robotwin-icil standard-report runs/standard/model
+
+# A reduced-budget smoke run is explicitly provisional, not an official result.
+robotwin-icil standard-eval --policy replay --setting clean --episodes-per-task 1 \
+  --run-dir runs/standard/smoke
+```
+
+The score per setting is the mean of the 50 tasks' success rates, with a breakdown by skill
+category and task. It is official when every one of the 5,000 planned episodes per setting was
+scored at seed group 0. Expert rejections and scene mismatches never count against a model, but
+they leave the score provisional. There is no train, validation or test split: as in RoboTwin, a
+model is scored in simulation, not on stored trajectories. Duel task sets and unit derivation do
+not change.
+
+Training data: [robotensor/robotwin-icil-aloha-clean](https://huggingface.co/datasets/robotensor/robotwin-icil-aloha-clean)
+republishes RoboTwin's 2,500 clean Aloha trajectories (50 per task) with head, left-wrist and
+right-wrist 320x240 videos aligned to each HDF5's rows. All of them are training data; they come
+from RoboTwin's collection seeds, not its evaluation seeds. The commands pin its verified release
+revision.
+
+```bash
+pip install -e ".[dataset]"
+robotwin-icil dataset download --revision f0332a22c7e3a7b537f9eb4eba1ba70432aa1785 --out /absolute/path/to/dataset
+robotwin-icil dataset verify /absolute/path/to/dataset --videos
+robotwin-icil dataset sample /absolute/path/to/dataset --row 10
+
+# Rebuild from RoboTwin's pinned source without a simulator; publishing needs write access.
+robotwin-icil dataset build --out /absolute/dataset --cache-dir /absolute/source-cache --workers 4
+robotwin-icil dataset upload /absolute/dataset
+```
+
+See [the standard benchmark guide](docs/standard-benchmark.md) for the protocol beside
+RoboTwin's, scoring rules, the data format, the training sample API and what to report.
+
 ## Layout
 
 ```
@@ -216,7 +262,11 @@ src/robotwin_icil/
   episode.py                one episode: expert -> demo -> exact reset -> rollout -> success
   unit.py                   the episode in two files: materialize a prompt, run a unit from it
   remote.py                 a policy served at an address, driven through icil-policy's client
-  runner.py                 episode loop, seed drawing, rejection accounting
+  runner.py                 episode loop, seed streams (independent or RoboTwin's), resume
+  standard.py               RoboTwin's evaluation on 50 tasks per setting, plan and scoring
+  dataset.py                HDF5 training loader and causal training sample construction
+  dataset_release.py        resumable source copy, three-camera conversion, verify/upload/download
+  policies/nearest.py       observation-conditioned reference adapter (no training)
   records.py report.py      episode records, aggregation to overall/skill/task
   video.py                  demonstration and evaluation clips per episode
   survey.py                 the expert's own success rate per task, and which arms it moved
@@ -247,11 +297,9 @@ A run is reproducible from its global seed. Each run directory records the bench
 git commits, both configs, the robot (`embodiment`), whether it asked for one-arm tasks only
 (`arms`), and per episode: the task, skill category, scene seed, robot, number of expert
 generation attempts, rollout length and outcome. The manifest's `tasks` records the exact selected
-task list; a default `--arms 1` run records all 26 one-arm tasks and `arms: "1"`. `RunSpec` and new
-manifests have no suite field; legacy suite labels are ignored when reading older results. Use a new
-run directory when moving from an old named selection to the full catalog. With `--video`,
-demonstration and evaluation clips
-are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
+task list; a default `--arms 1` run records all 26 one-arm tasks and `arms: "1"`. Manifests from
+earlier versions that carry a `suite` label still load; the label is ignored. With `--video`,
+demonstration and evaluation clips are saved side by side (`episode_00015/demonstration.mp4`, `evaluation_same_scene.mp4`) — the fastest way to
 confirm by eye that the rollout really did start where the expert started.
 
 ## Citation

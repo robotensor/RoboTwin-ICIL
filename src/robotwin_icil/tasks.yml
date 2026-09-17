@@ -6,9 +6,7 @@
 # once from the scene, or fixed), `switching` when one arm acts at a time but which one is chosen
 # per object, `2` when both arms act. `arms.py` re-derives it from the checkout and a test fails
 # on any disagreement. `--arms 1` runs only `arms: 1` tasks.
-# `suites` is internal competition/Python data; there is no standalone CLI suite option. `v1`
-# is the historical Same Scene set, `franka_1arm` the competition's one-arm Franka track. A suite
-# may hold tasks of any `arms`. The standalone CLI selects all tasks unless --task is given.
+# The CLI selects all tasks unless --task is given.
 
 categories:
   pick_and_place: Pick and Place
@@ -78,30 +76,3 @@ tasks:
   scan_object: {category: articulated, arms: 2}
   shake_bottle: {category: articulated, arms: 1}
   shake_bottle_horizontally: {category: articulated, arms: 1}
-
-suites:
-  # The official V1 Same Scene suite: three categories, a few short-horizon tasks each, kept only
-  # where RoboTwin's expert solved at least 70% of 20 surveyed seeds (docs/survey.md). Change it
-  # only with a new survey: every seed the expert fails costs a full expert run.
-  v1:
-    - place_a2b_left
-    - place_a2b_right
-    - place_empty_cup
-    - place_container_plate
-    - stack_blocks_two
-    - stack_bowls_two
-    - click_bell
-    - click_alarmclock
-    - press_stapler
-  # The competition's one-arm Franka track, in table order: the tasks whose expert, on two Franka
-  # arms, solved at least 2 of 3 surveyed seeds and moved one arm in every demonstration it
-  # produced (docs/survey.md, "Franka one-arm survey"). Stacking has no one-arm task, so
-  # stack_bowls_two, an arm-switching task, stands in for it: a scene the survey did not see can
-  # still make its expert switch arms. `--arms 1` drops it; the competition never passes that.
-  franka_1arm:
-    - place_empty_cup
-    - stack_bowls_two
-    - click_bell
-    - press_stapler
-  # Everything in the table; used for generator surveys, not for reporting a score.
-  all: "*"

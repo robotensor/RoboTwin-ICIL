@@ -1,9 +1,9 @@
 """What the plugin draws units from: tasks, their categories and arms, and the suites.
 
-All of it is `robotwin_icil.tasks`'s: the tasks, their categories, the arms each task's expert uses
-(`Task.arms`, read off its `play_once`) and the suites. One of them is `franka_1arm`, the suite the
-orchestrator's one-arm Franka track draws from, which the Franka survey chose
-(robotensor/RoboTwin-ICIL#83, written up at `SURVEY`).
+The tasks, their categories and the arms each task's expert uses (`Task.arms`, read off its
+`play_once`) are `robotwin_icil.tasks`'s. The suites are the competition's own: `franka_1arm`, the
+suite the orchestrator's one-arm Franka track draws from, chosen from the Franka survey
+(robotensor/RoboTwin-ICIL#83, measurements at `SURVEY`, rule and decision in this package's README).
 """
 
 from __future__ import annotations
@@ -17,20 +17,30 @@ from robotwin_icil.arms import ONE, SWITCHING, TWO
 FRANKA_1ARM = "franka_1arm"
 #: The categories that track scores, as its skills name them.
 FRANKA_1ARM_CATEGORIES = ("pick_and_place", "stacking", "press_push")
-#: Where the survey that chose `franka_1arm` gives its table, its rule and its decision.
-SURVEY = "docs/survey.md#franka-one-arm-survey"
+#: The track's tasks, in task-table order: the tasks whose expert, on two Franka arms, solved at
+#: least 2 of 3 surveyed seeds and moved one arm in every demonstration it produced. Stacking has
+#: no one-arm task, so stack_bowls_two, an arm-switching task, stands in for it.
+SUITES: dict[str, tuple[str, ...]] = {
+    FRANKA_1ARM: ("place_empty_cup", "stack_bowls_two", "click_bell", "press_stapler"),
+}
+#: Where the survey that chose `franka_1arm` gives its measurements.
+SURVEY = "docs/survey.md#franka-panda-survey"
 #: What `info()` calls a `franka_1arm` task whose expert is not a one-arm one.
 STAND_IN_KINDS = {SWITCHING: "an arm-switching", TWO: "a two-arm"}
 
-#: The robot a suite's units run on: the Franka suite on two Franka arms, every other suite on
-#: the benchmark's default robot.
+#: The robot a suite's units run on: the Franka suite on two Franka arms, any other suite on the
+#: benchmark's default robot.
 FRANKA = "franka-panda"
 DEFAULT_EMBODIMENT = "aloha-agilex"
 
 
 def suites(table: tasks.TaskTable) -> dict[str, tuple[str, ...]]:
-    """Every suite units can be drawn from: the task table's, each in its own order."""
-    return dict(table.suites)
+    """Every suite units can be drawn from, each in its own order. A member the task table does
+    not hold is refused, naming it."""
+    for members in SUITES.values():
+        for name in members:
+            table[name]
+    return dict(SUITES)
 
 
 def stand_ins(table: tasks.TaskTable) -> dict[str, str]:
@@ -38,7 +48,7 @@ def stand_ins(table: tasks.TaskTable) -> dict[str, str]:
     stands in for and the limit that comes with it: stack_bowls_two, for stacking, which has no
     one-arm task at the pinned RoboTwin. Read off the table, so a note cannot outlive it."""
     notes = {}
-    for name in table.suites.get(FRANKA_1ARM, ()):
+    for name in suites(table)[FRANKA_1ARM]:
         task = table[name]
         if task.arms == ONE:
             continue
@@ -58,7 +68,7 @@ def stand_ins(table: tasks.TaskTable) -> dict[str, str]:
 def franka_1arm_basis(table: tasks.TaskTable) -> dict[str, Any]:
     """What `franka_1arm` is made of, for `info()`: the survey that chose it, each category of the
     track with its tasks and the arms their experts use, and `stand_ins`."""
-    members = table.suites.get(FRANKA_1ARM, ())
+    members = suites(table)[FRANKA_1ARM]
     categories = {}
     for category in FRANKA_1ARM_CATEGORIES:
         names = [name for name in members if table[name].category == category]

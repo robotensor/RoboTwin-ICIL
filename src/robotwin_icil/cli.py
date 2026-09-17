@@ -13,18 +13,21 @@ import json
 import os
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 from . import report as report_
 from . import source_sha256
 from . import tasks as tasks_
 from .arms import LABELS, ONE, TWO
+from .dataset import DatasetError
 from .demo import DemonstrationError
 from .policy import PolicyError, make_policy
 from .prompt import PromptError
 from .records import RecordError, RunDir, write_json
 from .remote import ACT_TIMEOUT_S, POLICY_BUDGET_S, RESULT_RESERVE_S
 from .robotwin import DENOISER_ENV, DENOISERS, EMBODIMENTS, RoboTwinError
+from .standard import StandardError
 from .unit import UnitError
 
 
@@ -42,6 +45,7 @@ def _eval(args: argparse.Namespace) -> int:
         max_expert_attempts=args.max_expert_attempts,
         video=args.video,
         arms=args.arms,
+        seed_stream=args.seed_stream,
     )
     config = SceneConfig(
         task_config=args.task_config, save_freq=args.save_freq, embodiment=args.embodiment
@@ -65,6 +69,121 @@ def _report(args: argparse.Namespace) -> int:
         print(json.dumps(built.to_json(), indent=2))
     else:
         print(report_.render(built, run_dir.manifest(), table), end="")
+    return 0
+
+
+def _standard_eval(args: argparse.Namespace) -> int:
+    from . import standard
+    from .generate import ROBOTWIN_SEED_STREAM
+    from .robotwin import SceneConfig
+    from .runner import RunSpec, run
+
+    root = Path(args.run_dir).resolve()
+    settings = args.setting if args.setting is not None else list(standard.SETTINGS)
+    seeds = args.seed if args.seed is not None else list(standard.SEEDS)
+    # Refuse a bad plan before a policy loads: loading one can take minutes.
+    standard.plan({}, settings, seeds, args.episodes_per_task)
+    policy = make_policy(args.policy, **_policy_kwargs(args.policy_arg or []))
+    try:
+        p = standard.plan(policy.describe(), settings, seeds, args.episodes_per_task)
+        standard.start(root, p)
+        names = standard.task_names()
+        for setting in settings:
+            for seed in seeds:
+                spec = RunSpec(
+                    run_dir=standard.run_dir(root, setting, seed),
+                    tasks=tuple(tasks_.table()[name] for name in names),
+                    episodes=args.episodes_per_task * len(names),
+                    global_seed=seed,
+                    max_expert_attempts=standard.MAX_EXPERT_ATTEMPTS,
+                    video=args.video,
+                    seed_stream=ROBOTWIN_SEED_STREAM,
+                    standard=p["standard"],
+                )
+                config = SceneConfig(
+                    task_config=standard.SETTINGS[setting],
+                    save_freq=standard.SAVE_FREQ,
+                    embodiment=standard.EMBODIMENT,
+                )
+                run(spec, policy, config)
+                write_json(root / "standard-report.json", standard.score(root))
+    finally:
+        policy.close()
+    print(json.dumps(standard.score(root), indent=2))
+    return 0
+
+
+def _percent(value: float | None) -> str:
+    return f"{100 * value:.1f}%" if value is not None else "unavailable"
+
+
+def _standard_report(args: argparse.Namespace) -> int:
+    from .standard import score
+
+    result = score(Path(args.run_dir).resolve())
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    table = tasks_.table()
+    print(f"Robotensor {result['standard']['profile']}")
+    for setting, row in result["settings"].items():
+        print()
+        print(f"{setting} ({row['task_config']})")
+        print(f"  complete: {row['complete']}; official protocol: {row['official_protocol']}")
+        print(f"  official score: {_percent(row['official_score'])}")
+        print(f"  success rate (mean over 50 tasks): {_percent(row['success_rate'])}")
+        for category, rate in row["by_category"].items():
+            print(f"  {table.categories[category]}: {_percent(rate)}")
+        for task, entry in row["by_task"].items():
+            print(
+                f"    {task}: {entry['successes']}/{entry['scored']} scored; "
+                f"{entry['recorded']}/{entry['planned']} recorded"
+            )
+    return 0
+
+
+def _dataset(args: argparse.Namespace) -> int:
+    from .dataset_release import build_release, download_release, upload_release, verify_release
+
+    if args.dataset_command == "sample":
+        from .dataset import ReleasedDataset
+
+        sample = ReleasedDataset(Path(args.root)).training_sample(args.episode_index, args.row)
+
+        def shapes(value):
+            if isinstance(value, dict):
+                return {k: shapes(v) for k, v in value.items()}
+            if hasattr(value, "shape"):
+                return {"shape": list(value.shape), "dtype": str(value.dtype)}
+            return value
+
+        print(json.dumps(shapes(sample), indent=2))
+        return 0
+    try:
+        from huggingface_hub.errors import HfHubHTTPError
+    except ImportError as exc:
+        raise DatasetError('install dataset support: pip install -e ".[dataset]"') from exc
+    try:
+        if args.dataset_command == "build":
+            result = build_release(Path(args.out), Path(args.cache_dir), args.workers)
+        elif args.dataset_command == "verify":
+            result = verify_release(Path(args.root), videos=args.videos)
+        elif args.dataset_command == "upload":
+            result = upload_release(Path(args.root).resolve(), args.workers)
+        else:
+            result = {"path": download_release(Path(args.out), args.revision, args.workers)}
+    except ImportError as exc:
+        raise DatasetError('install dataset support: pip install -e ".[dataset]"') from exc
+    except (
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+        zipfile.BadZipFile,
+        HfHubHTTPError,
+    ) as exc:
+        raise DatasetError(str(exc)) from exc
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -207,6 +326,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--run-dir", required=True)
     run.add_argument("--max-expert-attempts", type=int, default=20)
     run.add_argument(
+        "--seed-stream",
+        choices=["independent", "robotwin"],
+        default="independent",
+        help="robotwin: RoboTwin's evaluation seeds per task, from 100000*(1+seed)",
+    )
+    run.add_argument(
         "--task-config", default="demo_clean", help="RoboTwin env_cfg/task_config name"
     )
     _add_embodiment(run)
@@ -227,6 +352,72 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="fractions as JSON instead of the text report"
     )
     rep.set_defaults(handler=_report)
+
+    std = commands.add_parser(
+        "standard-eval",
+        help="RoboTwin's evaluation on all 50 tasks, with the expert's demonstration as input",
+    )
+    std.add_argument("--policy", required=True, help="built-in name or module:Class")
+    std.add_argument("--policy-arg", action="append", metavar="KEY=VALUE")
+    std.add_argument("--run-dir", required=True)
+    std.add_argument(
+        "--setting",
+        action="append",
+        choices=["clean", "randomized"],
+        help="repeat for both; default clean (demo_clean) and randomized (demo_randomized)",
+    )
+    std.add_argument(
+        "--episodes-per-task",
+        type=int,
+        default=100,
+        help="per setting and seed group; only 100 with seed 0 is the official budget",
+    )
+    std.add_argument(
+        "--seed",
+        type=int,
+        action="append",
+        help="RoboTwin eval seed group, scene seeds from 100000*(1+seed); repeatable; default 0",
+    )
+    std.add_argument("--video", action="store_true")
+    _add_denoiser(std)
+    _add_expect_source(std)
+    std.set_defaults(handler=_standard_eval)
+
+    sr = commands.add_parser(
+        "standard-report", help="aggregate standard seed groups without simulation"
+    )
+    sr.add_argument("run_dir")
+    sr.add_argument("--json", action="store_true")
+    sr.set_defaults(handler=_standard_report)
+
+    ds = commands.add_parser(
+        "dataset", help="prepare, verify, publish or download the canonical dataset"
+    )
+    dc = ds.add_subparsers(dest="dataset_command", required=True)
+    db = dc.add_parser(
+        "build", help="copy all 50 pinned clean task archives and encode three cameras"
+    )
+    db.add_argument("--out", required=True)
+    db.add_argument("--cache-dir", required=True)
+    db.add_argument("--workers", type=int, default=4)
+    dv = dc.add_parser("verify", help="verify files, checksums and HDF5 alignment")
+    dv.add_argument("root")
+    dv.add_argument("--videos", action="store_true", help="also count every encoded video frame")
+    du = dc.add_parser("upload", help="verify and resumably publish to Robotensor Hugging Face")
+    du.add_argument("root")
+    du.add_argument("--workers", type=int, default=4)
+    dd = dc.add_parser("download", help="download a commit-pinned Robotensor release")
+    dd.add_argument("--out", required=True)
+    dd.add_argument("--revision", required=True)
+    dd.add_argument("--workers", type=int, default=4)
+    sample = dc.add_parser(
+        "sample", help="load a causal training sample and print its tensor shapes"
+    )
+    sample.add_argument("root")
+    sample.add_argument("--episode-index", type=int, default=0)
+    sample.add_argument("--row", type=int, default=0)
+    for child in (db, dv, du, dd, sample):
+        child.set_defaults(handler=_dataset)
 
     sur = commands.add_parser(
         "survey", help="run RoboTwin's expert alone and report how often it succeeds per task"
@@ -441,6 +632,8 @@ def main(argv: list[str] | None = None) -> int:
         DemonstrationError,
         tasks_.TaskTableError,
         UnitError,
+        DatasetError,
+        StandardError,
     ) as exc:
         print(f"robotwin-icil: {exc}", file=sys.stderr)
         return 1

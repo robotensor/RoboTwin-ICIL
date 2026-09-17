@@ -39,5 +39,5 @@ def test_a_changed_renamed_or_added_file_changes_the_digest(tmp_path):
     assert robotwin_icil.source_digest(copy) not in (before, edited)
 
     (copy / "unit2.py").rename(unit)
-    (copy / "tasks_extra.yml").write_text("suites: {}\n")
+    (copy / "tasks_extra.yml").write_text("extra: {}\n")
     assert robotwin_icil.source_digest(copy) not in (before, edited)

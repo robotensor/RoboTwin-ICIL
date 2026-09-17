@@ -157,7 +157,7 @@ def test_survey_stops_with_one_line_when_a_qpos_does_not_split_into_arms(
     # An embodiment whose two arms differ in width cannot be measured; the survey says so and
     # stops, rather than dying with a traceback at its first success. A frame takes the robot's
     # own width, so a real 15-wide qpos reaches arms_moved, which refuses to guess the split.
-    first = tasks.table().suite("v1")[0].name
+    first = "place_a2b_left"
 
     monkeypatch.setattr(robotwin, "unstable_error", lambda: FakeUnstable)
     monkeypatch.setattr(robotwin, "SceneConfig", FakeConfig)
