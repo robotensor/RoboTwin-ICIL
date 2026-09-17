@@ -7,8 +7,6 @@ A one-demonstration in-context imitation learning benchmark built on
 [Release notes](docs/releases/v0.1.0.md) ·
 [Training dataset](https://huggingface.co/datasets/robotensor/robotwin-icil-aloha-clean)
 
-https://github.com/user-attachments/assets/cb239294-4a33-4289-b0ff-b8e23f202c56
-
 ## Benchmark
 
 1. Generate a scene and record one successful demonstration from RoboTwin's scripted expert.
